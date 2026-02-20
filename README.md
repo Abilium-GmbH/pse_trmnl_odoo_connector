@@ -38,13 +38,16 @@ Quellen
 - Quality Evangelist: Testkonzept erstellen, Tests koordinieren und Abnahme begleiten.
 - Master Tracker: Wöchentliche Statusberichte, Zeitschätzungen, Aktualisierung Arbeitsplan.
 
-## Repository Struktur (Vorschlag)
+## Repository Struktur (Draft)
 - /docs
   - /design
   - /user_manual
   - /test
-  - /meeting_notes
+  - /team_meetings
   - /deliverables
+    - /risk_analysis
+    - /status_report
+  -/gameplan
 - /odoo_module
   - __manifest__.py, models/, views/, controllers/, static/
 - /integration

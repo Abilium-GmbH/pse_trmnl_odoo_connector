@@ -1,17 +1,23 @@
-Iteration 1 - Planning Game Ergebnis
-Start: 02/25/2026
+## Analyse Iteration 1
 
-Stories (vom Kunden formuliert):
-- S1: Device registration — Registrieren eines TRMNL Geräts in Odoo (Metadaten, Standort, TRMNL-ID). Aufwand: 2 PT. Akzeptanzkriterien: Gerät in Odoo sichtbar, TRMNL-ID speicherbar.
-- S2: TRMNL client mock — Einfacher Mock-Client zum Senden von Content an Display (lokal). Aufwand: 1.5 PT. Akzeptanzkriterien: Mock antwortet mit status ok.
-- S3: Calendar display (mock) — Kalenderinhalt aus Odoo als Mock-Content auf Display darstellen. Aufwand: 2 PT. Akzeptanzkriterien: Kalender-Event-Liste wird an Mock gesendet.
-- S4: Repo & CI basics — CI / Tests initialisieren, Deliverables-Templates füllen. Aufwand: 1 PT.
 
-Prioritäten:
-1) S1
-2) S3
-3) S2
-4) S4
+Ziel
+Analyse der eigenen Arbeit in Iteration 1. Beantwortet folgende Fragen und dokumentiert Erkenntnisse und Verbesserungsmassnahmen.
 
-Risiken:
-- API Specs vom Kunden fehlen — Eintritt: gross — Gewichtung: Verzögerung Integration — Gegenmassnahme: Mock-API erstellen & Specs dringend anfragen.
+Fragen / Inhalt
+
+Waren die Stories nach dem Planning Game klar formuliert?
+Waren die Story‑Umfänge zu groß/zu klein?
+Waren Aufwandschätzungen realistisch?
+Wurde Aufwand für Einarbeitung in neue Technologien realistisch eingeschätzt?
+Gab es Engpässe oder Wartezeiten (Abhängigkeiten)?
+War die Kommunikation im Team ausreichend?
+War die Arbeitsbelastung gleich verteilt?
+Zeitaufwand pro Mitglied (Implementation, Tests, Einarbeitung, Admin)
+Ergebnisse (Kurz)
+
+Erreichte Ziele:
+Nicht erreichte Ziele + Gründe:
+Messbare Daten (Stunden pro Person / Task):
+Learnings:
+Maßnahmen für nächste Iteration (konkret, wer / was / bis wann):

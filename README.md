@@ -128,13 +128,13 @@ Risikoanalyse
 - Code Reviews regelmäßig, mindestens 1 Reviewer vor Merge
 
 ## To‑Do (erste Woche) — Checkliste
-- [ ] Handbuch & Projektbeschreibung lesen
+- [x] Handbuch & Projektbeschreibung lesen
 - [x] Teamrollen festlegen und im Repo eintragen
-- [ ] Repository anlegen / Zugriff sicherstellen
-- [ ] Wöchentlichen Meetingtermin festlegen
-- [ ] Kunde kontaktieren (Key Account Manager) → Planning Game Termin vereinbaren
-- [ ] Lokale Odoo‑Instanz & DB einrichten
-- [ ] TRMNL‑Docs sichten, API‑Zugang klären
+- [x] Repository anlegen / Zugriff sicherstellen
+- [x] Wöchentlichen Meetingtermin festlegen
+- [x] Kunde kontaktieren (Key Account Manager) → Planning Game Termin vereinbaren
+- ~~[ ] Lokale Odoo‑Instanz & DB einrichten~~
+- ~~[ ] TRMNL‑Docs sichten, API‑Zugang klären~~
 
 ## Issues & Ticketing
 - Nutzt GitHub Issues

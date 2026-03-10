@@ -1,4 +1,4 @@
-# Risikoanalysis Week 1
+# Risikoanalysis Week 2
 
 1.)	Build und Verbindung mit TRMNL können nicht bei allen Teammitglieder zuverlässig eingerichtet werden. 
 •	Eintrittswahrscheinlichkeit: mittel

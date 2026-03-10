@@ -1,3 +1,6 @@
+# Secrets
+.env
+
 # Miscellaneous
 *.class
 *.lock
@@ -6,8 +9,6 @@
 *.swp
 .buildlog/
 .history
-
-
 
 # Flutter repo-specific
 /bin/cache/
@@ -28,7 +29,7 @@
 version
 analysis_benchmark.json
 
-# packages file containing multi-root paths
+# Packages file containing multi-root paths
 .packages.generated
 
 # Flutter/Dart/Pub related

@@ -1,4 +1,5 @@
 import io
+from itertools import product
 import requests
 
 from PIL import Image, ImageDraw
@@ -26,16 +27,21 @@ class TrmnlDevice(models.Model):
         draw = ImageDraw.Draw(image)
 
         # Einfacher Text mittig-ish
+        # Produkt aus Odoo laden
+        product = self.env['product.product'].search([], limit=1)
+
+        product_name = product.name if product else "No product found"
+        product_price = product.list_price if product else "-"
+
         # Titel
-        draw.text((60, 60), self.name or "TRMNL Display", fill=0)
+        draw.text((60, 60), "Featured Product", fill=0)
 
         # Trennlinie
         draw.line((60, 120, 740, 120), fill=0, width=2)
 
-        # Inhalt
-        draw.text((60, 170), f"Device ID: {self.device_id or '-'}", fill=0)
-        draw.text((60, 230), f"Last Sync: {self.last_sync or '-'}", fill=0)
-        draw.text((60, 290), f"Status: {'Active' if self.active else 'Inactive'}", fill=0)
+        # Produktdaten
+        draw.text((60, 180), product_name, fill=0)
+        draw.text((60, 260), f"Price: {product_price}", fill=0)
 
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")

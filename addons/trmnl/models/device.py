@@ -26,8 +26,9 @@ class TrmnlDevice(models.Model):
         draw = ImageDraw.Draw(image)
 
         # Einfacher Text mittig-ish
-        draw.text((120, 180), self.name or "TRMNL Display", fill=0)
-        draw.text((120, 230), "Data from Odoo", fill=0)
+        draw.text((80, 140), self.name or "TRMNL Display", fill=0)
+        draw.text((80, 210), f"Device ID: {self.device_id or '-'}", fill=0)
+        draw.text((80, 280), f"Last Sync: {self.last_sync or '-'}", fill=0)
 
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")

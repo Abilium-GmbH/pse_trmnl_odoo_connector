@@ -44,4 +44,7 @@ class TrmnlDevice(models.Model):
         response.raise_for_status()
         self.last_sync = fields.Datetime.now()
 
-        return True
+        return {
+            "type": "ir.actions.client",
+            "tag": "reload",
+        }

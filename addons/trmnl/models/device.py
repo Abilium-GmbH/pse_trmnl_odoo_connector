@@ -26,9 +26,16 @@ class TrmnlDevice(models.Model):
         draw = ImageDraw.Draw(image)
 
         # Einfacher Text mittig-ish
-        draw.text((80, 140), self.name or "TRMNL Display", fill=0)
-        draw.text((80, 210), f"Device ID: {self.device_id or '-'}", fill=0)
-        draw.text((80, 280), f"Last Sync: {self.last_sync or '-'}", fill=0)
+        # Titel
+        draw.text((60, 60), self.name or "TRMNL Display", fill=0)
+
+        # Trennlinie
+        draw.line((60, 120, 740, 120), fill=0, width=2)
+
+        # Inhalt
+        draw.text((60, 170), f"Device ID: {self.device_id or '-'}", fill=0)
+        draw.text((60, 230), f"Last Sync: {self.last_sync or '-'}", fill=0)
+        draw.text((60, 290), f"Status: {'Active' if self.active else 'Inactive'}", fill=0)
 
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")

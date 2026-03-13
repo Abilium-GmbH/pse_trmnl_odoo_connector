@@ -15,6 +15,19 @@ class TrmnlDevice(models.Model):
     last_sync = fields.Datetime(string="Last Sync")
     active = fields.Boolean(string="Active", default=True)
     webhook_url = fields.Char(string="Webhook URL")
+    
+    content_type = fields.Selection(
+        [
+            ("device_info", "Device Info"),
+            ("product", "Product"),
+            ("custom_message", "Custom Message"),
+        ],
+        string="Content Type",
+        default="device_info",
+        required=True,
+    )
+
+    custom_message = fields.Text(string="Custom Message")
 
     def send_to_trmnl(self):
         self.ensure_one()
@@ -28,20 +41,31 @@ class TrmnlDevice(models.Model):
 
         # Einfacher Text mittig-ish
         # Produkt aus Odoo laden
-        product = self.env['product.product'].search([], limit=1)
+       # Inhalt abhängig vom Content Type
+        if self.content_type == "device_info":
+            draw.text((60, 60), self.name or "TRMNL Display", fill=0)
+            draw.line((60, 120, 740, 120), fill=0, width=2)
+            draw.text((60, 170), f"Device ID: {self.device_id or '-'}", fill=0)
+            draw.text((60, 230), f"Last Sync: {self.last_sync or '-'}", fill=0)
+            draw.text((60, 290), f"Status: {'Active' if self.active else 'Inactive'}", fill=0)
 
-        product_name = product.name if product else "No product found"
-        product_price = product.list_price if product else "-"
+        elif self.content_type == "custom_message":
+            draw.text((60, 60), self.name or "Custom Message", fill=0)
+            draw.line((60, 120, 740, 120), fill=0, width=2)
+            draw.text((60, 200), self.custom_message or "No message configured", fill=0)
 
-        # Titel
-        draw.text((60, 60), "Featured Product", fill=0)
+        elif self.content_type == "product":
+            product = self.env['product.product'].search([], limit=1)
+            product_name = product.name if product else "No product found"
+            product_price = product.list_price if product else "-"
 
-        # Trennlinie
-        draw.line((60, 120, 740, 120), fill=0, width=2)
+            draw.text((60, 60), "Featured Product", fill=0)
+            draw.line((60, 120, 740, 120), fill=0, width=2)
+            draw.text((60, 180), product_name, fill=0)
+            draw.text((60, 260), f"Price: {product_price}", fill=0)
 
-        # Produktdaten
-        draw.text((60, 180), product_name, fill=0)
-        draw.text((60, 260), f"Price: {product_price}", fill=0)
+        else:
+            draw.text((60, 60), "Unknown Content Type", fill=0)
 
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")

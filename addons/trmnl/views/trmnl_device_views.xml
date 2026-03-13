@@ -34,6 +34,8 @@
                         <field name="webhook_url"/>
                         <field name="active"/>
                         <field name="last_sync" readonly="1"/>
+                        <field name="content_type"/>
+                         <field name="custom_message"/>
                     </group>
                 </sheet>
             </form>

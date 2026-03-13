@@ -54,6 +54,108 @@ http://localhost:8069/odoo/apps?debug=1
 Beim Login fragt Odoo nach E-Mail und Passwort. Beide sind standartmässig auf `admin` gesetzt.  
 
 ---
+## TRMNL Display mit Odoo verbinden
+Nach dem erfolgreichen Setup kann ein **TRMNL Display** mit Odoo verbunden und über das Odoo-Backend mit Inhalten gesteuert werden.
+### Voraussetzung
+- Odoo läuft lokal über Docker
+
+- Das Modul TRMNL ist installiert
+
+- Ein TRMNL Gerät ist eingerichtet
+
+- Im TRMNL Dashboard wurde das Plugin Webhook Image (Experimental) erstellt
+
+### 1. TRMNL Webhook URL erstellen
+- 1. Im TRMNL Dashboard anmelden
+- 2. Plugin Webhook Image (Experimental) öffnen
+- 3. Neue Plugin-Instanz erstellen
+- 4. Einen Namen vergeben, z. B Odoo Display
+- 5. Plugin speichern
+Beispiel:
+```
+https://trmnl.com/api/plugin_settings/<id>/image
+```
+Diese URL wird später in Odoo eingetragen.
+
+---
+### 2. TRMNL Modul in Odoo installieren
+- 1. Odoo öffnen
+
+- 2. Zu Apps wechseln
+
+- 3. Nach TRMNL suchen
+
+- 4. Modul installieren
+
+Danach erscheint im Menü ein neuer Bereich:
+```
+TRMNL → Devices
+```
+
+### 3. TRMNL Device in Odoo anlegen
+- 1. In Odoo öffnen:
+
+```
+TRMNL → Devices
+```
+
+- 2. Neues Device erstellen
+
+Folgende Felder ausfüllen:
+
+```
+Display Name
+Device ID
+Webhook URL
+Content Type
+```
+Beispiel:
+
+```
+Display Name: Office Display
+Device ID: 123
+Webhook URL: https://trmnl.com/api/plugin_settings/.../image
+Content Type: Custom Message
+ ```
+### 4. Custom Message konfigurieren
+Um eine eigene Nachricht anzuzeigen:
+
+- 1. Content Type auswählen:
+
+```
+Custom Message
+```
+
+- 2. Feld Custom Message ausfüllen, z. B.
+
+```
+Willkommen bei Abilium
+```
+
+- 3. Änderungen speichern
+
+### 5. Inhalt an TRMNL senden
+- 1. Im Device-Formular auf
+
+```
+Send to TRMNL
+```
+
+klicken.
+
+- 2. Anschließend den Button auf der Rückseite des TRMNL Displays drücken, damit das Gerät den neuen Inhalt lädt.
+
+### 6. Erwartetes Ergebnis
+Das TRMNL Display zeigt nun die Nachricht aus Odoo.
+
+Beispiel:
+
+```
+Office Display
+--------------
+Willkommen bei Abilium
+```
+
 ### Weitere Hinweise
 #### Folgenutzung
 Die Dienste können beendet werden mit:
@@ -76,6 +178,8 @@ Um eigene Secrets oder Konfigurationswerte zu verwenden:
 2. Die gewünschten Werte in der `.env`-Datei anpassen
 #### Distro-spezifische Sonderheiten
 An dieser Stelle sei darauf hingewiesen, dass einzelne Linux-Distros aufgrund ihrer Eigenheiten ein anderes Vorgehen oder die Nutzung anderer Werkzeuge empfehlen können. Insbesondere können Sicherheitsmodule zu Komplikationen führen. So rät beispielsweise Fedora zur Nutzung von Podman anstatt Docker direkt zu verwenden. Es empfiehlt sich, die Dokumentation der jeweiligen Distribution zu konsultieren.
+
+
 
 ## Development Team
 - Timur Umut Turgul — Key Account Manager (Kundenkontakt)

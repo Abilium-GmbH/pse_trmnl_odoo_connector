@@ -1,8 +1,8 @@
-import io
-from itertools import product
 import requests
+import io
 
 from PIL import Image, ImageDraw
+
 from odoo import models, fields
 
 
@@ -18,9 +18,8 @@ class TrmnlDevice(models.Model):
     
     content_type = fields.Selection(
         [
-            ("device_info", "Device Info"),
-            ("product", "Product"),
             ("custom_message", "Custom Message"),
+            ("device_info", "Device Info"),
         ],
         string="Content Type",
         default="device_info",
@@ -41,7 +40,7 @@ class TrmnlDevice(models.Model):
 
         # Einfacher Text mittig-ish
         # Produkt aus Odoo laden
-       # Inhalt abhängig vom Content Type
+        # Inhalt abhängig vom Content Type
         if self.content_type == "device_info":
             draw.text((60, 60), self.name or "TRMNL Display", fill=0)
             draw.line((60, 120, 740, 120), fill=0, width=2)
@@ -53,16 +52,6 @@ class TrmnlDevice(models.Model):
             draw.text((60, 60), self.name or "Custom Message", fill=0)
             draw.line((60, 120, 740, 120), fill=0, width=2)
             draw.text((60, 200), self.custom_message or "No message configured", fill=0)
-
-        elif self.content_type == "product":
-            product = self.env['product.product'].search([], limit=1)
-            product_name = product.name if product else "No product found"
-            product_price = product.list_price if product else "-"
-
-            draw.text((60, 60), "Featured Product", fill=0)
-            draw.line((60, 120, 740, 120), fill=0, width=2)
-            draw.text((60, 180), product_name, fill=0)
-            draw.text((60, 260), f"Price: {product_price}", fill=0)
 
         else:
             draw.text((60, 60), "Unknown Content Type", fill=0)

@@ -23,11 +23,11 @@ Vorausgesetzt sind Docker und Docker Compose. Hilfe bei der Installation findet 
 ### 1. Repository klonen
 HTTP:
 ```
-git clone https://github.com/KamiyeL/PSE.git
+git clone https://github.com/Abilium-GmbH/pse_trmnl_odoo_connector.git
 ```
 oder SSH:
 ```
-git clone git@github.com:KamiyeL/PSE.git
+git clone git@github.com:Abilium-GmbH/pse_trmnl_odoo_connector.git
 ```
 Hinweis: Die folgenden Docker-Compose-Befehle müssen im Root-Verzeichnis des geklonten Repositorys ausgeführt werden, in dem sich die Datei compose.yaml befindet.
 ### 2. PostgreSQL starten

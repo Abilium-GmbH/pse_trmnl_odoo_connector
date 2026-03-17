@@ -4,16 +4,19 @@
 Ziel: Entwicklung eines Odoo‑Moduls zur Verwaltung von TRMNL e‑Ink Displays und einer Anbindung an TRMNL, sodass verschiedene Daten aus Odoo (z.B. Kalender, Produktinformationen, Preisschilder, Raumbelegung) dynamisch auf den Displays dargestellt werden können.
 
 ## Repository-Struktur
-- /addons
-  - /trmnl
-- /docs
-  - /client_meetings
-  - /deliverables
-    - /risk_analysis
-    - /status_report
-  - /presentations
-  - /team_meetings
-- README.md
+```
+.
+├── addons/
+│   └── trmnl/
+│       ├── controllers/
+│       ├── models/
+│       ├── security/
+│       └── views/
+├── compose.yaml
+├── LICENSE
+└── README.md
+```
+
 
 ## Erste Schritte (Setup PostgreSQL & Odoo)
 ### Vorbedingungen

@@ -12,6 +12,7 @@ Ziel: Entwicklung eines Odoo‑Moduls zur Verwaltung von TRMNL e‑Ink Displays 
 │       ├── models/
 │       ├── security/
 │       └── views/
+├── data/
 ├── compose.yaml
 ├── LICENSE
 └── README.md

@@ -3,7 +3,6 @@ import requests
 
 from odoo import models, fields
 from .providers.calendar_provider import CalendarProvider
-from .trmnl_render_log import TrmnlRenderLog
 
 _logger = logging.getLogger(__name__)
 

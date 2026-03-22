@@ -6,6 +6,7 @@
     "license": "MIT",
     "version": "1.0.0",
     "depends": ["base", "calendar"],
+    "external_dependencies": {"python": ["PIL", "requests"]},
     "data": [
         "security/ir.model.access.csv",
         "views/trmnl_device_views.xml",
@@ -13,5 +14,4 @@
         "views/menus.xml",
         "data/ir_cron.xml",
     ],
-    "application": True,
 }

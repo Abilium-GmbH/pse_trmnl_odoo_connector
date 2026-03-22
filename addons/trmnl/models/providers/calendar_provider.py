@@ -28,8 +28,6 @@ class CalendarProvider:
         return result
 
     def render(self, data, profile):
-        from PIL import Image, ImageDraw, ImageFont
-        import io
 
         width, height = 800, 480
 

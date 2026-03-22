@@ -1,2 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_trmnl_device_user,trmnl.device user,model_trmnl_device,base.group_user,1,1,1,1
+access_trmnl_device,trmnl_device,model_trmnl_device,base.group_system,1,1,1,1
+access_trmnl_profile,trmnl_profile,model_trmnl_profile,base.group_system,1,1,1,1
+access_trmnl_render_log,trmnl_render_log,model_trmnl_render_log,base.group_user,1,1,1,0

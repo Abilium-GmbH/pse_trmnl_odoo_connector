@@ -1,5 +1,4 @@
 services:
-
   db:
     image: postgres:18.3
     environment:
@@ -9,7 +8,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -22,7 +21,10 @@ services:
         max-file: "3"
 
   odoo:
-    image: odoo:19.0-20260305
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: odoo-custom:19.0
     depends_on:
       db:
         condition: service_healthy
@@ -32,11 +34,10 @@ services:
       - ./addons:/mnt/extra-addons:z
       - odoo_data:/var/lib/odoo
     environment:
-      PGHOST: ${ODOO_DB_HOST:-db}
-      PGUSER: ${ODOO_DB_USER:-odoo}
-      PGPASSWORD: ${ODOO_DB_PASSWORD:-odoo}
-      PGPORT: ${ODOO_DB_PORT:-5432}
-      PGDATABASE: ${POSTGRES_DB:-odoo}
+      HOST: ${ODOO_DB_HOST:-db}
+      PORT: ${ODOO_DB_PORT:-5432}
+      USER: ${ODOO_DB_USER:-odoo}
+      PASSWORD: ${ODOO_DB_PASSWORD:-odoo}
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -47,3 +48,4 @@ services:
 volumes:
   postgres_data:
   odoo_data:
+  

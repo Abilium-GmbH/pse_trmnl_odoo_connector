@@ -40,7 +40,7 @@ docker compose up -d db
 ```
 ### 3. Initialisieren der Datenbank
 ```
-docker compose run --rm odoo odoo -i base --stop-after-init
+podman compose run --rm odoo odoo -d odoo -i base --stop-after-init
 ```
 ### 4. Odoo starten 
 ```

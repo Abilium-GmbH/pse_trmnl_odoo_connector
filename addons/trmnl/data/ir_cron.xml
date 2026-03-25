@@ -1,0 +1,21 @@
+<odoo>
+    <record id="ir_cron_trmnl_sync" model="ir.cron">
+        <field name="name">TRMNL Sync</field>
+
+        <!-- model -->
+        <field name="model_id" ref="model_trmnl_profile"/>
+
+        <!-- execution mode -->
+        <field name="state">code</field>
+        <field name="code">
+model.search([('active','=',True)]).send_to_device()
+        </field>
+
+        <!-- schedule -->
+        <field name="interval_number">15</field>
+        <field name="interval_type">minutes</field>
+
+        <!-- required in newer Odoo -->
+        <field name="active" eval="True"/>
+    </record>
+</odoo>

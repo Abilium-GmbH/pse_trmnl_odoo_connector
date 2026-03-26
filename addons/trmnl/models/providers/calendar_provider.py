@@ -10,15 +10,18 @@ class CalendarProvider:
             return self._fetch_month_data(env)
         return self._fetch_week_data(env)
 
-    # MONTH DATA
     def _fetch_month_data(self, env):
         today = date.today()
         year = today.year
         month = today.month
 
         month_start = date(year, month, 1)
-        first_weekday = month_start.weekday()
+
+        # Monday-based calendar grid start
+        first_weekday = month_start.weekday()  # Monday = 0
         grid_start = month_start - timedelta(days=first_weekday)
+
+        # 6 weeks x 7 days = 42 cells
         grid_end = grid_start + timedelta(days=41)
 
         events = env["calendar.event"].search([
@@ -28,12 +31,14 @@ class CalendarProvider:
 
         events_by_day = {}
         for event in events:
-            if isinstance(event.start, str):
+            event_start = event.start
+            if isinstance(event_start, str):
                 continue
-            d = event.start.date()
-            events_by_day.setdefault(d, []).append({
+
+            event_date = event_start.date()
+            events_by_day.setdefault(event_date, []).append({
                 "name": event.name or "",
-                "start": event.start,
+                "start": event_start,
             })
 
         weeks = []
@@ -61,59 +66,41 @@ class CalendarProvider:
             "weeks": weeks,
         }
 
-    # WEEK DATA
     def _fetch_week_data(self, env):
         today = date.today()
-        week_start = today - timedelta(days=today.weekday())
+        week_start = today - timedelta(days=today.weekday())  # Monday
         week_end = week_start + timedelta(days=6)
 
         events = env["calendar.event"].search([
+            ("start", ">=", datetime.combine(week_start, time.min)),
             ("start", "<=", datetime.combine(week_end, time.max)),
-            ("stop", ">=", datetime.combine(week_start, time.min)),
         ], order="start asc")
 
-        events_by_day = {week_start + timedelta(days=i): [] for i in range(7)}
-
+        events_by_day = {}
         for event in events:
-            start = event.start
-            end = getattr(event, "stop", None) or getattr(event, "end", None)
-
-            if isinstance(start, str) or not start:
+            event_start = event.start
+            if isinstance(event_start, str):
                 continue
-            if isinstance(end, str) or not end:
-                end = start + timedelta(hours=1)
 
-            d = max(start.date(), week_start)
-            last = min(end.date(), week_end)
+            event_date = event_start.date()
+            events_by_day.setdefault(event_date, []).append({
+                "name": event.name or "",
+                "start": event_start,
+            })
 
-            while d <= last:
-                day_start = datetime.combine(d, time.min)
-                day_end = datetime.combine(d, time.max)
-
-                visible_start = max(start, day_start)
-                visible_end = min(end, day_end)
-
-                if visible_start < visible_end:
-                    events_by_day[d].append({
-                        "name": event.name or "",
-                        "start": visible_start,
-                        "end": visible_end,
-                    })
-
-                d += timedelta(days=1)
-
-        weekday_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         days = []
         current = week_start
+        weekday_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-        for i in range(7):
-            events = sorted(events_by_day[current], key=lambda e: (e["start"], e["end"]))
+        for idx in range(7):
+            day_events = events_by_day.get(current, [])
             days.append({
                 "date": current,
-                "weekday": weekday_labels[i],
+                "weekday": weekday_labels[idx],
                 "day": current.day,
                 "is_today": current == today,
-                "events": events,
+                "events": day_events[:5],
+                "extra_count": max(0, len(day_events) - 5),
             })
             current += timedelta(days=1)
 
@@ -123,72 +110,11 @@ class CalendarProvider:
             "days": days,
         }
 
-    # TEXT FIT HELPERS
-    def _fit_text(self, draw, text, font, max_width):
-        if max_width <= 4:
-            return ""
+    def render(self, data, profile):
+        if profile.calendar_view_mode == "month":
+            return self._render_month(data)
+        return self._render_week(data)
 
-        if draw.textbbox((0, 0), text, font=font)[2] <= max_width:
-            return text
-
-        ellipsis = "…"
-        lo, hi = 0, len(text)
-
-        while lo < hi:
-            mid = (lo + hi + 1) // 2
-            candidate = text[:mid] + ellipsis
-            if draw.textbbox((0, 0), candidate, font=font)[2] <= max_width:
-                lo = mid
-            else:
-                hi = mid - 1
-
-        if lo <= 0:
-            return ""
-        return text[:lo] + ellipsis
-
-    def _draw_text_clipped(self, draw, xy, text, font, max_width, fill=0):
-        t = self._fit_text(draw, text, font, max_width)
-        if t:
-            draw.text(xy, t, fill=fill, font=font)
-
-    # OVERLAP HANDLING
-    def _assign_event_columns(self, events):
-        laid_out = []
-        active = []
-
-        for e in sorted(events, key=lambda x: (x["start"], x["end"])):
-            active = [a for a in active if a["end"] > e["start"]]
-
-            used = {a["col"] for a in active}
-            col = 0
-            while col in used:
-                col += 1
-
-            item = dict(e)
-            item["col"] = col
-            active.append(item)
-            laid_out.append(item)
-
-        i = 0
-        while i < len(laid_out):
-            cluster = [laid_out[i]]
-            end = laid_out[i]["end"]
-            j = i + 1
-
-            while j < len(laid_out) and laid_out[j]["start"] < end:
-                cluster.append(laid_out[j])
-                end = max(end, laid_out[j]["end"])
-                j += 1
-
-            cols = max(x["col"] for x in cluster) + 1
-            for x in cluster:
-                x["max_cols"] = cols
-
-            i = j
-
-        return laid_out
-
-    # RENDER MONTH
     def _render_month(self, data):
         width, height = 800, 480
         img = Image.new("L", (width, height), 255)
@@ -200,15 +126,19 @@ class CalendarProvider:
             day_font = ImageFont.truetype("DejaVuSans.ttf", 14)
             event_font = ImageFont.truetype("DejaVuSans.ttf", 11)
         except Exception:
-            title_font = header_font = day_font = event_font = ImageFont.load_default()
+            title_font = ImageFont.load_default()
+            header_font = ImageFont.load_default()
+            day_font = ImageFont.load_default()
+            event_font = ImageFont.load_default()
 
         margin = 20
         title_h = 32
         weekday_h = 24
+        gap_after_weekdays = 8
 
-        grid_top = margin + title_h + weekday_h + 8
         grid_left = margin
-        grid_width = width - 2 * margin
+        grid_top = margin + title_h + weekday_h + gap_after_weekdays
+        grid_width = width - (2 * margin)
         grid_height = height - grid_top - margin
 
         cell_w = grid_width // 7
@@ -216,106 +146,138 @@ class CalendarProvider:
 
         draw.text((margin, margin), data["title"], fill=0, font=title_font)
 
-        for i, name in enumerate(data["weekdays"]):
-            draw.text((grid_left + i * cell_w + 4, margin + title_h), name, fill=0, font=header_font)
+        weekday_y = margin + title_h
+        for idx, day_name in enumerate(data["weekdays"]):
+            x = grid_left + idx * cell_w + 6
+            draw.text((x, weekday_y), day_name, fill=0, font=header_font)
 
-        for r in range(7):
-            y = grid_top + r * cell_h
-            draw.line((grid_left, y, grid_left + 7 * cell_w, y), fill=0)
+        for row in range(7):
+            y = grid_top + row * cell_h
+            draw.line((grid_left, y, grid_left + 7 * cell_w, y), fill=0, width=1)
 
-        for c in range(8):
-            x = grid_left + c * cell_w
-            draw.line((x, grid_top, x, grid_top + 6 * cell_h), fill=0)
+        for col in range(8):
+            x = grid_left + col * cell_w
+            draw.line((x, grid_top, x, grid_top + 6 * cell_h), fill=0, width=1)
 
-        for r, week in enumerate(data["weeks"]):
-            for c, day in enumerate(week):
-                x = grid_left + c * cell_w
-                y = grid_top + r * cell_h
+        for row_idx, week in enumerate(data["weeks"]):
+            for col_idx, day in enumerate(week):
+                x = grid_left + col_idx * cell_w
+                y = grid_top + row_idx * cell_h
 
                 if day["is_today"]:
-                    draw.rectangle((x+1, y+1, x+cell_w-1, y+cell_h-1), outline=0, width=2)
+                    draw.rectangle(
+                        (x + 1, y + 1, x + cell_w - 1, y + cell_h - 1),
+                        outline=0,
+                        width=2,
+                    )
 
-                fill = 0 if day["in_month"] else 150
-                draw.text((x+3, y+2), str(day["day"]), fill=fill, font=day_font)
+                day_fill = 0 if day["in_month"] else 160
+                draw.text((x + 4, y + 2), str(day["day"]), fill=day_fill, font=day_font)
+
+                text_y = y + 20
+                for event in day["events"]:
+                    start = event["start"]
+                    time_text = ""
+                    if hasattr(start, "strftime"):
+                        time_text = start.strftime("%H:%M ")
+
+                    label = f"{time_text}{event['name']}".strip()
+                    if len(label) > 14:
+                        label = label[:13] + "…"
+
+                    draw.text((x + 4, text_y), label, fill=0, font=event_font)
+                    text_y += 12
+
+                if day["extra_count"] > 0:
+                    draw.text(
+                        (x + 4, text_y),
+                        f"+{day['extra_count']}",
+                        fill=0,
+                        font=event_font,
+                    )
 
         img = img.point(lambda p: 255 if p > 128 else 0, mode="1")
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
 
-    # RENDER WEEK 
+        buffer = io.BytesIO()
+        img.save(buffer, format="PNG")
+        return buffer.getvalue()
+
     def _render_week(self, data):
         width, height = 800, 480
         img = Image.new("L", (width, height), 255)
         draw = ImageDraw.Draw(img)
 
         try:
-            title_font = ImageFont.truetype("DejaVuSans.ttf", 20)
-            header_font = ImageFont.truetype("DejaVuSans.ttf", 11)
-            tiny_font = ImageFont.truetype("DejaVuSans.ttf", 9)
+            title_font = ImageFont.truetype("DejaVuSans.ttf", 24)
+            header_font = ImageFont.truetype("DejaVuSans.ttf", 15)
+            day_font = ImageFont.truetype("DejaVuSans.ttf", 13)
+            event_font = ImageFont.truetype("DejaVuSans.ttf", 11)
         except Exception:
-            title_font = header_font = tiny_font = ImageFont.load_default()
+            title_font = ImageFont.load_default()
+            header_font = ImageFont.load_default()
+            day_font = ImageFont.load_default()
+            event_font = ImageFont.load_default()
 
-        margin = 10
-        title_h = 24
-        header_h = 18
-        time_axis_w = 30
-
-        grid_left = margin + time_axis_w
-        header_top = margin + title_h + 4
-        grid_top = header_top + header_h
-        grid_width = width - grid_left - margin
+        margin = 20
+        title_h = 32
+        grid_top = margin + title_h + 10
+        grid_left = margin
+        grid_width = width - (2 * margin)
         grid_height = height - grid_top - margin
 
-        day_w = grid_width // 7
-
-        start_hour = 6
-        end_hour = 22
-        total_minutes = (end_hour - start_hour) * 60
-
-        def y_from_dt(dt):
-            mins = (dt.hour*60+dt.minute) - start_hour*60
-            mins = max(0, min(total_minutes, mins))
-            return grid_top + int((mins/total_minutes)*grid_height)
+        col_w = grid_width // 7
 
         draw.text((margin, margin), data["title"], fill=0, font=title_font)
 
-        for hour in range(start_hour, end_hour+1):
-            y = y_from_dt(datetime.combine(date.today(), time(hour=hour)))
-            draw.line((grid_left, y, grid_left+7*day_w, y), fill=180)
+        for col in range(8):
+            x = grid_left + col * col_w
+            draw.line((x, grid_top, x, grid_top + grid_height), fill=0, width=1)
 
-        for i in range(8):
-            x = grid_left + i*day_w
-            draw.line((x, header_top, x, grid_top+grid_height), fill=0)
+        draw.line((grid_left, grid_top, grid_left + 7 * col_w, grid_top), fill=0, width=1)
+        draw.line(
+            (grid_left, grid_top + grid_height, grid_left + 7 * col_w, grid_top + grid_height),
+            fill=0,
+            width=1,
+        )
 
-        for i, day in enumerate(data["days"]):
-            x = grid_left + i*day_w
-            txt = f"{day['weekday']} {day['day']}"
-            draw.text((x+2, header_top+2), txt, fill=0, font=header_font)
+        for idx, day in enumerate(data["days"]):
+            x = grid_left + idx * col_w
+            y = grid_top
 
-            events = self._assign_event_columns(day["events"])
+            if day["is_today"]:
+                draw.rectangle(
+                    (x + 1, y + 1, x + col_w - 1, y + grid_height - 1),
+                    outline=0,
+                    width=2,
+                )
 
-            for e in events:
-                y1 = y_from_dt(e["start"])
-                y2 = y_from_dt(e["end"])
+            header_text = f"{day['weekday']} {day['day']}"
+            draw.text((x + 4, y + 4), header_text, fill=0, font=header_font)
 
-                if y2 - y1 < 12:
-                    y2 = y1 + 12
+            text_y = y + 24
+            for event in day["events"]:
+                start = event["start"]
+                time_text = ""
+                if hasattr(start, "strftime"):
+                    time_text = start.strftime("%H:%M ")
 
-                cols = e["max_cols"]
-                col = e["col"]
+                label = f"{time_text}{event['name']}".strip()
+                if len(label) > 12:
+                    label = label[:11] + "…"
 
-                tile_w = max(8, (day_w-4)//cols)
-                x1 = x + 2 + col*tile_w
-                x2 = x1 + tile_w - 2
+                draw.text((x + 4, text_y), label, fill=0, font=event_font)
+                text_y += 14
 
-                draw.rectangle((x1, y1, x2, y2), outline=0)
-
-                label = e["start"].strftime("%H:%M")
-                label = self._fit_text(draw, label, tiny_font, x2-x1-2)
-                draw.text((x1+1, y1+1), label, fill=0, font=tiny_font)
+            if day["extra_count"] > 0:
+                draw.text(
+                    (x + 4, text_y),
+                    f"+{day['extra_count']}",
+                    fill=0,
+                    font=event_font,
+                )
 
         img = img.point(lambda p: 255 if p > 128 else 0, mode="1")
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
+
+        buffer = io.BytesIO()
+        img.save(buffer, format="PNG")
+        return buffer.getvalue()

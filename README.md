@@ -8,14 +8,17 @@ Ziel: Entwicklung eines Odoo‑Moduls zur Verwaltung von TRMNL e‑Ink Displays 
 .
 ├── addons/
 │   └── trmnl/
-│       ├── controllers/
+│       ├── data/
 │       ├── models/
+│       │   └── providers/
 │       ├── security/
 │       └── views/
 ├── data/
 ├── compose.yaml
+├── Dockerfile
 ├── LICENSE
-└── README.md
+├── README.md
+└── requirements.txt
 ```
 
 
@@ -40,7 +43,7 @@ docker compose up -d db
 ```
 ### 3. Initialisieren der Datenbank
 ```
-podman compose run --rm odoo odoo -d odoo -i base --stop-after-init
+docker compose run --rm odoo odoo -d odoo -i base --stop-after-init
 ```
 ### 4. Odoo starten 
 ```

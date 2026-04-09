@@ -1,7 +1,11 @@
+"""TRMNL configuration settings."""
+
 from odoo import fields, models
 
 
 class ResConfigSettings(models.TransientModel):
+    """Expose TRMNL runtime configuration to administrators."""
+
     _inherit = "res.config.settings"
 
     trmnl_unknown_device_policy = fields.Selection(

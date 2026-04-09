@@ -44,6 +44,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    command: ["odoo", "--http-interface=0.0.0.0", "--dev=reload,xml"]
 
 volumes:
   postgres_data:

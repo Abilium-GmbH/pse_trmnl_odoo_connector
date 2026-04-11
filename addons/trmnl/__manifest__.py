@@ -7,7 +7,7 @@
     "license": "Other OSI approved licence",
     "version": "1.0.0",
     "depends": ["base", "calendar"],
-    "external_dependencies": {"python": ["PIL", "requests"]},
+    "external_dependencies": {"python": ["Pillow", "requests"]},
     "data": [
         "security/ir.model.access.csv",
     ],

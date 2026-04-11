@@ -1,10 +1,9 @@
 """HTTP endpoint for TRMNL device setup requests."""
-
 from __future__ import annotations
 
 import logging
 
-from odoo import _, http
+from odoo import http
 from odoo.http import request
 
 from .trmnl_api_base import TrmnlApiControllerMixin
@@ -38,7 +37,6 @@ class DeviceSetupController(TrmnlApiControllerMixin, http.Controller):
         try:
             device, raw_token, record_status = device_model.upsert_from_setup_headers(headers)
             payload = device.build_setup_response(api_token=raw_token)
-
             _logger.info(
                 "TRMNL record status endpoint=/api/setup mac=%s status=%s",
                 masked_mac_address,
@@ -51,9 +49,4 @@ class DeviceSetupController(TrmnlApiControllerMixin, http.Controller):
                 masked_mac_address,
                 exc,
             )
-            return self._json_response(
-                device_model.build_setup_error_response(
-                    _("TRMNL setup request could not be processed.")
-                ),
-                status=200,
-            )
+            return self._json_response(device_model.build_setup_error_response(), status=200)

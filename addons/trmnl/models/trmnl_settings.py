@@ -1,5 +1,4 @@
 """TRMNL configuration settings."""
-
 from odoo import fields, models
 
 
@@ -8,15 +7,14 @@ class ResConfigSettings(models.TransientModel):
 
     _inherit = "res.config.settings"
 
-    trmnl_unknown_device_policy = fields.Selection(
-        string="Unknown Device Policy",
+    trmnl_display_error_status = fields.Selection(
+        string="Default Display Error Status",
         selection=[
-            ("error", "Return error response"),
-            ("reset_firmware", "Send reset_firmware"),
-            ("auto_accept", "Auto-approve and serve"),
+            ("202", "Return 202"),
+            ("500", "Return 500"),
         ],
-        default="error",
+        default="202",
         required=True,
-        config_parameter="trmnl.unknown_device_policy",
-        help="How /api/display should respond when an unregistered device contacts Odoo.",
+        config_parameter="trmnl.display_error_status",
+        help="Default status returned by /api/display when a device is unknown or unauthorized.",
     )

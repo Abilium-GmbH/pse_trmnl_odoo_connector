@@ -132,7 +132,22 @@ class TrmnlDevice(models.Model):
         default=lambda self: self.DEFAULT_IMAGE_URL,
         help="URL returned to the display.",
     )
-    message = fields.Text(string="Message", help="Message shown during setup responses.")
+    display_action = fields.Char(
+        string="Display Action",
+        default="",
+        help="Action returned to the display on the next poll.",
+    )
+    display_error_status_override = fields.Selection(
+        selection=[
+            ("default", "Default"),
+            ("202", "202"),
+            ("500", "500"),
+        ],
+        string="Display Error Status Override",
+        default="default",
+        required=True,
+        help="Override the status returned for unsuccessful display polls.",
+    )
     refresh_rate = fields.Integer(
         string="Refresh Rate",
         default=DEFAULT_REFRESH_RATE,
@@ -337,16 +352,19 @@ class TrmnlDevice(models.Model):
         return raw_token
 
     @api.model
-    def _get_unknown_device_policy(self):
-        """Read the policy that governs display requests from unknown devices."""
+    def _get_default_display_error_status(self):
+        """Read the default unsuccessful-display status from system settings."""
         config_parameter = self.env["ir.config_parameter"].sudo()
-        policy = config_parameter.get_param(
-            "trmnl.unknown_device_policy",
-            DEFAULT_UNKNOWN_DEVICE_POLICY,
-        )
-        if policy not in {"error", "reset_firmware", "auto_accept"}:
-            return DEFAULT_UNKNOWN_DEVICE_POLICY
-        return policy
+        status = config_parameter.get_param("trmnl.display_error_status", "202")
+        return 500 if str(status) == "500" else 202
+
+    def _get_display_error_status(self):
+        """Return the device-specific unsuccessful-display status."""
+        self.ensure_one()
+        override = self.display_error_status_override or "default"
+        if override in {"202", "500"}:
+            return int(override)
+        return self._get_default_display_error_status()
 
     def _build_display_filename(self, timestamp=None):
         """Build the filename returned to the display for the current image."""
@@ -456,71 +474,35 @@ class TrmnlDevice(models.Model):
         return True
 
     @api.model
-    def build_setup_error_response(self, message=""):
+    def build_setup_error_response(self):
         """Build the JSON payload returned when setup cannot be processed."""
         return {
             "status": 404,
-            "api_key": "",
-            "friendly_id": "",
-            "filename": "",
-            "image_name": "",
-            "image_url": "",
-            "message": message or "",
         }
 
     def build_setup_response(self, api_token=""):
         """Build the JSON payload returned after a successful setup request."""
         self.ensure_one()
-        filename = self._build_setup_filename()
         return {
             "status": 200,
             "api_key": api_token or "",
             "friendly_id": self.friendly_id,
-            "filename": filename,
-            "image_name": filename,
             "image_url": self.image_url or "",
-            "message": self.message or "",
         }
 
-    @api.model
-    def build_display_error_response(self, status=404):
-        """Build a generic error payload for display requests."""
+    def build_display_error_response(self, status=None):
+        """Build the payload returned when a display request cannot be served."""
+        if status is None:
+            status = self._get_display_error_status() if self else self._get_default_display_error_status()
         return {
             "status": status,
-            "filename": "",
-            "image_name": "",
-            "image_url": "",
-            "image_url_timeout": 0,
-            "action": "",
-            "firmware_url": "",
-            "refresh_rate": DEFAULT_REFRESH_RATE,
-            "reset_firmware": False,
-            "special_function": "none",
-            "update_firmware": False,
         }
-
-    def build_display_reset_response(self):
-        """Build the payload instructing the device to reset its firmware state."""
-        self.ensure_one()
-        payload = self.build_display_error_response(status=0)
-        payload["reset_firmware"] = True
-        return payload
 
     @api.model
     def build_no_user_display_response(self):
         """Build the payload returned when no device identity is available."""
         return {
-            "status": 202,
-            "filename": "",
-            "image_name": "",
-            "image_url": "",
-            "image_url_timeout": 0,
-            "action": "",
-            "firmware_url": "",
-            "refresh_rate": DEFAULT_REFRESH_RATE,
-            "reset_firmware": False,
-            "special_function": "none",
-            "update_firmware": False,
+            "status": self._get_default_display_error_status(),
         }
 
     def build_display_response(self):
@@ -530,15 +512,10 @@ class TrmnlDevice(models.Model):
         return {
             "status": 0,
             "filename": filename,
-            "image_name": filename,
             "image_url": self.image_url or "",
-            "image_url_timeout": 0,
-            "action": "",
-            "firmware_url": "",
             "refresh_rate": self.refresh_rate or DEFAULT_REFRESH_RATE,
-            "reset_firmware": False,
             "special_function": self.special_function or "none",
-            "update_firmware": False,
+            "action": self.display_action or "",
         }
 
     @api.model

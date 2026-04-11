@@ -1,5 +1,4 @@
 """HTTP endpoint for TRMNL display polling requests."""
-
 from __future__ import annotations
 
 import logging
@@ -49,7 +48,4 @@ class DeviceDisplayController(TrmnlApiControllerMixin, http.Controller):
                 masked_mac_address,
                 exc,
             )
-            return self._json_response(
-                device_model.build_display_error_response(status=404),
-                status=200,
-            )
+            return self._json_response(device_model.build_display_error_response(), status=200)

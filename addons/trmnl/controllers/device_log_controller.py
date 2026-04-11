@@ -1,5 +1,4 @@
 """HTTP endpoint for TRMNL device log ingestion requests."""
-
 from __future__ import annotations
 
 import logging
@@ -37,20 +36,26 @@ class DeviceLogController(TrmnlApiControllerMixin, http.Controller):
 
         try:
             payload = request.httprequest.get_json(silent=True) or {}
-            device, created_count, record_status = device_model.ingest_logs_from_payload(
+            _, created_count, record_status = device_model.ingest_logs_from_payload(
                 headers,
                 payload,
             )
+
             _logger.info(
                 "TRMNL record status endpoint=/api/log mac=%s status=%s created=%s",
                 masked_mac_address,
                 record_status,
                 created_count,
             )
+
+            if record_status in {"missing_identity", "unauthorized"}:
+                return request.make_response("", status=401)
+
+            return request.make_response("", status=204)
         except Exception as exc:
             _logger.warning(
                 "TRMNL /api/log failed for mac=%s: %s",
                 masked_mac_address,
                 exc,
             )
-        return request.make_response("", status=204)
+            return request.make_response("", status=401)

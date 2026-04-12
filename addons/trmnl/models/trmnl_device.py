@@ -41,7 +41,6 @@ class TrmnlDevice(models.Model):
     BATTERY_MIN_VOLTAGE = 3.0
     BATTERY_MAX_VOLTAGE = 4.2
     DEFAULT_IMAGE_URL = "https://sampleimg.com/800x480?bg=000000&fg=ffffff&text=Abilium&format=png"
-    SETUP_FILENAME = "empty_state"
 
     friendly_id = fields.Char(
         string="Friendly ID",
@@ -370,10 +369,6 @@ class TrmnlDevice(models.Model):
         """Build the filename returned to the display for the current image."""
         timestamp_value = timestamp or self._utc_now()
         return f"{self.friendly_id}-{timestamp_value.strftime('%Y-%m-%dT%H:%M:%S')}"
-
-    def _build_setup_filename(self):
-        """Return the filename used for the initial setup image."""
-        return self.SETUP_FILENAME
 
     def _record_setup_request(self, source="setup"):
         """Update counters and timestamps for a setup request."""

@@ -34,11 +34,16 @@ class TrmnlApiHttpCaseMixin:
 
     def _response_text(self, http_response):
         """Return the response body as text."""
+        if hasattr(http_response, "get_data"):
+            return http_response.get_data(as_text=True)
+
         if hasattr(http_response, "read"):
             response_body = http_response.read()
-        else:
-            response_body = getattr(http_response, "content", b"")
+            if isinstance(response_body, bytes):
+                return response_body.decode("utf-8")
+            return response_body or ""
 
+        response_body = getattr(http_response, "content", b"")
         if isinstance(response_body, bytes):
             return response_body.decode("utf-8")
         return response_body or ""
@@ -96,7 +101,7 @@ class TrmnlApiHttpCaseMixin:
                             "max_alloc_size": 98765,
                         },
                         "log_id": 1,
-                        "log_message": "<error message>",
+                        "log_message": "",
                         "log_codeline": 256,
                         "log_sourcefile": "src/bl.cpp",
                         "additional_info": {
@@ -122,17 +127,22 @@ class TrmnlApiHttpCaseMixin:
 
     def _register_device_through_setup(self):
         """Register the seeded device via the real `/api/setup` endpoint."""
-        self._seed_device_for_setup()
+        seeded_device = self._seed_device_for_setup()
 
         setup_response = self.url_open("/api/setup", headers=self._setup_headers())
-        setup_payload = self._response_json(setup_response)
+        self.assertEqual(self._response_status(setup_response), 200)
 
+        setup_payload = self._response_json(setup_response)
         registered_device = self.env["trmnl.device"].sudo().search(
             [("mac_address", "=", self.DEVICE_MAC_ADDRESS)],
             limit=1,
         )
+
         self.assertTrue(registered_device, "The setup request should register the device.")
         self.assertEqual(registered_device.approval_state, "approved")
+        self.assertEqual(registered_device.friendly_id, seeded_device.friendly_id)
+        self.assertEqual(setup_payload["friendly_id"], registered_device.friendly_id)
+        self.assertEqual(setup_payload["image_url"], registered_device.image_url)
         self.assertTrue(setup_payload["api_key"])
 
         verify_token_method = getattr(registered_device, "_verify_api_token", None)
@@ -167,22 +177,36 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
 
     def test_api_setup_success_returns_only_expected_keys(self):
         """A valid setup call should return only the four required keys."""
-        self._seed_device_for_setup()
+        seeded_device = self._seed_device_for_setup()
 
         setup_response = self.url_open("/api/setup", headers=self._setup_headers())
         setup_payload = self._response_json(setup_response)
 
-        self.assertEqual(set(self._response_json(setup_response).keys()), {"status", "api_key", "friendly_id", "image_url"})
-        self.assertEqual(setup_payload["status"], 200)
-        self.assertEqual(setup_payload["friendly_id"], self.DEVICE_FRIENDLY_ID)
-        self.assertEqual(setup_payload["image_url"], self.DEVICE_IMAGE_URL)
+        self.assertEqual(self._response_status(setup_response), 200)
+        self.assertEqual(
+            set(setup_payload.keys()),
+            {"status", "api_key", "friendly_id", "image_url"},
+        )
+        self.assertEqual(
+            setup_payload,
+            {
+                "status": 200,
+                "api_key": setup_payload["api_key"],
+                "friendly_id": seeded_device.friendly_id,
+                "image_url": seeded_device.image_url,
+            },
+        )
         self.assertTrue(setup_payload["api_key"])
 
     def test_api_setup_failure_returns_only_404(self):
         """A setup call without a valid device identity should return 404 only."""
-        setup_response = self.url_open("/api/setup", headers={"FW-Version": self.DEVICE_FIRMWARE_VERSION})
+        setup_response = self.url_open(
+            "/api/setup",
+            headers={"FW-Version": self.DEVICE_FIRMWARE_VERSION},
+        )
         setup_payload = self._response_json(setup_response)
 
+        self.assertEqual(self._response_status(setup_response), 200)
         self.assertEqual(setup_payload, {"status": 404})
 
 
@@ -192,23 +216,22 @@ class TestTrmnlDisplayApi(HttpCase, TrmnlApiHttpCaseMixin):
 
     def test_api_display_success_returns_only_expected_keys(self):
         """A registered device should receive the minimal display payload."""
-        registered_device, api_token, _ = self._register_device_through_setup()
-        registered_device.sudo().write(
-            {
-                "image_url": self.DEVICE_IMAGE_URL,
-                "refresh_rate": self.DEVICE_REFRESH_RATE,
-                "special_function": "none",
-            }
-        )
+        registered_device, api_token, _setup_payload = self._register_device_through_setup()
 
         fixed_timestamp = dt.datetime(2026, 4, 11, 9, 30, 0)
-        expected_filename = f"{registered_device.friendly_id}-{fixed_timestamp.strftime('%Y-%m-%dT%H:%M:%S')}"
+        expected_filename = (
+            f"{registered_device.friendly_id}-{fixed_timestamp.strftime('%Y-%m-%dT%H:%M:%S')}"
+        )
 
         with patch.object(type(registered_device), "_utc_now", return_value=fixed_timestamp):
-            display_response = self.url_open("/api/display", headers=self._display_headers(api_token))
+            display_response = self.url_open(
+                "/api/display",
+                headers=self._display_headers(api_token),
+            )
 
         display_payload = self._response_json(display_response)
 
+        self.assertEqual(self._response_status(display_response), 200)
         self.assertEqual(
             set(display_payload.keys()),
             {"status", "image_url", "filename", "refresh_rate", "special_function", "action"},
@@ -242,11 +265,12 @@ class TestTrmnlDisplayApi(HttpCase, TrmnlApiHttpCaseMixin):
         )
         display_payload = self._response_json(display_response)
 
+        self.assertEqual(self._response_status(display_response), 200)
         self.assertEqual(display_payload, {"status": 202})
 
     def test_api_display_invalid_token_returns_202_by_default(self):
         """A known device with a bad token should receive the default rejection payload."""
-        registered_device, _, _ = self._register_device_through_setup()
+        _registered_device, api_token, _setup_payload = self._register_device_through_setup()
 
         display_response = self.url_open(
             "/api/display",
@@ -254,6 +278,7 @@ class TestTrmnlDisplayApi(HttpCase, TrmnlApiHttpCaseMixin):
         )
         display_payload = self._response_json(display_response)
 
+        self.assertEqual(self._response_status(display_response), 200)
         self.assertEqual(display_payload, {"status": 202})
 
     def test_api_display_unknown_device_can_be_forced_to_500(self):
@@ -275,11 +300,12 @@ class TestTrmnlDisplayApi(HttpCase, TrmnlApiHttpCaseMixin):
         )
         display_payload = self._response_json(display_response)
 
+        self.assertEqual(self._response_status(display_response), 200)
         self.assertEqual(display_payload, {"status": 500})
 
     def test_api_display_invalid_token_can_be_forced_to_500(self):
         """A known device can be configured to force a reset response."""
-        registered_device, _, _ = self._register_device_through_setup()
+        registered_device, api_token, _setup_payload = self._register_device_through_setup()
         self._set_display_error_status_500(registered_device)
 
         display_response = self.url_open(
@@ -288,6 +314,7 @@ class TestTrmnlDisplayApi(HttpCase, TrmnlApiHttpCaseMixin):
         )
         display_payload = self._response_json(display_response)
 
+        self.assertEqual(self._response_status(display_response), 200)
         self.assertEqual(display_payload, {"status": 500})
 
 
@@ -297,7 +324,7 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
 
     def test_api_log_success_returns_204_without_body(self):
         """A valid log submission should return HTTP 204 with no response body."""
-        registered_device, api_token, _ = self._register_device_through_setup()
+        registered_device, api_token, _setup_payload = self._register_device_through_setup()
 
         log_response = self._call_json_endpoint(
             "/api/log",
@@ -310,7 +337,7 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
 
     def test_api_log_missing_token_returns_401_without_body(self):
         """A log submission without an access token should return HTTP 401."""
-        registered_device, _, _ = self._register_device_through_setup()
+        registered_device, _api_token, _setup_payload = self._register_device_through_setup()
 
         log_response = self._call_json_endpoint(
             "/api/log",
@@ -327,7 +354,7 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
 
     def test_api_log_invalid_token_returns_401_without_body(self):
         """A log submission with a bad token should return HTTP 401."""
-        registered_device, _, _ = self._register_device_through_setup()
+        _registered_device, _api_token, _setup_payload = self._register_device_through_setup()
 
         log_response = self._call_json_endpoint(
             "/api/log",

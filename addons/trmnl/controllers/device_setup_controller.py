@@ -1,4 +1,5 @@
 """HTTP endpoint for TRMNL device setup requests."""
+
 from __future__ import annotations
 
 import logging
@@ -23,7 +24,7 @@ class DeviceSetupController(TrmnlApiControllerMixin, http.Controller):
         sitemap=False,
     )
     def api_setup(self, **kwargs):
-        """Create or refresh a device registration and return setup payload."""
+        """Create a device registration and return the setup payload."""
         device_model = request.env["trmnl.device"].sudo()
         headers = request.httprequest.headers
         masked_mac_address = self._mask_identifier(headers.get("ID"))
@@ -37,13 +38,14 @@ class DeviceSetupController(TrmnlApiControllerMixin, http.Controller):
         try:
             device, raw_token, record_status = device_model.upsert_from_setup_headers(headers)
             payload = device.build_setup_response(api_token=raw_token)
+
             _logger.info(
                 "TRMNL record status endpoint=/api/setup mac=%s status=%s",
                 masked_mac_address,
                 record_status,
             )
             return self._json_response(payload, status=200)
-        except Exception as exc:
+        except Exception as exc:  # keep protocol responses stable
             _logger.warning(
                 "TRMNL /api/setup failed for mac=%s: %s",
                 masked_mac_address,

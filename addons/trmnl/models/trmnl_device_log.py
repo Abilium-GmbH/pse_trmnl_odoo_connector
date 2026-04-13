@@ -13,6 +13,14 @@ class TrmnlDeviceLog(models.Model):
     _rec_name = "name"
     _order = "creation_timestamp desc, id desc"
 
+    _sql_constraints = [
+        (
+            "trmnl_device_log_unique_device_log_id",
+            "UNIQUE(device_id, log_id)",
+            "The same log ID may only be stored once per device.",
+        ),
+    ]
+
     device_id = fields.Many2one(
         comodel_name="trmnl.device",
         string="Device",
@@ -20,6 +28,7 @@ class TrmnlDeviceLog(models.Model):
         ondelete="cascade",
         index=True,
     )
+
     creation_timestamp = fields.Integer(string="Creation Timestamp")
     wifi_rssi_level = fields.Integer(string="Wi-Fi RSSI Level")
     wifi_status = fields.Char(string="Wi-Fi Status")
@@ -37,7 +46,7 @@ class TrmnlDeviceLog(models.Model):
     log_sourcefile = fields.Char(string="Log Sourcefile")
     filename_current = fields.Char(string="Current Filename")
     filename_new = fields.Char(string="New Filename")
-    retry_attempt = fields.Integer(string="Retry Attempt")
+
     name = fields.Char(
         string="Name",
         compute="_compute_name",

@@ -1,14 +1,88 @@
-"""TRMNL device log ingestion helpers."""
+"""TRMNL device telemetry and log ingestion helpers."""
 
 from __future__ import annotations
 
 from odoo import api, fields, models
 
+from .trmnl_device import DEFAULT_REFRESH_RATE
 
-class TrmnlDeviceLogIngestionMixin(models.Model):
-    """Extend TRMNL devices with log ingestion helpers."""
+
+class TrmnlDeviceTelemetryMixin(models.Model):
+    """Extend TRMNL devices with telemetry capture and log ingestion helpers."""
 
     _inherit = "trmnl.device"
+
+    ##################################################
+    # display telemetry
+    ##################################################
+
+    @api.model
+    def _apply_display_telemetry(self, headers):
+        """Persist the latest telemetry snapshot reported by a display poll."""
+        firmware_version = self._parse_to_string(headers.get("FW-Version"))
+        refresh_rate = self._parse_to_int(headers.get("Refresh-Rate"))
+        battery_voltage = self._parse_to_float(headers.get("Battery-Voltage"))
+        rssi_dbm = self._parse_to_int(headers.get("RSSI"))
+        display_width = self._parse_to_int(headers.get("Width"))
+        display_height = self._parse_to_int(headers.get("Height"))
+        special_function = self._parse_to_string(headers.get("special_function"))
+
+        values = {
+            "last_seen_at": fields.Datetime.now(),
+        }
+        if firmware_version is not False:
+            values["firmware_version"] = firmware_version
+        if refresh_rate is not False:
+            values["refresh_rate"] = refresh_rate
+        if battery_voltage is not False:
+            values["battery_voltage"] = battery_voltage
+        if rssi_dbm is not False:
+            values["rssi_dbm"] = rssi_dbm
+        if display_width is not False:
+            values["display_width"] = display_width
+        if display_height is not False:
+            values["display_height"] = display_height
+        if special_function is not False:
+            values["special_function"] = special_function
+
+        self.with_context(trmnl_allow_identity_update=True).write(values)
+        return self
+
+    def _record_display_served(self):
+        """Update counters and timestamps for a successful display response."""
+        self.ensure_one()
+        now_value = fields.Datetime.now()
+
+        self.with_context(trmnl_allow_identity_update=True).write(
+            {
+                "last_display_at": now_value,
+                "last_seen_at": now_value,
+                "display_request_count": (self.display_request_count or 0) + 1,
+            }
+        )
+        return self
+
+    def _record_access_denied(self, reason="invalid_token"):
+        """Update counters and timestamps for denied device access."""
+        self.ensure_one()
+        now_value = fields.Datetime.now()
+
+        update_values = {
+            "last_access_denied_at": now_value,
+            "last_seen_at": now_value,
+        }
+
+        if reason == "invalid_token":
+            update_values["invalid_token_count"] = (self.invalid_token_count or 0) + 1
+        else:
+            update_values["display_denied_count"] = (self.display_denied_count or 0) + 1
+
+        self.with_context(trmnl_allow_identity_update=True).write(update_values)
+        return self
+
+    ##################################################
+    # log ingestion
+    ##################################################
 
     @api.model
     def _extract_log_entries(self, payload):
@@ -23,6 +97,7 @@ class TrmnlDeviceLogIngestionMixin(models.Model):
         entries = log_container.get("logs_array") or []
         if isinstance(entries, dict):
             entries = [entries]
+
         if not isinstance(entries, list):
             return []
 
@@ -64,22 +139,22 @@ class TrmnlDeviceLogIngestionMixin(models.Model):
             "log_sourcefile": self._parse_to_string(entry.get("log_sourcefile")),
             "filename_current": self._parse_to_string(additional_info.get("filename_current")),
             "filename_new": self._parse_to_string(additional_info.get("filename_new")),
-            "retry_attempt": self._parse_to_int(additional_info.get("retry_attempt")),
         }
+
         return {field_name: value for field_name, value in values.items() if value is not False}
 
     @api.model
     def ingest_logs_from_payload(self, headers, payload):
         """Create log entries from the raw JSON payload sent by the device."""
         mac_address = self._normalize_mac_address(headers.get("ID"))
-        token = self._parse_to_string(headers.get("Access-Token"))
+        token_value = self._parse_to_string(headers.get("Access-Token"))
 
-        if not mac_address or not token:
-            return self.browse(), 0, "missing_identity"
+        if not mac_address or not token_value:
+            return 0, "missing_identity"
 
-        device = self.find_by_mac_and_token(mac_address, token)
+        device = self.find_by_mac_and_token(mac_address, token_value)
         if not device or device.approval_state != "approved":
-            return self.browse(), 0, "unauthorized"
+            return 0, "unauthorized"
 
         entries = self._extract_log_entries(payload)
         if not entries:
@@ -90,7 +165,7 @@ class TrmnlDeviceLogIngestionMixin(models.Model):
                     "last_seen_at": now_value,
                 }
             )
-            return device, 0, "empty"
+            return 0, "empty"
 
         log_model = self.env["trmnl.device.log"].sudo()
         created_count = 0
@@ -118,4 +193,4 @@ class TrmnlDeviceLogIngestionMixin(models.Model):
                 "log_entry_count": (device.log_entry_count or 0) + created_count,
             }
         )
-        return device, created_count, "stored" if created_count else "ignored"
+        return created_count, "stored" if created_count else "ignored"

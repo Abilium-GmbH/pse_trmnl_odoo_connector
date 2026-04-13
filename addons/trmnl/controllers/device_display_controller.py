@@ -1,4 +1,5 @@
 """HTTP endpoint for TRMNL display polling requests."""
+
 from __future__ import annotations
 
 import logging
@@ -36,13 +37,14 @@ class DeviceDisplayController(TrmnlApiControllerMixin, http.Controller):
 
         try:
             device, payload, record_status = device_model.resolve_display_request(headers)
+
             _logger.info(
                 "TRMNL record status endpoint=/api/display mac=%s status=%s",
                 masked_mac_address,
                 record_status,
             )
             return self._json_response(payload, status=200)
-        except Exception as exc:
+        except Exception as exc:  # keep protocol responses stable
             _logger.warning(
                 "TRMNL /api/display failed for mac=%s: %s",
                 masked_mac_address,

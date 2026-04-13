@@ -2,25 +2,26 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
-import hashlib
-import hmac
-import logging
 import re
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 
-from odoo import _, api, fields, models
+from odoo import api, fields, models
 from odoo.exceptions import ValidationError
-
-_logger = logging.getLogger(__name__)
 
 MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
 API_TOKEN_PBKDF2_ITERATIONS = 310_000
 API_TOKEN_BYTES = 32
 DEFAULT_REFRESH_RATE = 1800
-DEFAULT_UNKNOWN_DEVICE_POLICY = "error"
+DEFAULT_DISPLAY_ERROR_STATUS = 202
+DISPLAY_POLICY_ERROR = "error"
+DISPLAY_POLICY_AUTO_ACCEPT = "auto_accept"
+DISPLAY_POLICY_FACTORY_RESET = "factory_reset"
+DISPLAY_POLICY_SELECTION = [
+    (DISPLAY_POLICY_ERROR, "Return error"),
+    (DISPLAY_POLICY_AUTO_ACCEPT, "Auto accept or register"),
+    (DISPLAY_POLICY_FACTORY_RESET, "Trigger factory reset once"),
+]
 
 
 class TrmnlDevice(models.Model):
@@ -29,6 +30,7 @@ class TrmnlDevice(models.Model):
     _name = "trmnl.device"
     _description = "TRMNL E-ink display device"
     _rec_name = "friendly_id"
+
     _unique_mac_address = models.Constraint(
         "UNIQUE(mac_address)",
         "MAC address must be unique.",
@@ -40,7 +42,14 @@ class TrmnlDevice(models.Model):
 
     BATTERY_MIN_VOLTAGE = 3.0
     BATTERY_MAX_VOLTAGE = 4.2
-    DEFAULT_IMAGE_URL = "https://sampleimg.com/800x480?bg=000000&fg=ffffff&text=Abilium&format=png"
+    DEFAULT_FILENAME = "abilium_test_screen"
+    DEFAULT_IMAGE_URL = (
+        "https://sampleimg.com/800x480?bg=000000&fg=ffffff&text=Abilium&format=png"
+    )
+
+    ##################################################
+    # identity
+    ##################################################
 
     friendly_id = fields.Char(
         string="Friendly ID",
@@ -50,6 +59,7 @@ class TrmnlDevice(models.Model):
         copy=False,
         help="Short unique identifier returned to the device during setup.",
     )
+
     mac_address = fields.Char(
         string="MAC Address",
         required=True,
@@ -58,18 +68,25 @@ class TrmnlDevice(models.Model):
         copy=False,
         help="Canonical MAC address used as the device identity.",
     )
+
     api_token_hash = fields.Char(
         string="API Token Hash",
         readonly=True,
         copy=False,
         help="Salted hash of the API token.",
     )
+
     api_token_salt = fields.Char(
         string="API Token Salt",
         readonly=True,
         copy=False,
         help="Random salt used to derive the API token hash.",
     )
+
+    ##################################################
+    # lifecycle
+    ##################################################
+
     approval_state = fields.Selection(
         selection=[
             ("pending", "Pending"),
@@ -82,6 +99,7 @@ class TrmnlDevice(models.Model):
         index=True,
         copy=False,
     )
+
     registration_source = fields.Selection(
         selection=[
             ("setup", "Setup"),
@@ -94,6 +112,7 @@ class TrmnlDevice(models.Model):
         index=True,
         copy=False,
     )
+
     first_seen_at = fields.Datetime(string="First Seen At", readonly=True, copy=False)
     last_seen_at = fields.Datetime(string="Last Seen At", readonly=True, copy=False)
     last_setup_at = fields.Datetime(string="Last Setup At", readonly=True, copy=False)
@@ -108,50 +127,45 @@ class TrmnlDevice(models.Model):
     )
 
     setup_request_count = fields.Integer(string="Setup Request Count", readonly=True, copy=False)
-    display_request_count = fields.Integer(string="Display Request Count", readonly=True, copy=False)
+    display_request_count = fields.Integer(
+        string="Display Request Count",
+        readonly=True,
+        copy=False,
+    )
     log_entry_count = fields.Integer(string="Log Entry Count", readonly=True, copy=False)
     invalid_token_count = fields.Integer(string="Invalid Token Count", readonly=True, copy=False)
     display_denied_count = fields.Integer(string="Display Denied Count", readonly=True, copy=False)
 
+    ##################################################
+    # device telemetry
+    ##################################################
+
     firmware_version = fields.Char(string="Firmware Version", readonly=True, copy=False)
-    current_fw_version = fields.Char(string="Current Firmware Version", readonly=True, copy=False)
-    next_display_action = fields.Selection(
-        selection=[
-            ("normal", "Normal"),
-            ("reset_firmware", "Reset Firmware"),
-        ],
-        string="Next Display Action",
-        default="normal",
-        required=True,
-        index=True,
-        copy=False,
+    
+    filename = fields.Char(
+        string="Image filename",
+        default=lambda self: self.DEFAULT_FILENAME,
+        help="The device only refreshes the displayed image when the filename changes.",
     )
+
     image_url = fields.Char(
         string="Image URL",
         default=lambda self: self.DEFAULT_IMAGE_URL,
         help="URL returned to the display.",
-    )
+    ) 
+
     display_action = fields.Char(
         string="Display Action",
         default="",
         help="Action returned to the display on the next poll.",
     )
-    display_error_status_override = fields.Selection(
-        selection=[
-            ("default", "Default"),
-            ("202", "202"),
-            ("500", "500"),
-        ],
-        string="Display Error Status Override",
-        default="default",
-        required=True,
-        help="Override the status returned for unsuccessful display polls.",
-    )
+
     refresh_rate = fields.Integer(
         string="Refresh Rate",
         default=DEFAULT_REFRESH_RATE,
         help="Refresh rate reported by the device.",
     )
+
     battery_voltage = fields.Float(string="Battery Voltage", digits=(16, 3))
     battery_percentage = fields.Float(
         string="Battery Percentage",
@@ -159,6 +173,7 @@ class TrmnlDevice(models.Model):
         store=True,
         readonly=True,
     )
+
     rssi_dbm = fields.Integer(string="RSSI (dBm)")
     rssi_quality = fields.Selection(
         selection=[
@@ -173,6 +188,7 @@ class TrmnlDevice(models.Model):
         store=True,
         readonly=True,
     )
+
     display_width = fields.Integer(string="Display Width")
     display_height = fields.Integer(string="Display Height")
     special_function = fields.Char(string="Special Function", default="none")
@@ -183,24 +199,31 @@ class TrmnlDevice(models.Model):
         """Normalize identity fields before records are inserted."""
         if isinstance(values_list, dict):
             values_list = [values_list]
+
         normalized_values_list = []
         for values in values_list:
             normalized_values = dict(values)
+
             mac_address = normalized_values.get("mac_address")
             if mac_address:
                 normalized_values["mac_address"] = self._normalize_mac_address(mac_address)
+
             if not normalized_values.get("friendly_id"):
                 normalized_values["friendly_id"] = self._generate_unique_friendly_id()
+
             normalized_values_list.append(normalized_values)
+
         return super().create(normalized_values_list)
 
     def write(self, values):
         """Protect device identity unless an explicit context override is present."""
         protected_fields = {"mac_address", "friendly_id"}
+
         if protected_fields.intersection(values.keys()) and not self.env.context.get(
             "trmnl_allow_identity_update"
         ):
-            raise ValidationError(_("MAC address and Friendly ID cannot be changed once set."))
+            raise ValidationError("MAC address and Friendly ID cannot be changed once set.")
+
         return super().write(values)
 
     @api.depends("battery_voltage")
@@ -215,15 +238,22 @@ class TrmnlDevice(models.Model):
         for device in self:
             device.rssi_quality = device._rssi_to_quality(device.rssi_dbm)
 
+    ##################################################
+    # helpers
+    ##################################################
+
     @api.model
     def _voltage_to_percentage(self, voltage):
         """Convert a voltage to a battery percentage."""
         if voltage is False or voltage is None:
             return False
+
         if voltage <= self.BATTERY_MIN_VOLTAGE:
             return 0.0
+
         if voltage >= self.BATTERY_MAX_VOLTAGE:
             return 100.0
+
         span = self.BATTERY_MAX_VOLTAGE - self.BATTERY_MIN_VOLTAGE
         return round(((voltage - self.BATTERY_MIN_VOLTAGE) / span) * 100.0, 2)
 
@@ -232,295 +262,78 @@ class TrmnlDevice(models.Model):
         """Translate an RSSI reading into a coarse quality bucket."""
         if rssi_dbm is False or rssi_dbm is None:
             return "unknown"
+
         if rssi_dbm >= -60:
             return "excellent"
+
         if rssi_dbm >= -70:
             return "good"
+
         if rssi_dbm >= -80:
             return "fair"
+
         return "poor"
 
     @staticmethod
     def _utc_now():
         """Return a naive UTC datetime for filename generation."""
-        return datetime.utcnow()
-
-    @api.model
-    def _normalize_mac_address(self, value):
-        """Normalize a MAC address to uppercase colon-separated notation."""
-        if value in (None, ""):
-            return False
-        raw_value = str(value).strip().upper()
-        compact_value = re.sub(r"[^0-9A-F]", "", raw_value)
-        if len(compact_value) != 12 or not MAC_RE.fullmatch(
-            ":".join(compact_value[index : index + 2] for index in range(0, 12, 2))
-        ):
-            raise ValidationError(_("TRMNL device ID must be a valid MAC address."))
-        return ":".join(compact_value[index : index + 2] for index in range(0, 12, 2))
+        return datetime.now(timezone.utc).replace(tzinfo=None)
 
     @api.model
     def _parse_to_string(self, value):
-        """Convert a potentially typed value to a stripped string."""
-        if value is False or value is None:
+        """Normalize a value into a stripped string."""
+        if value in (None, False, ""):
             return False
-        text_value = str(value).strip()
-        return text_value if text_value else False
+
+        value_text = str(value).strip()
+        return value_text or False
 
     @api.model
     def _parse_to_int(self, value):
-        """Convert a potentially typed value to an integer."""
-        if value is False or value is None or value == "":
+        """Normalize a value into an integer."""
+        if value in (None, False, ""):
             return False
+
         try:
-            return int(float(value))
+            return int(str(value).strip())
         except (TypeError, ValueError):
             return False
 
     @api.model
     def _parse_to_float(self, value):
-        """Convert a potentially typed value to a float."""
-        if value is False or value is None or value == "":
+        """Normalize a value into a float."""
+        if value in (None, False, ""):
             return False
+
         try:
-            return float(value)
+            return float(str(value).strip())
         except (TypeError, ValueError):
             return False
 
     @api.model
+    def _normalize_mac_address(self, value):
+        """Return a canonical uppercase colon-separated MAC address."""
+        if value in (None, False, ""):
+            return False
+
+        value_text = str(value).strip()
+        hex_digits = re.sub(r"[^0-9A-Fa-f]", "", value_text)
+
+        if len(hex_digits) != 12:
+            return False
+
+        mac_address = ":".join(hex_digits[index : index + 2] for index in range(0, 12, 2)).upper()
+        if not MAC_RE.match(mac_address):
+            return False
+
+        return mac_address
+
+    @api.model
     def _generate_unique_friendly_id(self):
-        """Generate a friendly identifier that does not already exist."""
-        for attempt_index in range(20):
-            friendly_id = secrets.token_hex(3).upper()
-            if not self.sudo().search_count([("friendly_id", "=", friendly_id)]):
+        """Generate a short unique friendly identifier."""
+        for attempt_number in range(25):
+            friendly_id = f"TRMNL-{secrets.token_hex(3).upper()}"
+            if not self.sudo().search([("friendly_id", "=", friendly_id)], limit=1):
                 return friendly_id
-            _logger.debug("TRMNL friendly ID collision on attempt %s", attempt_index + 1)
-        raise ValidationError(_("Unable to allocate a unique TRMNL friendly ID."))
 
-    @api.model
-    def _generate_api_token(self):
-        """Generate a random token that can be presented by the device."""
-        return secrets.token_urlsafe(API_TOKEN_BYTES)
-
-    @api.model
-    def _hash_api_token(self, raw_token, salt_bytes=None):
-        """Hash a raw API token with PBKDF2."""
-        if salt_bytes is None:
-            salt_bytes = secrets.token_bytes(16)
-        if isinstance(salt_bytes, str):
-            salt_bytes = base64.b64decode(salt_bytes.encode("ascii"))
-        token_hash = hashlib.pbkdf2_hmac(
-            "sha256",
-            raw_token.encode("utf-8"),
-            salt_bytes,
-            API_TOKEN_PBKDF2_ITERATIONS,
-        )
-        return {
-            "api_token_hash": base64.b64encode(token_hash).decode("ascii"),
-            "api_token_salt": base64.b64encode(salt_bytes).decode("ascii"),
-        }
-
-    @api.model
-    def _build_api_token_material(self):
-        """Return a freshly generated token together with its persisted hash material."""
-        raw_token = self._generate_api_token()
-        return raw_token, self._hash_api_token(raw_token)
-
-    def _verify_api_token(self, raw_token):
-        """Verify a token against the persisted hash material."""
-        self.ensure_one()
-        if not raw_token or not self.api_token_hash or not self.api_token_salt:
-            return False
-        try:
-            salt_bytes = base64.b64decode(self.api_token_salt.encode("ascii"))
-            expected_hash = base64.b64decode(self.api_token_hash.encode("ascii"))
-        except (ValueError, TypeError, binascii.Error):
-            return False
-        actual_hash = hashlib.pbkdf2_hmac(
-            "sha256",
-            raw_token.encode("utf-8"),
-            salt_bytes,
-            API_TOKEN_PBKDF2_ITERATIONS,
-        )
-        return hmac.compare_digest(actual_hash, expected_hash)
-
-    def _rotate_api_token(self):
-        """Replace the device token with a freshly generated one."""
-        self.ensure_one()
-        raw_token, token_values = self._build_api_token_material()
-        self.with_context(trmnl_allow_identity_update=True).write(token_values)
-        return raw_token
-
-    @api.model
-    def _get_default_display_error_status(self):
-        """Read the default unsuccessful-display status from system settings."""
-        config_parameter = self.env["ir.config_parameter"].sudo()
-        status = config_parameter.get_param("trmnl.display_error_status", "202")
-        return 500 if str(status) == "500" else 202
-
-    def _get_display_error_status(self):
-        """Return the device-specific unsuccessful-display status."""
-        self.ensure_one()
-        override = self.display_error_status_override or "default"
-        if override in {"202", "500"}:
-            return int(override)
-        return self._get_default_display_error_status()
-
-    def _build_display_filename(self, timestamp=None):
-        """Build the filename returned to the display for the current image."""
-        timestamp_value = timestamp or self._utc_now()
-        return f"{self.friendly_id}-{timestamp_value.strftime('%Y-%m-%dT%H:%M:%S')}"
-
-    def _record_setup_request(self, source="setup"):
-        """Update counters and timestamps for a setup request."""
-        self.ensure_one()
-        now_value = fields.Datetime.now()
-        self.with_context(trmnl_allow_identity_update=True).write(
-            {
-                "approval_state": "approved",
-                "approved_at": self.approved_at or now_value,
-                "last_setup_at": now_value,
-                "last_seen_at": now_value,
-                "next_display_action": "normal",
-                "registration_source": source,
-                "setup_request_count": (self.setup_request_count or 0) + 1,
-            }
-        )
-        return self
-
-    def _record_display_served(self):
-        """Update counters and timestamps for a successful display response."""
-        self.ensure_one()
-        now_value = fields.Datetime.now()
-        self.with_context(trmnl_allow_identity_update=True).write(
-            {
-                "last_display_at": now_value,
-                "last_seen_at": now_value,
-                "display_request_count": (self.display_request_count or 0) + 1,
-            }
-        )
-        return self
-
-    def _record_access_denied(self, reason="invalid_token"):
-        """Update counters and timestamps for denied device access."""
-        self.ensure_one()
-        now_value = fields.Datetime.now()
-        update_values = {
-            "last_access_denied_at": now_value,
-            "last_seen_at": now_value,
-        }
-        if reason == "invalid_token":
-            update_values["invalid_token_count"] = (self.invalid_token_count or 0) + 1
-        else:
-            update_values["display_denied_count"] = (self.display_denied_count or 0) + 1
-        self.with_context(trmnl_allow_identity_update=True).write(update_values)
-        return self
-
-    def _approve_record(self, source="manual"):
-        """Approve the device and normalize the next action."""
-        self.ensure_one()
-        now_value = fields.Datetime.now()
-        self.with_context(trmnl_allow_identity_update=True).write(
-            {
-                "approval_state": "approved",
-                "approved_at": now_value,
-                "next_display_action": "normal",
-                "registration_source": source,
-            }
-        )
-        return self
-
-    def _reject_record(self):
-        """Reject the device and clear any queued display reset."""
-        self.ensure_one()
-        now_value = fields.Datetime.now()
-        self.with_context(trmnl_allow_identity_update=True).write(
-            {
-                "approval_state": "rejected",
-                "next_display_action": "normal",
-                "rejected_at": now_value,
-            }
-        )
-        return self
-
-    def action_approve_device(self):
-        """Approve the selected TRMNL devices from the UI."""
-        for device in self:
-            device._approve_record(source="manual")
-        return True
-
-    def action_reject_device(self):
-        """Reject the selected TRMNL devices from the UI."""
-        for device in self:
-            device._reject_record()
-        return True
-
-    def action_queue_firmware_reset(self):
-        """Ask the next display poll to return a firmware reset payload."""
-        self.with_context(trmnl_allow_identity_update=True).write(
-            {"next_display_action": "reset_firmware"}
-        )
-        return True
-
-    def action_clear_queued_action(self):
-        """Remove any queued special action for the next display poll."""
-        self.with_context(trmnl_allow_identity_update=True).write(
-            {"next_display_action": "normal"}
-        )
-        return True
-
-    @api.model
-    def build_setup_error_response(self):
-        """Build the JSON payload returned when setup cannot be processed."""
-        return {
-            "status": 404,
-        }
-
-    def build_setup_response(self, api_token=""):
-        """Build the JSON payload returned after a successful setup request."""
-        self.ensure_one()
-        return {
-            "status": 200,
-            "api_key": api_token or "",
-            "friendly_id": self.friendly_id,
-            "image_url": self.image_url or "",
-        }
-
-    def build_display_error_response(self, status=None):
-        """Build the payload returned when a display request cannot be served."""
-        if status is None:
-            status = self._get_display_error_status() if self else self._get_default_display_error_status()
-        return {
-            "status": status,
-        }
-
-    @api.model
-    def build_no_user_display_response(self):
-        """Build the payload returned when no device identity is available."""
-        return {
-            "status": self._get_default_display_error_status(),
-        }
-
-    def build_display_response(self):
-        """Build the normal display payload for an approved device."""
-        self.ensure_one()
-        filename = self._build_display_filename()
-        return {
-            "status": 0,
-            "filename": filename,
-            "image_url": self.image_url or "",
-            "refresh_rate": self.refresh_rate or DEFAULT_REFRESH_RATE,
-            "special_function": self.special_function or "none",
-            "action": self.display_action or "",
-        }
-
-    @api.model
-    def find_by_mac_and_token(self, mac_address, api_token):
-        """Find a device by MAC address and validate the presented token."""
-        normalized_mac_address = self._normalize_mac_address(mac_address)
-        normalized_token = self._parse_to_string(api_token)
-        if not normalized_mac_address or not normalized_token:
-            return self.browse()
-        device = self.sudo().search([("mac_address", "=", normalized_mac_address)], limit=1)
-        if device and device._verify_api_token(normalized_token):
-            return device
-        return self.browse()
+        raise ValidationError("Unable to generate a unique friendly ID.")

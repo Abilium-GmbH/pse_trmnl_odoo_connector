@@ -8,6 +8,11 @@ from unittest.mock import patch
 
 from odoo.tests.common import HttpCase, tagged
 
+DISPLAY_POLICY_PARAMETER = "trmnl.display_unknown_device_policy"
+DISPLAY_POLICY_ERROR = "error"
+DISPLAY_POLICY_AUTO_ACCEPT = "auto_accept"
+DISPLAY_POLICY_FACTORY_RESET = "factory_reset"
+
 
 class TrmnlApiHttpCaseMixin:
     """Shared helpers for TRMNL API response tests."""
@@ -19,8 +24,11 @@ class TrmnlApiHttpCaseMixin:
     DEVICE_RSSI = "-69"
     DEVICE_WIDTH = "800"
     DEVICE_HEIGHT = "480"
-    DEVICE_IMAGE_URL = "https://example.invalid/trmnl-device.png"
-    DEVICE_FRIENDLY_ID = "TRMNL1"
+
+    UNKNOWN_MAC_ADDRESS = "11:22:33:44:55:66"
+    UNKNOWN_DEVICE_TOKEN = "unknown-device-token"
+    BAD_TOKEN = "bad-token"
+    EMPTY_TOKEN = ""
 
     def _response_status(self, http_response):
         """Return the HTTP status code for a `url_open` response."""
@@ -28,8 +36,10 @@ class TrmnlApiHttpCaseMixin:
             status_value = getattr(http_response, attribute_name, None)
             if status_value is not None:
                 return status_value
+
         if hasattr(http_response, "getcode"):
             return http_response.getcode()
+
         raise AssertionError("Unable to determine the HTTP status code.")
 
     def _response_text(self, http_response):
@@ -52,17 +62,17 @@ class TrmnlApiHttpCaseMixin:
         """Return the response body decoded as JSON."""
         return json.loads(self._response_text(http_response))
 
-    def _setup_headers(self):
+    def _setup_headers(self, mac_address=None, firmware_version=None):
         """Return headers for a TRMNL setup request."""
         return {
-            "ID": self.DEVICE_MAC_ADDRESS,
-            "FW-Version": self.DEVICE_FIRMWARE_VERSION,
+            "ID": mac_address or self.DEVICE_MAC_ADDRESS,
+            "FW-Version": firmware_version or self.DEVICE_FIRMWARE_VERSION,
         }
 
-    def _display_headers(self, api_token):
+    def _display_headers(self, api_token, mac_address=None):
         """Return headers for a TRMNL display request."""
         return {
-            "ID": self.DEVICE_MAC_ADDRESS,
+            "ID": mac_address or self.DEVICE_MAC_ADDRESS,
             "Access-Token": api_token,
             "Refresh-Rate": str(self.DEVICE_REFRESH_RATE),
             "Battery-Voltage": self.DEVICE_BATTERY_VOLTAGE,
@@ -72,16 +82,16 @@ class TrmnlApiHttpCaseMixin:
             "Height": self.DEVICE_HEIGHT,
         }
 
-    def _log_headers(self, api_token):
+    def _log_headers(self, api_token, mac_address=None):
         """Return headers for a TRMNL log request."""
         return {
-            "ID": self.DEVICE_MAC_ADDRESS,
+            "ID": mac_address or self.DEVICE_MAC_ADDRESS,
             "Access-Token": api_token,
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
 
-    def _log_payload(self):
+    def _log_payload(self, log_message=""):
         """Return a realistic TRMNL log payload."""
         return {
             "log": {
@@ -101,7 +111,7 @@ class TrmnlApiHttpCaseMixin:
                             "max_alloc_size": 98765,
                         },
                         "log_id": 1,
-                        "log_message": "",
+                        "log_message": log_message,
                         "log_codeline": 256,
                         "log_sourcefile": "src/bl.cpp",
                         "additional_info": {
@@ -113,37 +123,58 @@ class TrmnlApiHttpCaseMixin:
             }
         }
 
-    def _seed_device_for_setup(self):
-        """Create a device record so setup and display tests can run end-to-end."""
-        return self.env["trmnl.device"].sudo().create(
-            {
-                "mac_address": self.DEVICE_MAC_ADDRESS,
-                "friendly_id": self.DEVICE_FRIENDLY_ID,
-                "image_url": self.DEVICE_IMAGE_URL,
-                "refresh_rate": self.DEVICE_REFRESH_RATE,
-                "special_function": "none",
-            }
+    def _empty_log_payload(self):
+        """Return a payload that contains no log entries."""
+        return {"log": {"logs_array": []}}
+
+    def _call_json_endpoint(self, path, headers=None, payload=None):
+        """Call an HTTP endpoint and return the raw response object."""
+        request_headers = headers or {}
+        request_payload = None
+
+        if payload is not None:
+            request_payload = json.dumps(payload).encode("utf-8")
+
+        return self.url_open(path, data=request_payload, headers=request_headers)
+
+    def _set_display_policy(self, policy):
+        """Persist the default display policy for unresolved devices."""
+        self.env["ir.config_parameter"].sudo().set_param(
+            DISPLAY_POLICY_PARAMETER,
+            policy,
         )
 
-    def _register_device_through_setup(self):
-        """Register the seeded device via the real `/api/setup` endpoint."""
-        seeded_device = self._seed_device_for_setup()
+    def _get_display_policy(self):
+        """Return the current default display policy."""
+        return self.env["ir.config_parameter"].sudo().get_param(
+            DISPLAY_POLICY_PARAMETER,
+            DISPLAY_POLICY_ERROR,
+        )
 
-        setup_response = self.url_open("/api/setup", headers=self._setup_headers())
-        self.assertEqual(self._response_status(setup_response), 200)
-
+    def _register_device_through_setup(self, mac_address=None):
+        """Register a device through the real `/api/setup` endpoint."""
+        setup_mac_address = mac_address or self.DEVICE_MAC_ADDRESS
+        setup_response = self.url_open("/api/setup", headers=self._setup_headers(setup_mac_address))
         setup_payload = self._response_json(setup_response)
+
+        self.assertEqual(self._response_status(setup_response), 200)
+        self.assertEqual(
+            set(setup_payload.keys()),
+            {"status", "api_key", "friendly_id", "image_url"},
+        )
+        self.assertEqual(setup_payload["status"], 200)
+        self.assertTrue(setup_payload["api_key"])
+
         registered_device = self.env["trmnl.device"].sudo().search(
-            [("mac_address", "=", self.DEVICE_MAC_ADDRESS)],
+            [("mac_address", "=", setup_mac_address)],
             limit=1,
         )
-
         self.assertTrue(registered_device, "The setup request should register the device.")
         self.assertEqual(registered_device.approval_state, "approved")
-        self.assertEqual(registered_device.friendly_id, seeded_device.friendly_id)
-        self.assertEqual(setup_payload["friendly_id"], registered_device.friendly_id)
-        self.assertEqual(setup_payload["image_url"], registered_device.image_url)
-        self.assertTrue(setup_payload["api_key"])
+        self.assertEqual(registered_device.registration_source, "setup")
+        self.assertEqual(registered_device.setup_request_count, 1)
+        self.assertEqual(registered_device.friendly_id, setup_payload["friendly_id"])
+        self.assertEqual(registered_device.image_url, setup_payload["image_url"])
 
         verify_token_method = getattr(registered_device, "_verify_api_token", None)
         if callable(verify_token_method):
@@ -154,52 +185,51 @@ class TrmnlApiHttpCaseMixin:
 
         return registered_device, setup_payload["api_key"], setup_payload
 
-    def _set_display_error_status_500(self, device_record=None):
-        """Configure the code path that should return HTTP 500 for display failures."""
-        config_parameters = self.env["ir.config_parameter"].sudo()
-        config_parameters.set_param("trmnl.display_error_status", "500")
-
-        if device_record is not None and "display_error_status_override" in device_record._fields:
-            device_record.sudo().write({"display_error_status_override": "500"})
-
-    def _call_json_endpoint(self, path, headers=None, payload=None):
-        """Call an HTTP endpoint and return the raw response object."""
-        request_headers = headers or {}
-        request_payload = None
-        if payload is not None:
-            request_payload = json.dumps(payload).encode("utf-8")
-        return self.url_open(path, data=request_payload, headers=request_headers)
+    def _display_unknown_headers(self, api_token, mac_address=None):
+        """Return headers for an unknown device display request."""
+        return self._display_headers(api_token, mac_address or self.UNKNOWN_MAC_ADDRESS)
 
 
 @tagged("post_install", "-at_install")
 class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
-    """Verify the `/api/setup` endpoint returns the trimmed setup payload."""
+    """Verify the `/api/setup` endpoint behavior."""
 
     def test_api_setup_success_returns_only_expected_keys(self):
-        """A valid setup call should return only the four required keys."""
-        seeded_device = self._seed_device_for_setup()
+        """A valid setup call should return only the required keys."""
+        registered_device, api_token, setup_payload = self._register_device_through_setup()
 
-        setup_response = self.url_open("/api/setup", headers=self._setup_headers())
-        setup_payload = self._response_json(setup_response)
-
-        self.assertEqual(self._response_status(setup_response), 200)
-        self.assertEqual(
-            set(setup_payload.keys()),
-            {"status", "api_key", "friendly_id", "image_url"},
-        )
         self.assertEqual(
             setup_payload,
             {
                 "status": 200,
-                "api_key": setup_payload["api_key"],
-                "friendly_id": seeded_device.friendly_id,
-                "image_url": seeded_device.image_url,
+                "api_key": api_token,
+                "friendly_id": registered_device.friendly_id,
+                "image_url": registered_device.image_url,
             },
         )
-        self.assertTrue(setup_payload["api_key"])
 
-    def test_api_setup_failure_returns_only_404(self):
-        """A setup call without a valid device identity should return 404 only."""
+    def test_api_setup_rejects_existing_mac_address(self):
+        """A second setup request for the same MAC address should be rejected."""
+        registered_device, api_token, setup_payload = self._register_device_through_setup()
+        self.assertEqual(setup_payload["status"], 200)
+
+        duplicate_response = self.url_open("/api/setup", headers=self._setup_headers())
+        duplicate_payload = self._response_json(duplicate_response)
+
+        self.assertEqual(self._response_status(duplicate_response), 200)
+        self.assertEqual(duplicate_payload, {"status": 404})
+
+        stored_device = self.env["trmnl.device"].sudo().search(
+            [("mac_address", "=", registered_device.mac_address)],
+            limit=1,
+        )
+        self.assertTrue(stored_device)
+        self.assertTrue(stored_device._verify_api_token(api_token))
+        self.assertEqual(stored_device.approval_state, "approved")
+        self.assertEqual(stored_device.setup_request_count, 1)
+
+    def test_api_setup_missing_id_returns_404(self):
+        """Missing device identity should return the setup error payload."""
         setup_response = self.url_open(
             "/api/setup",
             headers={"FW-Version": self.DEVICE_FIRMWARE_VERSION},
@@ -209,26 +239,113 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(self._response_status(setup_response), 200)
         self.assertEqual(setup_payload, {"status": 404})
 
+    def test_api_setup_invalid_mac_returns_404(self):
+        """A malformed MAC address should return the setup error payload."""
+        setup_response = self.url_open(
+            "/api/setup",
+            headers={
+                "ID": "not-a-mac",
+                "FW-Version": self.DEVICE_FIRMWARE_VERSION,
+            },
+        )
+        setup_payload = self._response_json(setup_response)
+
+        self.assertEqual(self._response_status(setup_response), 200)
+        self.assertEqual(setup_payload, {"status": 404})
+
 
 @tagged("post_install", "-at_install")
-class TestTrmnlDisplayApi(HttpCase, TrmnlApiHttpCaseMixin):
-    """Verify the `/api/display` endpoint returns the correct display payloads."""
+class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
+    """Verify the default error policy for `/api/display`."""
 
-    def test_api_display_success_returns_only_expected_keys(self):
-        """A registered device should receive the minimal display payload."""
-        registered_device, api_token, _setup_payload = self._register_device_through_setup()
+    def test_api_display_unknown_device_returns_202_by_default(self):
+        """Unknown devices should receive the default display rejection payload."""
+        self._set_display_policy(DISPLAY_POLICY_ERROR)
 
-        fixed_timestamp = dt.datetime(2026, 4, 11, 9, 30, 0)
-        expected_filename = (
-            f"{registered_device.friendly_id}-{fixed_timestamp.strftime('%Y-%m-%dT%H:%M:%S')}"
+        display_response = self.url_open(
+            "/api/display",
+            headers=self._display_unknown_headers(self.UNKNOWN_DEVICE_TOKEN),
+        )
+        display_payload = self._response_json(display_response)
+
+        self.assertEqual(self._response_status(display_response), 200)
+        self.assertEqual(display_payload, {"status": 202})
+
+    def test_api_display_unknown_device_without_token_returns_202_by_default(self):
+        """Unknown devices without a token should still get the default rejection payload."""
+        self._set_display_policy(DISPLAY_POLICY_ERROR)
+
+        display_response = self.url_open(
+            "/api/display",
+            headers=self._display_unknown_headers(self.EMPTY_TOKEN),
+        )
+        display_payload = self._response_json(display_response)
+
+        self.assertEqual(self._response_status(display_response), 200)
+        self.assertEqual(display_payload, {"status": 202})
+
+    def test_api_display_known_device_with_invalid_token_returns_202_by_default(self):
+        """Known devices with a bad token should receive the default rejection payload."""
+        self._set_display_policy(DISPLAY_POLICY_ERROR)
+        registered_device, api_token, setup_payload = self._register_device_through_setup()
+        self.assertEqual(setup_payload["status"], 200)
+
+        display_response = self.url_open(
+            "/api/display",
+            headers=self._display_headers(self.BAD_TOKEN, registered_device.mac_address),
+        )
+        display_payload = self._response_json(display_response)
+
+        refreshed_device = self.env["trmnl.device"].sudo().search(
+            [("mac_address", "=", registered_device.mac_address)],
+            limit=1,
         )
 
-        with patch.object(type(registered_device), "_utc_now", return_value=fixed_timestamp):
+        self.assertEqual(self._response_status(display_response), 200)
+        self.assertEqual(display_payload, {"status": 202})
+        self.assertTrue(refreshed_device._verify_api_token(api_token))
+        self.assertEqual(refreshed_device.invalid_token_count, 1)
+        self.assertEqual(refreshed_device.display_denied_count, 0)
+        self.assertEqual(refreshed_device.display_request_count, 0)
+
+    def test_api_display_missing_id_returns_202(self):
+        """A display request without a MAC address should return the default rejection payload."""
+        self._set_display_policy(DISPLAY_POLICY_ERROR)
+
+        display_response = self.url_open(
+            "/api/display",
+            headers={
+                "Access-Token": self.BAD_TOKEN,
+                "Refresh-Rate": str(self.DEVICE_REFRESH_RATE),
+                "Battery-Voltage": self.DEVICE_BATTERY_VOLTAGE,
+                "FW-Version": self.DEVICE_FIRMWARE_VERSION,
+                "RSSI": self.DEVICE_RSSI,
+                "Width": self.DEVICE_WIDTH,
+                "Height": self.DEVICE_HEIGHT,
+            },
+        )
+        display_payload = self._response_json(display_response)
+
+        self.assertEqual(self._response_status(display_response), 200)
+        self.assertEqual(display_payload, {"status": 202})
+
+    def test_api_display_approved_device_returns_display_payload(self):
+        """A registered and approved device should receive the display payload."""
+        self._set_display_policy(DISPLAY_POLICY_ERROR)
+        registered_device, api_token, setup_payload = self._register_device_through_setup()
+        self.assertEqual(setup_payload["status"], 200)
+
+        fixed_timestamp = dt.datetime(2026, 4, 11, 9, 30, 0)
+        expected_filename = "abilium_test_screen"
+
+        with patch(
+            "odoo.addons.trmnl.models.trmnl_device.TrmnlDevice._utc_now",
+            return_value=fixed_timestamp,
+        ):
             display_response = self.url_open(
                 "/api/display",
-                headers=self._display_headers(api_token),
+                headers=self._display_headers(api_token, registered_device.mac_address),
             )
-
         display_payload = self._response_json(display_response)
 
         self.assertEqual(self._response_status(display_response), 200)
@@ -240,7 +357,54 @@ class TestTrmnlDisplayApi(HttpCase, TrmnlApiHttpCaseMixin):
             display_payload,
             {
                 "status": 0,
-                "image_url": self.DEVICE_IMAGE_URL,
+                "image_url": registered_device.image_url,
+                "filename": expected_filename,
+                "refresh_rate": self.DEVICE_REFRESH_RATE,
+                "special_function": "none",
+                "action": "",
+            },
+        )
+        self.assertEqual(registered_device.display_request_count, 1)
+
+
+@tagged("post_install", "-at_install")
+class TestTrmnlDisplayAutoAcceptPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
+    """Verify the auto-accept policy for `/api/display`."""
+
+    def test_api_display_unknown_device_is_registered_and_token_is_adopted(self):
+        """Unknown devices should be registered by adopting the presented token."""
+        self._set_display_policy(DISPLAY_POLICY_AUTO_ACCEPT)
+
+        fixed_timestamp = dt.datetime(2026, 4, 11, 10, 15, 0)
+        with patch(
+            "odoo.addons.trmnl.models.trmnl_device.TrmnlDevice._utc_now",
+            return_value=fixed_timestamp,
+        ):
+            display_response = self.url_open(
+                "/api/display",
+                headers=self._display_unknown_headers(self.UNKNOWN_DEVICE_TOKEN),
+            )
+        display_payload = self._response_json(display_response)
+
+        self.assertEqual(self._response_status(display_response), 200)
+        self.assertEqual(display_payload["status"], 0)
+
+        adopted_device = self.env["trmnl.device"].sudo().search(
+            [("mac_address", "=", self.UNKNOWN_MAC_ADDRESS)],
+            limit=1,
+        )
+        self.assertTrue(adopted_device)
+        self.assertEqual(adopted_device.approval_state, "approved")
+        self.assertEqual(adopted_device.registration_source, "display")
+        self.assertTrue(adopted_device._verify_api_token(self.UNKNOWN_DEVICE_TOKEN))
+        self.assertEqual(adopted_device.display_request_count, 1)
+
+        expected_filename = "abilium_test_screen"
+        self.assertEqual(
+            display_payload,
+            {
+                "status": 0,
+                "image_url": adopted_device.image_url,
                 "filename": expected_filename,
                 "refresh_rate": self.DEVICE_REFRESH_RATE,
                 "special_function": "none",
@@ -248,74 +412,116 @@ class TestTrmnlDisplayApi(HttpCase, TrmnlApiHttpCaseMixin):
             },
         )
 
-    def test_api_display_unknown_device_returns_202_by_default(self):
-        """An unknown device should receive the default display rejection payload."""
-        display_response = self.url_open(
-            "/api/display",
-            headers={
-                "ID": "11:22:33:44:55:66",
-                "Access-Token": "invalid-token",
-                "Refresh-Rate": str(self.DEVICE_REFRESH_RATE),
-                "Battery-Voltage": self.DEVICE_BATTERY_VOLTAGE,
-                "FW-Version": self.DEVICE_FIRMWARE_VERSION,
-                "RSSI": self.DEVICE_RSSI,
-                "Width": self.DEVICE_WIDTH,
-                "Height": self.DEVICE_HEIGHT,
+        log_response = self._call_json_endpoint(
+            "/api/log",
+            headers=self._log_headers(self.UNKNOWN_DEVICE_TOKEN, self.UNKNOWN_MAC_ADDRESS),
+            payload=self._empty_log_payload(),
+        )
+        self.assertEqual(self._response_status(log_response), 204)
+        self.assertEqual(self._response_text(log_response), "")
+
+    def test_api_display_known_device_with_invalid_token_is_adopted(self):
+        """Known devices with an invalid token should adopt the presented token."""
+        self._set_display_policy(DISPLAY_POLICY_AUTO_ACCEPT)
+        registered_device, api_token, setup_payload = self._register_device_through_setup()
+        self.assertEqual(setup_payload["status"], 200)
+
+        fixed_timestamp = dt.datetime(2026, 4, 11, 11, 45, 0)
+        with patch(
+            "odoo.addons.trmnl.models.trmnl_device.TrmnlDevice._utc_now",
+            return_value=fixed_timestamp,
+        ):
+            display_response = self.url_open(
+                "/api/display",
+                headers=self._display_headers(self.BAD_TOKEN, registered_device.mac_address),
+            )
+        display_payload = self._response_json(display_response)
+
+        self.assertEqual(self._response_status(display_response), 200)
+        self.assertEqual(display_payload["status"], 0)
+        self.assertTrue(registered_device._verify_api_token(self.BAD_TOKEN))
+        self.assertFalse(registered_device._verify_api_token(api_token))
+        self.assertEqual(registered_device.registration_source, "display")
+        self.assertEqual(registered_device.approval_state, "approved")
+        self.assertEqual(registered_device.display_request_count, 1)
+        self.assertEqual(registered_device.invalid_token_count, 0)
+        self.assertEqual(registered_device.display_denied_count, 0)
+
+        expected_filename = "abilium_test_screen"
+        self.assertEqual(
+            display_payload,
+            {
+                "status": 0,
+                "image_url": registered_device.image_url,
+                "filename": expected_filename,
+                "refresh_rate": self.DEVICE_REFRESH_RATE,
+                "special_function": "none",
+                "action": "",
             },
         )
-        display_payload = self._response_json(display_response)
 
-        self.assertEqual(self._response_status(display_response), 200)
-        self.assertEqual(display_payload, {"status": 202})
-
-    def test_api_display_invalid_token_returns_202_by_default(self):
-        """A known device with a bad token should receive the default rejection payload."""
-        _registered_device, api_token, _setup_payload = self._register_device_through_setup()
-
-        display_response = self.url_open(
-            "/api/display",
-            headers=self._display_headers("bad-token"),
+        log_response = self._call_json_endpoint(
+            "/api/log",
+            headers=self._log_headers(self.BAD_TOKEN, registered_device.mac_address),
+            payload=self._log_payload(),
         )
-        display_payload = self._response_json(display_response)
+        self.assertEqual(self._response_status(log_response), 204)
+        self.assertEqual(self._response_text(log_response), "")
 
-        self.assertEqual(self._response_status(display_response), 200)
-        self.assertEqual(display_payload, {"status": 202})
 
-    def test_api_display_unknown_device_can_be_forced_to_500(self):
-        """An unknown device can be configured to force a reset response."""
-        self._set_display_error_status_500()
+@tagged("post_install", "-at_install")
+class TestTrmnlDisplayFactoryResetPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
+    """Verify the one-shot factory-reset policy for `/api/display`."""
 
-        display_response = self.url_open(
+    def test_api_display_unknown_device_triggers_factory_reset_once(self):
+        """The factory-reset policy should emit 500 once and then revert to default."""
+        self._set_display_policy(DISPLAY_POLICY_FACTORY_RESET)
+
+        first_response = self.url_open(
             "/api/display",
-            headers={
-                "ID": "11:22:33:44:55:66",
-                "Access-Token": "invalid-token",
-                "Refresh-Rate": str(self.DEVICE_REFRESH_RATE),
-                "Battery-Voltage": self.DEVICE_BATTERY_VOLTAGE,
-                "FW-Version": self.DEVICE_FIRMWARE_VERSION,
-                "RSSI": self.DEVICE_RSSI,
-                "Width": self.DEVICE_WIDTH,
-                "Height": self.DEVICE_HEIGHT,
-            },
+            headers=self._display_unknown_headers(self.UNKNOWN_DEVICE_TOKEN),
         )
-        display_payload = self._response_json(display_response)
+        first_payload = self._response_json(first_response)
 
-        self.assertEqual(self._response_status(display_response), 200)
-        self.assertEqual(display_payload, {"status": 500})
+        self.assertEqual(self._response_status(first_response), 200)
+        self.assertEqual(first_payload, {"status": 500})
+        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_ERROR)
 
-    def test_api_display_invalid_token_can_be_forced_to_500(self):
-        """A known device can be configured to force a reset response."""
-        registered_device, api_token, _setup_payload = self._register_device_through_setup()
-        self._set_display_error_status_500(registered_device)
-
-        display_response = self.url_open(
+        second_response = self.url_open(
             "/api/display",
-            headers=self._display_headers("bad-token"),
+            headers=self._display_unknown_headers(self.UNKNOWN_DEVICE_TOKEN),
         )
-        display_payload = self._response_json(display_response)
+        second_payload = self._response_json(second_response)
 
-        self.assertEqual(self._response_status(display_response), 200)
-        self.assertEqual(display_payload, {"status": 500})
+        self.assertEqual(self._response_status(second_response), 200)
+        self.assertEqual(second_payload, {"status": 202})
+
+    def test_api_display_known_device_with_invalid_token_triggers_factory_reset_once(self):
+        """Known devices with a bad token should also get the one-shot reset response."""
+        self._set_display_policy(DISPLAY_POLICY_FACTORY_RESET)
+        registered_device, api_token, setup_payload = self._register_device_through_setup()
+        self.assertEqual(setup_payload["status"], 200)
+
+        first_response = self.url_open(
+            "/api/display",
+            headers=self._display_headers(self.BAD_TOKEN, registered_device.mac_address),
+        )
+        first_payload = self._response_json(first_response)
+
+        self.assertEqual(self._response_status(first_response), 200)
+        self.assertEqual(first_payload, {"status": 500})
+        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_ERROR)
+        self.assertEqual(registered_device.display_request_count, 0)
+        self.assertEqual(registered_device.invalid_token_count, 0)
+
+        second_response = self.url_open(
+            "/api/display",
+            headers=self._display_headers(self.BAD_TOKEN, registered_device.mac_address),
+        )
+        second_payload = self._response_json(second_response)
+
+        self.assertEqual(self._response_status(second_response), 200)
+        self.assertEqual(second_payload, {"status": 202})
 
 
 @tagged("post_install", "-at_install")
@@ -324,20 +530,75 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
 
     def test_api_log_success_returns_204_without_body(self):
         """A valid log submission should return HTTP 204 with no response body."""
-        registered_device, api_token, _setup_payload = self._register_device_through_setup()
+        registered_device, api_token, setup_payload = self._register_device_through_setup()
+        self.assertEqual(setup_payload["status"], 200)
 
         log_response = self._call_json_endpoint(
             "/api/log",
-            headers=self._log_headers(api_token),
+            headers=self._log_headers(api_token, registered_device.mac_address),
             payload=self._log_payload(),
         )
 
         self.assertEqual(self._response_status(log_response), 204)
         self.assertEqual(self._response_text(log_response), "")
 
+        log_entry = self.env["trmnl.device.log"].sudo().search(
+            [("device_id", "=", registered_device.id), ("log_id", "=", 1)],
+            limit=1,
+        )
+        self.assertTrue(log_entry)
+        self.assertEqual(log_entry.log_sourcefile, "src/bl.cpp")
+        self.assertFalse(log_entry.log_message)
+        self.assertEqual(registered_device.log_entry_count, 1)
+
+    def test_api_log_empty_payload_returns_204_without_body(self):
+        """An empty log payload should still return HTTP 204."""
+        registered_device, api_token, setup_payload = self._register_device_through_setup()
+        self.assertEqual(setup_payload["status"], 200)
+
+        log_response = self._call_json_endpoint(
+            "/api/log",
+            headers=self._log_headers(api_token, registered_device.mac_address),
+            payload=self._empty_log_payload(),
+        )
+
+        self.assertEqual(self._response_status(log_response), 204)
+        self.assertEqual(self._response_text(log_response), "")
+        self.assertEqual(registered_device.log_entry_count, 0)
+
+    def test_api_log_missing_identity_returns_401_without_body(self):
+        """A log submission without a device identity should return HTTP 401."""
+        registered_device, api_token, setup_payload = self._register_device_through_setup()
+        self.assertEqual(setup_payload["status"], 200)
+
+        log_response = self._call_json_endpoint(
+            "/api/log",
+            headers={
+                "Access-Token": api_token,
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            payload=self._log_payload(),
+        )
+
+        self.assertEqual(self._response_status(log_response), 401)
+        self.assertEqual(self._response_text(log_response), "")
+
+    def test_api_log_unknown_device_returns_401_without_body(self):
+        """A log submission from an unknown device should return HTTP 401."""
+        log_response = self._call_json_endpoint(
+            "/api/log",
+            headers=self._log_headers(self.UNKNOWN_DEVICE_TOKEN, self.UNKNOWN_MAC_ADDRESS),
+            payload=self._log_payload(),
+        )
+
+        self.assertEqual(self._response_status(log_response), 401)
+        self.assertEqual(self._response_text(log_response), "")
+
     def test_api_log_missing_token_returns_401_without_body(self):
         """A log submission without an access token should return HTTP 401."""
-        registered_device, _api_token, _setup_payload = self._register_device_through_setup()
+        registered_device, api_token, setup_payload = self._register_device_through_setup()
+        self.assertEqual(setup_payload["status"], 200)
 
         log_response = self._call_json_endpoint(
             "/api/log",
@@ -354,11 +615,12 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
 
     def test_api_log_invalid_token_returns_401_without_body(self):
         """A log submission with a bad token should return HTTP 401."""
-        _registered_device, _api_token, _setup_payload = self._register_device_through_setup()
+        registered_device, api_token, setup_payload = self._register_device_through_setup()
+        self.assertEqual(setup_payload["status"], 200)
 
         log_response = self._call_json_endpoint(
             "/api/log",
-            headers=self._log_headers("bad-token"),
+            headers=self._log_headers(self.BAD_TOKEN, registered_device.mac_address),
             payload=self._log_payload(),
         )
 

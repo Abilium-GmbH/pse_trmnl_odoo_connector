@@ -13,13 +13,10 @@ class TrmnlDeviceLog(models.Model):
     _rec_name = "name"
     _order = "creation_timestamp desc, id desc"
 
-    _sql_constraints = [
-        (
-            "trmnl_device_log_unique_device_log_id",
-            "UNIQUE(device_id, log_id)",
-            "The same log ID may only be stored once per device.",
-        ),
-    ]
+    _trmnl_device_log_unique_device_log_id = models.Constraint(
+        "UNIQUE(device_id, log_id)",
+        "The same log ID may only be stored once per device.",
+    )
 
     device_id = fields.Many2one(
         comodel_name="trmnl.device",

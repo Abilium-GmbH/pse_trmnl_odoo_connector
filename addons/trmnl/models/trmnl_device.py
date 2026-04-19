@@ -143,7 +143,7 @@ class TrmnlDevice(models.Model):
     firmware_version = fields.Char(string="Firmware Version", readonly=True, copy=False)
     
     filename = fields.Char(
-        string="Image filename",
+        string="Image Filename",
         default=lambda self: self.DEFAULT_FILENAME,
         help="The device only refreshes the displayed image when the filename changes.",
     )
@@ -167,7 +167,7 @@ class TrmnlDevice(models.Model):
     )
 
     battery_voltage = fields.Float(string="Battery Voltage", digits=(16, 3))
-    battery_percentage = fields.Float(
+    battery_percentage = fields.Integer(
         string="Battery Percentage",
         compute="_compute_battery_percentage",
         store=True,
@@ -255,7 +255,7 @@ class TrmnlDevice(models.Model):
             return 100.0
 
         span = self.BATTERY_MAX_VOLTAGE - self.BATTERY_MIN_VOLTAGE
-        return round(((voltage - self.BATTERY_MIN_VOLTAGE) / span) * 100.0, 2)
+        return int(((voltage - self.BATTERY_MIN_VOLTAGE) / span) * 100.0)
 
     @api.model
     def _rssi_to_quality(self, rssi_dbm):

@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="trmnl_device_view_search" model="ir.ui.view">
+        <field name="name">trmnl.device.view.search</field>
+        <field name="model">trmnl.device</field>
+        <field name="arch" type="xml">
+            <search string="TRMNL Devices">
+                <field name="friendly_id"/>
+                <field name="device_name"/>
+                <field name="mac_address"/>
+                <field name="filename"/>
+                <field name="approval_state"/>
+                <field name="registration_source"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="trmnl_device_view_list" model="ir.ui.view">
+        <field name="name">trmnl.device.view.list</field>
+        <field name="model">trmnl.device</field>
+        <field name="arch" type="xml">
+            <list
+                string="Known TRMNL Devices"
+                create="false"
+                edit="false"
+                delete="false"
+                default_order="sequence, friendly_id, id"
+            >
+                <field name="sequence" widget="handle"/>
+                <field name="friendly_id"/>
+                <field name="device_name"/>
+                <field name="filename"/>
+                <field name="ui_status" string="Status"/>
+                <field name="refresh_rate"/>
+                <field name="battery_percentage"/>
+                <field name="rssi_quality" string="Signal Strength"/>
+                <button
+                    name="action_open_device_form"
+                    type="object"
+                    icon="fa-cog"
+                    title="Open device"
+                />
+            </list>
+        </field>
+    </record>
+
+    <record id="trmnl_device_view_form" model="ir.ui.view">
+        <field name="name">trmnl.device.view.form</field>
+        <field name="model">trmnl.device</field>
+        <field name="arch" type="xml">
+            <form string="TRMNL Device">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="device_name" class="oe_edit_only"/>
+                        <h1>
+                            <field
+                                name="device_name"
+                                placeholder="Admin-facing device name"
+                            />
+                        </h1>
+                        <div class="text-muted">
+                            <field name="friendly_id" readonly="1" class="oe_inline"/>
+                            <span> · </span>
+                            <field name="mac_address" readonly="1" class="oe_inline"/>
+                        </div>
+                    </div>
+
+                    <group>
+                        <group string="Configuration">
+                            <field name="image_url"/>
+                            <field
+                                name="refresh_rate"
+                                readonly="1"
+                                help="Read-only until a dedicated refresh-rate setter is implemented. The value is reported in seconds."
+                            />
+                            <field name="filename" readonly="1"/>
+                        </group>
+                        <group string="Telemetry">
+                            <field name="ui_status" readonly="1"/>
+                            <field name="battery_percentage" readonly="1"/>
+                            <field name="rssi_quality" readonly="1"/>
+                            <field name="last_seen_at" readonly="1"/>
+                            <field name="last_display_at" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Logs">
+                            <field name="log_ids" readonly="1" mode="list">
+                                <list create="false" edit="false" delete="false">
+                                    <field name="log_id"/>
+                                    <field name="name"/>
+                                    <field name="creation_timestamp"/>
+                                    <field name="wifi_status"/>
+                                    <field name="refresh_rate"/>
+                                    <field name="battery_voltage"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="trmnl_device_action_known_devices" model="ir.actions.act_window">
+        <field name="name">Known TRMNL Devices</field>
+        <field name="res_model">trmnl.device</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="trmnl_device_view_search"/>
+        <field name="context">{'form_view_initial_mode': 'edit'}</field>
+    </record>
+</odoo>

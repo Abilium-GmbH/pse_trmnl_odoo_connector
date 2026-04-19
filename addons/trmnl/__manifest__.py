@@ -1,14 +1,17 @@
 {
     "name": "TRMNL",
-    "summary": "Module for TRMNL device/profile management",
+    "summary": "Module for TRMNL display management",
     "description": "Manage devices, profiles, and render logs for TRMNL",
     "category": "Productivity / IoT",
     "author": "Abilium GmbH",
     "license": "Other OSI approved licence",
     "version": "1.0.0",
-    "depends": ["base", "calendar"],
+    "depends": ["base",],
     "external_dependencies": {"python": ["Pillow", "requests"]},
     "data": [
-        "security/ir.model.access.csv",
-    ],
+            "security/ir.model.access.csv",
+            "views/trmnl_device_views.xml",
+            "views/trmnl_settings_views.xml",
+            "views/trmnl_menu.xml",
+            ],
 }

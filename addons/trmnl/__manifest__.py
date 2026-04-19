@@ -7,12 +7,8 @@
     "license": "Other OSI approved licence",
     "version": "1.0.0",
     "depends": ["base", "calendar"],
-    "external_dependencies": {"python": ["PIL", "requests"]},
+    "external_dependencies": {"python": ["Pillow", "requests"]},
     "data": [
         "security/ir.model.access.csv",
-        "views/trmnl_device_views.xml",
-        "views/trmnl_profile_views.xml",
-        "views/menus.xml",
-        "data/ir_cron.xml",
     ],
 }

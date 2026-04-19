@@ -29,7 +29,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8069:8069"
+      - "0.0.0.0:8069:8069"
     volumes:
       - ./addons:/mnt/extra-addons:z
       - odoo_data:/var/lib/odoo
@@ -44,8 +44,8 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    command: ["odoo", "--http-interface=0.0.0.0", "--dev=reload,xml"]
 
 volumes:
   postgres_data:
   odoo_data:
-  

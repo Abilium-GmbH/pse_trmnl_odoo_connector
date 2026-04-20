@@ -23,14 +23,14 @@
                 string="Known TRMNL Devices"
                 create="false"
                 edit="false"
-                delete="false"
+                delete="true"
                 default_order="sequence, friendly_id, id"
             >
                 <field name="sequence" widget="handle"/>
                 <field name="friendly_id"/>
                 <field name="device_name"/>
                 <field name="filename"/>
-                <field name="ui_status" string="Status"/>
+                <field name="approval_state" string="Status"/>
                 <field name="refresh_rate"/>
                 <field name="battery_percentage"/>
                 <field name="rssi_quality" string="Signal Strength"/>
@@ -62,6 +62,9 @@
                             <field name="friendly_id" readonly="1" class="oe_inline"/>
                             <span> · </span>
                             <field name="mac_address" readonly="1" class="oe_inline"/>
+                        </div>
+                        <div class="text-muted" style="margin-top: 8px;">
+                            To delete this device, use the actions menu in this view.
                         </div>
                     </div>
 

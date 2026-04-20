@@ -92,8 +92,21 @@ class TrmnlDeviceUiExtension(models.Model):
             "res_id": self.id,
             "view_mode": "form",
             "target": "current",
-            "context": {"form_view_initial_mode": "edit"},
+            "context": {},
         }
         if form_view:
             action["views"] = [(form_view.id, "form")]
         return action
+    
+    def action_delete_device(self):
+        """Method to delete a device from the data base"""
+
+        self.ensure_one()
+        self.unlink()
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Known TRMNL Devices",
+            "res_model": "trmnl.device",
+            "view_mode": "list,form",
+            "target": "current",
+        }

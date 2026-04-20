@@ -83,51 +83,67 @@ class TrmnlApiHttpCaseMixin:
 
     def _log_headers(self, api_token, mac_address=None):
         """Return headers for a TRMNL log request."""
-
         return {
             "ID": mac_address or self.DEVICE_MAC_ADDRESS,
             "Access-Token": api_token,
-            "Accept": "application/json",
+            "Accept": "application/json, */*",
             "Content-Type": "application/json",
         }
 
-    def _log_payload(self, log_message=""):
-        """Return a realistic TRMNL log payload."""
-
-        return {
-            "log": {
-                "logs_array": [
-                    {
-                        "creation_timestamp": 1234567890,
-                        "device_status_stamp": {
-                            "wifi_rssi_level": -69,
-                            "wifi_status": "WL_CONNECTED",
-                            "refresh_rate": self.DEVICE_REFRESH_RATE,
-                            "time_since_last_sleep_start": 12345,
-                            "current_fw_version": self.DEVICE_FIRMWARE_VERSION,
-                            "special_function": "SF_NONE",
-                            "battery_voltage": 4.1,
-                            "wakeup_reason": "TIMER",
-                            "free_heap_size": 123456,
-                            "max_alloc_size": 98765,
-                        },
-                        "log_id": 1,
-                        "log_message": log_message,
-                        "log_codeline": 256,
-                        "log_sourcefile": "src/bl.cpp",
-                        "additional_info": {
-                            "filename_current": "2024-09-20T00:00:00",
-                            "filename_new": "new-image",
-                        },
-                    }
-                ]
+    def _log_entry(
+        self,
+        *,
+        log_id=1,
+        created_at=1745000000,
+        message="Test log message",
+        source_line=123,
+        source_path="src/bl.cpp",
+        wifi_signal=-67,
+        wifi_status="Connected",
+        refresh_rate=None,
+        sleep_duration=145,
+        firmware_version=None,
+        special_function="None",
+        battery_voltage=3.95,
+        wake_reason="Timer",
+        free_heap_size=48320,
+        max_alloc_size=38912,
+        retry=None,
+        ):
+        """Return one TRMNL log entry using the current device contract."""
+        log_entry = {
+            "created_at": created_at,
+            "id": log_id,
+            "message": message,
+            "source_line": source_line,
+            "source_path": source_path,
+            "wifi_signal": wifi_signal,
+            "wifi_status": wifi_status,
+            "refresh_rate": refresh_rate if refresh_rate is not None else self.DEVICE_REFRESH_RATE,
+            "sleep_duration": sleep_duration,
+            "firmware_version": firmware_version if firmware_version is not None else self.DEVICE_FIRMWARE_VERSION,
+            "special_function": special_function,
+            "battery_voltage": battery_voltage,
+            "wake_reason": wake_reason,
+            "free_heap_size": free_heap_size,
+            "max_alloc_size": max_alloc_size,
             }
-        }
+
+        if retry is not None:
+            log_entry["retry"] = retry
+
+        return log_entry
+
+    def _log_payload(self, log_entries=None):
+        """Return a realistic TRMNL log payload."""
+        if log_entries is None:
+            log_entries = [self._log_entry()]
+
+        return {"logs": list(log_entries)}
 
     def _empty_log_payload(self):
         """Return a payload that contains no log entries."""
-
-        return {"log": {"logs_array": []}}
+        return {"logs": []}
 
     def _call_json_endpoint(self, path, headers=None, payload=None):
         """Call an HTTP endpoint and return the raw response object."""

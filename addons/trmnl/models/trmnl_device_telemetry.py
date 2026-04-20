@@ -1,10 +1,6 @@
 """TRMNL device telemetry and log ingestion helpers."""
 
-from __future__ import annotations
-
 from odoo import api, fields, models
-
-from .trmnl_device import DEFAULT_REFRESH_RATE
 
 
 class TrmnlDeviceTelemetryMixin(models.Model):
@@ -27,9 +23,8 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         display_height = self._parse_to_int(headers.get("Height"))
         special_function = self._parse_to_string(headers.get("special_function"))
 
-        values = {
-            "last_seen_at": fields.Datetime.now(),
-        }
+        values = {"last_seen_at": fields.Datetime.now()}
+
         if firmware_version is not False:
             values["firmware_version"] = firmware_version
         if refresh_rate is not False:
@@ -52,7 +47,6 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         """Update counters and timestamps for a successful display response."""
         self.ensure_one()
         now_value = fields.Datetime.now()
-
         self.with_context(trmnl_allow_identity_update=True).write(
             {
                 "last_display_at": now_value,
@@ -66,7 +60,6 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         """Update counters and timestamps for denied device access."""
         self.ensure_one()
         now_value = fields.Datetime.now()
-
         update_values = {
             "last_access_denied_at": now_value,
             "last_seen_at": now_value,
@@ -86,62 +79,64 @@ class TrmnlDeviceTelemetryMixin(models.Model):
 
     @api.model
     def _extract_log_entries(self, payload):
-        """Normalize the nested payload structure returned by the device."""
+        """Return the raw log entries from a TRMNL `/api/log` payload."""
         if not isinstance(payload, dict):
             return []
 
-        log_container = payload.get("log") or {}
-        if not isinstance(log_container, dict):
+        raw_entries = payload.get("logs")
+        if raw_entries is None:
             return []
 
-        entries = log_container.get("logs_array") or []
-        if isinstance(entries, dict):
-            entries = [entries]
+        if isinstance(raw_entries, dict):
+            raw_entries = [raw_entries]
 
-        if not isinstance(entries, list):
+        if not isinstance(raw_entries, list):
             return []
 
-        return [entry for entry in entries if isinstance(entry, dict)]
+        return [raw_entry for raw_entry in raw_entries if isinstance(raw_entry, dict)]
 
     @api.model
     def _prepare_log_values(self, device, entry):
-        """Convert one raw device log entry into create() values."""
-        status_stamp = entry.get("device_status_stamp") or {}
-        additional_info = entry.get("additional_info") or {}
-
-        if not isinstance(status_stamp, dict):
-            status_stamp = {}
-        if not isinstance(additional_info, dict):
-            additional_info = {}
-
-        log_id = self._parse_to_int(entry.get("log_id"))
+        """Convert one raw TRMNL log entry into `create()` values."""
+        log_id = self._parse_to_int(entry.get("id"))
         if log_id is False:
             return False
 
         values = {
             "device_id": device.id,
-            "creation_timestamp": self._parse_to_int(entry.get("creation_timestamp")),
-            "wifi_rssi_level": self._parse_to_int(status_stamp.get("wifi_rssi_level")),
-            "wifi_status": self._parse_to_string(status_stamp.get("wifi_status")),
-            "refresh_rate": self._parse_to_int(status_stamp.get("refresh_rate")),
-            "time_since_last_sleep_start": self._parse_to_int(
-                status_stamp.get("time_since_last_sleep_start")
-            ),
-            "current_fw_version": self._parse_to_string(status_stamp.get("current_fw_version")),
-            "special_function": self._parse_to_string(status_stamp.get("special_function")),
-            "battery_voltage": self._parse_to_float(status_stamp.get("battery_voltage")),
-            "wakeup_reason": self._parse_to_string(status_stamp.get("wakeup_reason")),
-            "free_heap_size": self._parse_to_int(status_stamp.get("free_heap_size")),
-            "max_alloc_size": self._parse_to_int(status_stamp.get("max_alloc_size")),
+            "creation_timestamp": self._parse_to_int(entry.get("created_at")),
+            "wifi_rssi_level": self._parse_to_int(entry.get("wifi_signal")),
+            "wifi_status": self._parse_to_string(entry.get("wifi_status")),
+            "refresh_rate": self._parse_to_int(entry.get("refresh_rate")),
+            "time_since_last_sleep_start": self._parse_to_int(entry.get("sleep_duration")),
+            "current_fw_version": self._parse_to_string(entry.get("firmware_version")),
+            "special_function": self._parse_to_string(entry.get("special_function")),
+            "battery_voltage": self._parse_to_float(entry.get("battery_voltage")),
+            "wakeup_reason": self._parse_to_string(entry.get("wake_reason")),
+            "free_heap_size": self._parse_to_int(entry.get("free_heap_size")),
+            "max_alloc_size": self._parse_to_int(entry.get("max_alloc_size")),
             "log_id": log_id,
-            "log_message": self._parse_to_string(entry.get("log_message")),
-            "log_codeline": self._parse_to_int(entry.get("log_codeline")),
-            "log_sourcefile": self._parse_to_string(entry.get("log_sourcefile")),
-            "filename_current": self._parse_to_string(additional_info.get("filename_current")),
-            "filename_new": self._parse_to_string(additional_info.get("filename_new")),
+            "log_message": self._parse_to_string(entry.get("message")),
+            "log_codeline": self._parse_to_int(entry.get("source_line")),
+            "log_sourcefile": self._parse_to_string(entry.get("source_path")),
+            "retry_attempt": self._parse_to_int(entry.get("retry")),
         }
 
         return {field_name: value for field_name, value in values.items() if value is not False}
+
+    @api.model
+    def _update_log_activity(self, device, created_count=0):
+        """Touch the device after a log submission and update counters."""
+        now_value = fields.Datetime.now()
+        update_values = {
+            "last_log_at": now_value,
+            "last_seen_at": now_value,
+        }
+
+        if created_count:
+            update_values["log_entry_count"] = (device.log_entry_count or 0) + created_count
+
+        device.with_context(trmnl_allow_identity_update=True).write(update_values)
 
     @api.model
     def ingest_logs_from_payload(self, headers, payload):
@@ -156,41 +151,28 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         if not device or device.approval_state != "approved":
             return 0, "unauthorized"
 
-        entries = self._extract_log_entries(payload)
-        if not entries:
-            now_value = fields.Datetime.now()
-            device.with_context(trmnl_allow_identity_update=True).write(
-                {
-                    "last_log_at": now_value,
-                    "last_seen_at": now_value,
-                }
-            )
+        raw_entries = self._extract_log_entries(payload)
+        if not raw_entries:
+            self._update_log_activity(device)
             return 0, "empty"
 
         log_model = self.env["trmnl.device.log"].sudo()
         created_count = 0
 
-        for entry in entries:
-            values = self._prepare_log_values(device, entry)
-            if not values:
+        for raw_entry in raw_entries:
+            log_values = self._prepare_log_values(device, raw_entry)
+            if not log_values:
                 continue
 
             existing_log = log_model.search(
-                [("device_id", "=", device.id), ("log_id", "=", values["log_id"])],
+                [("device_id", "=", device.id), ("log_id", "=", log_values["log_id"])],
                 limit=1,
             )
             if existing_log:
                 continue
 
-            log_model.create(values)
+            log_model.create(log_values)
             created_count += 1
 
-        now_value = fields.Datetime.now()
-        device.with_context(trmnl_allow_identity_update=True).write(
-            {
-                "last_log_at": now_value,
-                "last_seen_at": now_value,
-                "log_entry_count": (device.log_entry_count or 0) + created_count,
-            }
-        )
+        self._update_log_activity(device, created_count)
         return created_count, "stored" if created_count else "ignored"

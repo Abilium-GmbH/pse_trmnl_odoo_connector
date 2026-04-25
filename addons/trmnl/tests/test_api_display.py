@@ -363,7 +363,6 @@ class TestTrmnlDisplayFactoryResetPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
 
         setup_context = self._register_device_through_setup()
         registered_device = setup_context["device"]
-        api_token = setup_context["api_token"]
 
         first_response = self.url_open(
             "/api/display",

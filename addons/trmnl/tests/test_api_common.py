@@ -81,6 +81,12 @@ class TrmnlApiHttpCaseMixin:
             "Height": self.DEVICE_HEIGHT,
         }
 
+    def _display_headers_with_rate(self, token, mac, refresh_rate):
+        """Return display request headers with the device-reported refresh rate."""
+        headers = self._display_headers(token, mac)
+        headers["Refresh-Rate"] = str(refresh_rate)
+        return headers
+
     def _log_headers(self, api_token, mac_address=None):
         """Return headers for a TRMNL log request."""
         return {
@@ -220,8 +226,14 @@ class TrmnlApiHttpCaseMixin:
 
         return self._display_headers(api_token, mac_address or self.UNKNOWN_MAC_ADDRESS)
 
+
     def _assert_display_success_payload(self, display_payload, image_url):
-        """Assert the standard successful `/api/display` payload."""
+        """Assert the standard successful ``/api/display`` payload.
+
+        ``refresh_rate`` in the response reflects the server-configured
+        ``desired_refresh_rate``, which defaults to ``DEFAULT_REFRESH_RATE``
+        (1800 s) for freshly registered devices — matching ``DEVICE_REFRESH_RATE``.
+        """
 
         expected_keys = {"status", "image_url", "filename", "refresh_rate", "special_function", "action"}
         self.assertEqual(set(display_payload.keys()), expected_keys)

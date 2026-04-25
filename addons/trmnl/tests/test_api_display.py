@@ -1,9 +1,14 @@
-"""Tests for the TRMNL `/api/display` endpoint."""
+"""Tests for the TRMNL ``/api/display`` endpoint."""
 
 import datetime as dt
 from unittest.mock import patch
 
 from odoo.tests import HttpCase, tagged
+
+from odoo.addons.trmnl.models.trmnl_device import (
+    DEFAULT_REFRESH_RATE,
+    REFRESH_RATE_UNIT_SECONDS,
+)
 
 from .test_api_common import (
     DISPLAY_POLICY_AUTO_ACCEPT,
@@ -15,7 +20,7 @@ from .test_api_common import (
 
 @tagged("-at_install", "post_install")
 class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
-    """Verify the default error policy for `/api/display`."""
+    """Verify the default error policy for ``/api/display``."""
 
     def test_api_display_unknown_device_returns_202_by_default(self):
         """Unknown devices should receive the default display rejection payload."""
@@ -127,10 +132,110 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         self._assert_display_success_payload(display_payload, refreshed_device.image_url)
         self.assertEqual(refreshed_device.display_request_count, 1)
 
+    def test_api_display_returns_desired_refresh_rate_not_reported_rate(self):
+        """The display response must carry the admin-set rate, not the device-reported rate.
+
+        This test wires up a scenario where the two values differ to make the
+        distinction unambiguous: the device header reports a rate of 60 s,
+        but the admin has configured 900 s.  The response must contain 900 s.
+        """
+        self._set_display_policy(DISPLAY_POLICY_ERROR)
+
+        setup_context = self._register_device_through_setup()
+        registered_device = setup_context["device"]
+        api_token = setup_context["api_token"]
+
+        admin_desired_rate = 900
+        registered_device.write({"desired_refresh_rate": admin_desired_rate})
+
+        device_reported_rate = 60
+        display_response = self.url_open(
+            "/api/display",
+            headers=self._display_headers_with_rate(
+                api_token,
+                registered_device.mac_address,
+                device_reported_rate,
+            ),
+        )
+        display_payload = self._response_json(display_response)
+
+        self.assertEqual(self._response_status(display_response), 200)
+        self.assertEqual(display_payload["refresh_rate"], admin_desired_rate)
+
+        refreshed_device = self.env["trmnl.device"].sudo().search(
+            [("mac_address", "=", registered_device.mac_address)],
+            limit=1,
+        )
+        # Telemetry field must capture what the device reported, not the desired rate.
+        self.assertEqual(refreshed_device.refresh_rate, device_reported_rate)
+        self.assertEqual(refreshed_device.desired_refresh_rate, admin_desired_rate)
+
+    def test_api_display_desired_refresh_rate_update_takes_effect_immediately(self):
+        """Changing ``desired_refresh_rate`` between polls must be reflected in the next response."""
+        self._set_display_policy(DISPLAY_POLICY_ERROR)
+
+        setup_context = self._register_device_through_setup()
+        registered_device = setup_context["device"]
+        api_token = setup_context["api_token"]
+
+        first_response = self.url_open(
+            "/api/display",
+            headers=self._display_headers(api_token, registered_device.mac_address),
+        )
+        first_payload = self._response_json(first_response)
+        self.assertEqual(first_payload["refresh_rate"], DEFAULT_REFRESH_RATE)
+
+        new_rate = 4 * REFRESH_RATE_UNIT_SECONDS["hours"]
+        registered_device.write({"desired_refresh_rate": new_rate})
+
+        second_response = self.url_open(
+            "/api/display",
+            headers=self._display_headers(api_token, registered_device.mac_address),
+        )
+        second_payload = self._response_json(second_response)
+        self.assertEqual(second_payload["refresh_rate"], new_rate)
+
+    def test_api_display_device_reported_rate_does_not_overwrite_desired_rate(self):
+        """A display poll must not clobber the admin-configured desired refresh rate.
+
+        After the admin sets a desired rate, the device performs a poll that
+        reports a *different* rate via the Refresh-Rate header.  The desired
+        rate must remain unchanged after the poll.
+        """
+        self._set_display_policy(DISPLAY_POLICY_ERROR)
+
+        setup_context = self._register_device_through_setup()
+        registered_device = setup_context["device"]
+        api_token = setup_context["api_token"]
+
+        admin_desired_rate = 2 * REFRESH_RATE_UNIT_SECONDS["hours"]
+        registered_device.write({"desired_refresh_rate": admin_desired_rate})
+
+        device_reported_rate = DEFAULT_REFRESH_RATE
+        self.url_open(
+            "/api/display",
+            headers=self._display_headers_with_rate(
+                api_token,
+                registered_device.mac_address,
+                device_reported_rate,
+            ),
+        )
+
+        refreshed_device = self.env["trmnl.device"].sudo().search(
+            [("mac_address", "=", registered_device.mac_address)],
+            limit=1,
+        )
+        self.assertEqual(
+            refreshed_device.desired_refresh_rate,
+            admin_desired_rate,
+            "A device poll must never overwrite the admin-configured desired refresh rate.",
+        )
+        self.assertEqual(refreshed_device.refresh_rate, device_reported_rate)
+
 
 @tagged("-at_install", "post_install")
 class TestTrmnlDisplayAutoAcceptPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
-    """Verify the auto-accept policy for `/api/display`."""
+    """Verify the auto-accept policy for ``/api/display``."""
 
     def test_api_display_unknown_device_is_registered_and_token_is_adopted(self):
         """Unknown devices should be registered by adopting the presented token."""
@@ -225,7 +330,7 @@ class TestTrmnlDisplayAutoAcceptPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
 
 @tagged("-at_install", "post_install")
 class TestTrmnlDisplayFactoryResetPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
-    """Verify the one-shot factory-reset policy for `/api/display`."""
+    """Verify the one-shot factory-reset policy for ``/api/display``."""
 
     def test_api_display_unknown_device_triggers_factory_reset_once(self):
         """The factory-reset policy should emit 500 once and then revert to default."""

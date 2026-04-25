@@ -23,9 +23,27 @@ DISPLAY_POLICY_SELECTION = [
     (DISPLAY_POLICY_FACTORY_RESET, "Trigger factory reset once"),
 ]
 
+REFRESH_RATE_UNIT_SECONDS: dict[str, int] = {
+    "minutes": 60,
+    "hours": 3_600,
+    "days": 86_400,
+    "weeks": 604_800,       # 7-day week
+    "months": 2_592_000,    # 30-day month
+    "years": 31_536_000,    # 365-day year
+}
+
+# 1 minute lower bound; 10 years upper bound
+REFRESH_RATE_MIN_SECONDS: int = 60
+REFRESH_RATE_MAX_SECONDS: int = 10 * REFRESH_RATE_UNIT_SECONDS["years"]
+
 
 class TrmnlDevice(models.Model):
-    """Represent a TRMNL e-ink display and its server-side state."""
+    """Represent a TRMNL e-ink display and its server-side state.
+
+    Identity fields (mac_address, friendly_id) are write-protected after
+    creation and may only be mutated via the ``trmnl_allow_identity_update``
+    context flag.
+    """
 
     _name = "trmnl.device"
     _description = "TRMNL E-ink display device"
@@ -47,9 +65,9 @@ class TrmnlDevice(models.Model):
         "https://sampleimg.com/800x480?bg=000000&fg=ffffff&text=Abilium&format=png"
     )
 
-    ##################################################
+    # ------------------------------------------------------------------
     # identity
-    ##################################################
+    # ------------------------------------------------------------------
 
     friendly_id = fields.Char(
         string="Friendly ID",
@@ -83,9 +101,9 @@ class TrmnlDevice(models.Model):
         help="Random salt used to derive the API token hash.",
     )
 
-    ##################################################
+    # ------------------------------------------------------------------
     # lifecycle
-    ##################################################
+    # ------------------------------------------------------------------
 
     approval_state = fields.Selection(
         selection=[
@@ -136,11 +154,9 @@ class TrmnlDevice(models.Model):
     invalid_token_count = fields.Integer(string="Invalid Token Count", readonly=True, copy=False)
     display_denied_count = fields.Integer(string="Display Denied Count", readonly=True, copy=False)
 
-    ##################################################
-    # device telemetry
-    ##################################################
-
-    firmware_version = fields.Char(string="Firmware Version", readonly=True, copy=False)
+    # ------------------------------------------------------------------
+    # device configuration (server → device)
+    # ------------------------------------------------------------------
 
     filename = fields.Char(
         string="Image Filename",
@@ -160,10 +176,54 @@ class TrmnlDevice(models.Model):
         help="Action returned to the display on the next poll.",
     )
 
-    refresh_rate = fields.Integer(
-        string="Refresh Rate",
+    desired_refresh_rate = fields.Integer(
+        string="Desired Refresh Rate (s)",
         default=DEFAULT_REFRESH_RATE,
-        help="Refresh rate reported by the device.",
+        required=True,
+        copy=True,
+        help=(
+            "Refresh interval in seconds that the server sends to the device on "
+            "the next /api/display response. Must be between "
+            f"{REFRESH_RATE_MIN_SECONDS} s (1 min) and "
+            f"{REFRESH_RATE_MAX_SECONDS} s (10 years)."
+        ),
+    )
+
+    desired_refresh_rate_value = fields.Integer(
+        string="Refresh Rate",
+        compute="_compute_desired_refresh_rate_display",
+        inverse="_inverse_desired_refresh_rate_display",
+        store=False,
+        help="Refresh rate expressed in the selected unit.",
+    )
+
+    desired_refresh_rate_unit = fields.Selection(
+        string="Unit",
+        selection=[
+            ("minutes", "Minutes"),
+            ("hours", "Hours"),
+            ("days", "Days"),
+            ("weeks", "Weeks"),
+            ("months", "Months"),
+            ("years", "Years"),
+        ],
+        compute="_compute_desired_refresh_rate_display",
+        inverse="_inverse_desired_refresh_rate_display",
+        store=False,
+        help="Unit used to express the desired refresh rate in the UI.",
+    )
+
+    # ------------------------------------------------------------------
+    # device telemetry (device → server, read-only)
+    # ------------------------------------------------------------------
+
+    firmware_version = fields.Char(string="Firmware Version", readonly=True, copy=False)
+
+    refresh_rate = fields.Integer(
+        string="Last Reported Refresh Rate (s)",
+        readonly=True,
+        copy=False,
+        help="Refresh rate last reported by the device in its display poll headers.",
     )
 
     battery_voltage = fields.Float(string="Battery Voltage", digits=(16, 3))
@@ -193,6 +253,10 @@ class TrmnlDevice(models.Model):
     display_height = fields.Integer(string="Display Height")
     special_function = fields.Char(string="Special Function", default="none")
     wifi_status = fields.Char(string="Wi-Fi Status")
+
+    # ------------------------------------------------------------------
+    # ORM overrides
+    # ------------------------------------------------------------------
 
     @api.model_create_multi
     def create(self, values_list):
@@ -226,6 +290,27 @@ class TrmnlDevice(models.Model):
 
         return super().write(values)
 
+    # ------------------------------------------------------------------
+    # constraints
+    # ------------------------------------------------------------------
+
+    @api.constrains("desired_refresh_rate")
+    def _check_desired_refresh_rate_bounds(self):
+        """Enforce the 1-minute lower and 10-year upper bounds."""
+        for device in self:
+            if device.desired_refresh_rate < REFRESH_RATE_MIN_SECONDS:
+                raise ValidationError(
+                    f"Refresh rate must be at least {REFRESH_RATE_MIN_SECONDS} seconds (1 minute)."
+                )
+            if device.desired_refresh_rate > REFRESH_RATE_MAX_SECONDS:
+                raise ValidationError(
+                    f"Refresh rate must not exceed {REFRESH_RATE_MAX_SECONDS} seconds (10 years)."
+                )
+
+    # ------------------------------------------------------------------
+    # computed fields
+    # ------------------------------------------------------------------
+
     @api.depends("battery_voltage")
     def _compute_battery_percentage(self):
         """Compute battery charge as a percentage of the configured voltage window."""
@@ -238,9 +323,52 @@ class TrmnlDevice(models.Model):
         for device in self:
             device.rssi_quality = device._rssi_to_quality(device.rssi_dbm)
 
-    ##################################################
+    @api.depends("desired_refresh_rate")
+    def _compute_desired_refresh_rate_display(self):
+        """Decompose ``desired_refresh_rate`` (seconds) into a value/unit pair.
+
+        The largest unit that divides evenly into the stored seconds is chosen
+        so that the UI shows the most human-readable representation, e.g.
+        3600 seconds → 1 hour, 7200 seconds → 2 hours, 300 seconds → 5 minutes.
+
+        Months are defined as 30 days (2 592 000 seconds) and years as 365 days
+        (31 536 000 seconds). Because a month is shorter than a year, the ordered
+        probe list checks years before months so that exact multiples of a
+        year are not misclassified as months etc.
+        """
+        ordered_units = tuple(
+            sorted(
+                REFRESH_RATE_UNIT_SECONDS,
+                key=REFRESH_RATE_UNIT_SECONDS.get,
+                reverse=True,
+            )
+        )
+        for device in self:
+            raw_seconds = device.desired_refresh_rate or DEFAULT_REFRESH_RATE
+            chosen_unit = "minutes"
+            chosen_value = max(1, raw_seconds // REFRESH_RATE_UNIT_SECONDS["minutes"])
+
+            for unit in ordered_units:
+                unit_seconds = REFRESH_RATE_UNIT_SECONDS[unit]
+                if raw_seconds >= unit_seconds and raw_seconds % unit_seconds == 0:
+                    chosen_unit = unit
+                    chosen_value = raw_seconds // unit_seconds
+                    break
+
+            device.desired_refresh_rate_value = chosen_value
+            device.desired_refresh_rate_unit = chosen_unit
+
+    def _inverse_desired_refresh_rate_display(self):
+        """Convert the UI value/unit pair back into ``desired_refresh_rate`` seconds."""
+        for device in self:
+            unit = device.desired_refresh_rate_unit or "minutes"
+            value = device.desired_refresh_rate_value or 1
+            unit_seconds = REFRESH_RATE_UNIT_SECONDS.get(unit, REFRESH_RATE_UNIT_SECONDS["minutes"])
+            device.desired_refresh_rate = value * unit_seconds
+
+    # ------------------------------------------------------------------
     # helpers
-    ##################################################
+    # ------------------------------------------------------------------
 
     @api.model
     def _voltage_to_percentage(self, voltage):

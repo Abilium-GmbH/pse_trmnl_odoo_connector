@@ -31,7 +31,8 @@
                 <field name="device_name"/>
                 <field name="filename"/>
                 <field name="approval_state" string="Status"/>
-                <field name="refresh_rate_minutes" string="Refresh Rate (min)"/>
+                <field name="desired_refresh_rate_value" string="Refresh Rate"/>
+                <field name="desired_refresh_rate_unit" string="Unit"/>
                 <field name="battery_percentage"/>
                 <field name="rssi_quality" string="Signal Strength"/>
                 <button
@@ -84,18 +85,27 @@
                     <group>
                         <group string="Configuration">
                             <field name="image_url"/>
-                            <field
-                                name="refresh_rate_minutes"
-                                string="Refresh Rate (min)"
-                                readonly="1"
-                                help="Refresh rate reported by the device, displayed in minutes."
-                            />
+                            <label for="desired_refresh_rate_value" string="Refresh Rate"/>
+                            <div class="o_field_widget">
+                                <field
+                                    name="desired_refresh_rate_value"
+                                    class="oe_inline"
+                                    style="width: 80px;"
+                                />
+                                <field
+                                    name="desired_refresh_rate_unit"
+                                    widget="select"
+                                    class="oe_inline"
+                                    style="margin-left: 8px;"
+                                />
+                            </div>
                             <field name="filename" readonly="1"/>
                         </group>
                         <group string="Telemetry">
                             <field name="ui_status" readonly="1"/>
                             <field name="battery_percentage" readonly="1"/>
                             <field name="rssi_quality" readonly="1"/>
+                            <field name="last_reported_refresh_rate_minutes" readonly="1" string="Last Reported Refresh Rate (min)"/>
                             <field name="last_seen_at" readonly="1"/>
                             <field name="last_display_at" readonly="1"/>
                         </group>

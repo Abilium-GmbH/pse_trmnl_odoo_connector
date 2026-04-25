@@ -4,17 +4,28 @@ from odoo import api, fields, models
 
 
 class TrmnlDeviceTelemetryMixin(models.Model):
-    """Extend TRMNL devices with telemetry capture and log ingestion helpers."""
+    """Extend TRMNL devices with telemetry capture and log ingestion helpers.
+
+    Telemetry written here reflects what the device *reported* and is always
+    stored in read-only fields.  The admin-configurable ``desired_refresh_rate``
+    field is intentionally left untouched so that the server can command a
+    different interval without the device overwriting it on the next poll.
+    """
 
     _inherit = "trmnl.device"
 
-    ##################################################
+    # ------------------------------------------------------------------
     # display telemetry
-    ##################################################
+    # ------------------------------------------------------------------
 
     @api.model
     def _apply_display_telemetry(self, headers):
-        """Persist the latest telemetry snapshot reported by a display poll."""
+        """Persist the latest telemetry snapshot reported by a display poll.
+
+        Only ``refresh_rate`` (the device-reported value) is updated here.
+        ``desired_refresh_rate`` (the admin-configured command) is never
+        overwritten by incoming telemetry.
+        """
         firmware_version = self._parse_to_string(headers.get("FW-Version"))
         refresh_rate = self._parse_to_int(headers.get("Refresh-Rate"))
         battery_voltage = self._parse_to_float(headers.get("Battery-Voltage"))
@@ -73,13 +84,13 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         self.with_context(trmnl_allow_identity_update=True).write(update_values)
         return self
 
-    ##################################################
+    # ------------------------------------------------------------------
     # log ingestion
-    ##################################################
+    # ------------------------------------------------------------------
 
     @api.model
     def _extract_log_entries(self, payload):
-        """Return the raw log entries from a TRMNL `/api/log` payload."""
+        """Return the raw log entries from a TRMNL ``/api/log`` payload."""
         if not isinstance(payload, dict):
             return []
 
@@ -97,7 +108,7 @@ class TrmnlDeviceTelemetryMixin(models.Model):
 
     @api.model
     def _prepare_log_values(self, device, entry):
-        """Convert one raw TRMNL log entry into `create()` values."""
+        """Convert one raw TRMNL log entry into ``create()`` values."""
         log_id = self._parse_to_int(entry.get("id"))
         if log_id is False:
             return False

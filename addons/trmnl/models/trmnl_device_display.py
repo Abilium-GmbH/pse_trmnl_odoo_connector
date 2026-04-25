@@ -13,13 +13,19 @@ from .trmnl_device import (
 
 
 class TrmnlDeviceDisplayMixin(models.Model):
-    """Extend TRMNL devices with display request resolution helpers."""
+    """Extend TRMNL devices with display request resolution helpers.
+
+    Response builders read ``desired_refresh_rate`` (the admin-configured
+    value) rather than the telemetry field ``refresh_rate`` (the value last
+    reported by the device), so the server can command a new interval
+    independently of what the device currently uses.
+    """
 
     _inherit = "trmnl.device"
 
-    ##################################################
+    # ------------------------------------------------------------------
     # responses
-    ##################################################
+    # ------------------------------------------------------------------
 
     def build_display_error_response(self, status=None):
         """Build the payload returned when a display request cannot be served."""
@@ -35,14 +41,14 @@ class TrmnlDeviceDisplayMixin(models.Model):
             "status": 0,
             "filename": self.filename or "",
             "image_url": self.image_url or "",
-            "refresh_rate": self.refresh_rate or DEFAULT_REFRESH_RATE,
+            "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
             "special_function": self.special_function or "none",
             "action": self.display_action or "",
         }
 
-    ##################################################
+    # ------------------------------------------------------------------
     # request resolution
-    ##################################################
+    # ------------------------------------------------------------------
 
     @api.model
     def resolve_display_request(self, headers):

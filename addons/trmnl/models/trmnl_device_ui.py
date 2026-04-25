@@ -10,7 +10,8 @@ class TrmnlDeviceUiExtension(models.Model):
 
     Provides sequence-based manual ordering, an admin-facing device name,
     a read-only log relation, a placeholder status indicator, and a
-    display-only refresh-rate field expressed in minutes.
+    display-only field that shows the last refresh rate reported by the
+    device converted to minutes.
     """
 
     _inherit = "trmnl.device"
@@ -47,12 +48,12 @@ class TrmnlDeviceUiExtension(models.Model):
             "Replace this with a heartbeat-based implementation later."
         ),
     )
-    refresh_rate_minutes = fields.Integer(
-        string="Refresh Rate (min)",
-        compute="_compute_refresh_rate_minutes",
+    last_reported_refresh_rate_minutes = fields.Integer(
+        string="Last Reported Refresh Rate (min)",
+        compute="_compute_last_reported_refresh_rate_minutes",
         readonly=True,
         store=False,
-        help="Display-only conversion of the refresh rate from seconds to minutes.",
+        help="Refresh rate last reported by the device, displayed in minutes.",
     )
 
     @api.model
@@ -70,11 +71,11 @@ class TrmnlDeviceUiExtension(models.Model):
             device.ui_status = "Status pending implementation"
 
     @api.depends("refresh_rate")
-    def _compute_refresh_rate_minutes(self):
-        """Convert the stored refresh rate from seconds to minutes for display."""
+    def _compute_last_reported_refresh_rate_minutes(self):
+        """Convert the device-reported refresh rate from seconds to minutes."""
         for device in self:
             raw_seconds = device.refresh_rate or 0
-            device.refresh_rate_minutes = int(raw_seconds / 60.0)
+            device.last_reported_refresh_rate_minutes = int(raw_seconds / 60.0)
 
     @api.model_create_multi
     def create(self, values_list):

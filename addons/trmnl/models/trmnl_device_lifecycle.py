@@ -17,9 +17,9 @@ class TrmnlDeviceLifecycleMixin(models.Model):
 
     _inherit = "trmnl.device"
 
-    ##################################################
+    # ------------------------------------------------------------------
     # display policy
-    ##################################################
+    # ------------------------------------------------------------------
 
     @api.model
     def _get_display_request_policy(self):
@@ -61,9 +61,9 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         if current_policy == DISPLAY_POLICY_FACTORY_RESET:
             self._set_display_request_policy(DISPLAY_POLICY_ERROR)
 
-    ##################################################
+    # ------------------------------------------------------------------
     # setup
-    ##################################################
+    # ------------------------------------------------------------------
 
     @api.model
     def upsert_from_setup_headers(self, headers):
@@ -98,9 +98,9 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         device = self.sudo().create(create_values)
         return device, raw_token, "created"
 
-    ##################################################
+    # ------------------------------------------------------------------
     # display registration
-    ##################################################
+    # ------------------------------------------------------------------
 
     @api.model
     def register_or_adopt_from_display_headers(self, headers, api_token):

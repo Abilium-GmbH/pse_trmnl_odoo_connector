@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ══════════════════════════════════════════════════
+         Delete wizard
+    ══════════════════════════════════════════════════ -->
+
+    <record id="trmnl_device_delete_wizard_view_form" model="ir.ui.view">
+        <field name="name">trmnl.device.delete.wizard.view.form</field>
+        <field name="model">trmnl.device.delete.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Remove Device">
+                <sheet>
+                    <div class="o_form_view_container">
+                        <h3>Remove device "<field name="device_display_name" readonly="1" class="oe_inline"/>"?</h3>
+
+                        <p>
+                            Removing a device deletes its record from the system.
+                            <strong>The physical device will keep trying to reach this server</strong>.
+                        </p>
+                        <p>
+                            If you no longer need this device, use
+                            <strong>Reset &amp; Remove</strong> instead. This will send a
+                            factory-reset signal on the next display poll so the device wipes its
+                            stored Wi-Fi credentials and stops contacting the server.
+                        </p>
+                    </div>
+                </sheet>
+
+                <footer>
+                    <button
+                        name="action_reset_and_remove"
+                        string="Reset &amp; Remove"
+                        type="object"
+                        class="btn-danger"
+                    />
+                    <button
+                        name="action_remove"
+                        string="Remove"
+                        type="object"
+                        class="btn-secondary"
+                    />
+                    <button
+                        string="Cancel"
+                        class="btn-secondary"
+                        special="cancel"
+                    />
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         Reset wizard
+    ══════════════════════════════════════════════════ -->
+
+    <record id="trmnl_device_reset_wizard_view_form" model="ir.ui.view">
+        <field name="name">trmnl.device.reset.wizard.view.form</field>
+        <field name="model">trmnl.device.reset.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Reset Device">
+                <sheet>
+                    <div class="o_form_view_container">
+                        <h3>Reset device "<field name="device_display_name" readonly="1" class="oe_inline"/>"?</h3>
+                        <p>
+                            Resetting a device will:
+                        </p>
+                        <ul>
+                            <li>Send a factory-reset signal on the device's next display poll.</li>
+                            <li>Cause the device to <strong>disconnect from the network</strong> and
+                                <strong>delete its stored Wi-Fi password</strong>.</li>
+                            <li><strong>Remove the device record</strong> from this system.</li>
+                        </ul>
+                        <p>
+                            After that the device must be paired again from scratch.
+                        </p>
+                    </div>
+                </sheet>
+
+                <footer>
+                    <button
+                        name="action_reset"
+                        string="Reset"
+                        type="object"
+                        class="btn-danger"
+                    />
+                    <button
+                        string="Cancel"
+                        class="btn-secondary"
+                        special="cancel"
+                    />
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

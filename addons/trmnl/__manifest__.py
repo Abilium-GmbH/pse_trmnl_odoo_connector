@@ -11,6 +11,7 @@
     "data": [
             "security/ir.model.access.csv",
             "views/trmnl_device_views.xml",
+            "views/trmnl_device_wizard_views.xml",
             "views/trmnl_settings_views.xml",
             "views/trmnl_menu.xml",
             ],

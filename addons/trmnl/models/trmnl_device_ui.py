@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from odoo import api, fields, models
+from odoo import _, api, fields, models
 
 
 class TrmnlDeviceUiExtension(models.Model):
-    """Add backend management fields and actions for TRMNL devices."""
+    """Add backend management fields and actions for TRMNL devices.
+
+    Provides sequence-based manual ordering, an admin-facing device name,
+    a read-only log relation, a placeholder status indicator, and a
+    display-only refresh-rate field expressed in minutes.
+    """
 
     _inherit = "trmnl.device"
     _order = "sequence, friendly_id, id"
@@ -42,11 +47,17 @@ class TrmnlDeviceUiExtension(models.Model):
             "Replace this with a heartbeat-based implementation later."
         ),
     )
+    refresh_rate_minutes = fields.Integer(
+        string="Refresh Rate (min)",
+        compute="_compute_refresh_rate_minutes",
+        readonly=True,
+        store=False,
+        help="Display-only conversion of the refresh rate from seconds to minutes.",
+    )
 
     @api.model
     def _next_sequence_value(self):
         """Return the next manual sort position for a new device."""
-
         highest_sequence_device = self.sudo().search(
             [], order="sequence desc, id desc", limit=1
         )
@@ -55,14 +66,19 @@ class TrmnlDeviceUiExtension(models.Model):
     @api.depends()
     def _compute_ui_status(self):
         """Provide the current placeholder status text."""
-
         for device in self:
             device.ui_status = "Status pending implementation"
+
+    @api.depends("refresh_rate")
+    def _compute_refresh_rate_minutes(self):
+        """Convert the stored refresh rate from seconds to minutes for display."""
+        for device in self:
+            raw_seconds = device.refresh_rate or 0
+            device.refresh_rate_minutes = int(raw_seconds / 60.0)
 
     @api.model_create_multi
     def create(self, values_list):
         """Assign a stable sequence when one is not provided."""
-
         next_sequence_value = self._next_sequence_value()
         normalized_values_list = []
 
@@ -79,7 +95,6 @@ class TrmnlDeviceUiExtension(models.Model):
 
     def action_open_device_form(self):
         """Open the current device in its editable form view."""
-
         self.ensure_one()
 
         form_view = self.env.ref(
@@ -97,16 +112,35 @@ class TrmnlDeviceUiExtension(models.Model):
         if form_view:
             action["views"] = [(form_view.id, "form")]
         return action
-    
-    def action_delete_device(self):
-        """Method to delete a device from the data base"""
 
+    def action_open_delete_wizard(self):
+        """Open the delete-confirmation wizard for this device."""
         self.ensure_one()
-        self.unlink()
+        wizard = self.env["trmnl.device.delete.wizard"].create(
+            {"device_id": self.id}
+        )
         return {
             "type": "ir.actions.act_window",
-            "name": "Known TRMNL Devices",
-            "res_model": "trmnl.device",
-            "view_mode": "list,form",
-            "target": "current",
+            "name": _("Remove Device"),
+            "res_model": "trmnl.device.delete.wizard",
+            "res_id": wizard.id,
+            "view_mode": "form",
+            "target": "new",
+            "context": {"dialog_size": "medium"},
+        }
+
+    def action_open_reset_wizard(self):
+        """Open the factory-reset confirmation wizard for this device."""
+        self.ensure_one()
+        wizard = self.env["trmnl.device.reset.wizard"].create(
+            {"device_id": self.id}
+        )
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Reset Device"),
+            "res_model": "trmnl.device.reset.wizard",
+            "res_id": wizard.id,
+            "view_mode": "form",
+            "target": "new",
+            "context": {"dialog_size": "medium"},
         }

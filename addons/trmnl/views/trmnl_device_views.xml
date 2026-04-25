@@ -20,7 +20,7 @@
         <field name="model">trmnl.device</field>
         <field name="arch" type="xml">
             <list
-                string="Known TRMNL Devices"
+                string="Devices"
                 create="false"
                 edit="false"
                 delete="true"
@@ -31,7 +31,7 @@
                 <field name="device_name"/>
                 <field name="filename"/>
                 <field name="approval_state" string="Status"/>
-                <field name="refresh_rate"/>
+                <field name="refresh_rate_minutes" string="Refresh Rate (min)"/>
                 <field name="battery_percentage"/>
                 <field name="rssi_quality" string="Signal Strength"/>
                 <button
@@ -49,6 +49,22 @@
         <field name="model">trmnl.device</field>
         <field name="arch" type="xml">
             <form string="TRMNL Device">
+                <header>
+                    <button
+                        name="action_open_reset_wizard"
+                        string="Reset Device"
+                        type="object"
+                        class="btn-warning"
+                        title="Send a factory-reset signal on the next display poll and remove this device."
+                    />
+                    <button
+                        name="action_open_delete_wizard"
+                        string="Remove Device"
+                        type="object"
+                        class="btn-danger"
+                        title="Remove this device record from the system."
+                    />
+                </header>
                 <sheet>
                     <div class="oe_title">
                         <label for="device_name" class="oe_edit_only"/>
@@ -63,18 +79,16 @@
                             <span> · </span>
                             <field name="mac_address" readonly="1" class="oe_inline"/>
                         </div>
-                        <div class="text-muted" style="margin-top: 8px;">
-                            To delete this device, use the actions menu in this view.
-                        </div>
                     </div>
 
                     <group>
                         <group string="Configuration">
                             <field name="image_url"/>
                             <field
-                                name="refresh_rate"
+                                name="refresh_rate_minutes"
+                                string="Refresh Rate (min)"
                                 readonly="1"
-                                help="Read-only until a dedicated refresh-rate setter is implemented. The value is reported in seconds."
+                                help="Refresh rate reported by the device, displayed in minutes."
                             />
                             <field name="filename" readonly="1"/>
                         </group>
@@ -106,11 +120,12 @@
         </field>
     </record>
 
-    <record id="trmnl_device_action_known_devices" model="ir.actions.act_window">
-        <field name="name">Known TRMNL Devices</field>
+    <record id="trmnl_device_action_devices" model="ir.actions.act_window">
+        <field name="name">Devices</field>
         <field name="res_model">trmnl.device</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="trmnl_device_view_search"/>
         <field name="context">{'form_view_initial_mode': 'edit'}</field>
     </record>
+
 </odoo>

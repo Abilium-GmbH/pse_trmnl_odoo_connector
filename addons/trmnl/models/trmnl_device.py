@@ -141,7 +141,7 @@ class TrmnlDevice(models.Model):
     ##################################################
 
     firmware_version = fields.Char(string="Firmware Version", readonly=True, copy=False)
-    
+
     filename = fields.Char(
         string="Image Filename",
         default=lambda self: self.DEFAULT_FILENAME,
@@ -152,7 +152,7 @@ class TrmnlDevice(models.Model):
         string="Image URL",
         default=lambda self: self.DEFAULT_IMAGE_URL,
         help="URL returned to the display.",
-    ) 
+    )
 
     display_action = fields.Char(
         string="Display Action",

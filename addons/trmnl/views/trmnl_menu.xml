@@ -1,26 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+
     <menuitem
         id="menu_trmnl_root"
         name="TRMNL"
         sequence="10"
+        action="trmnl_device_action_devices"
         groups="base.group_system"
     />
 
-    <menuitem
-        id="menu_trmnl_known_devices"
-        name="Known Devices"
-        parent="menu_trmnl_root"
-        sequence="10"
-        action="trmnl_device_action_known_devices"
-        groups="base.group_system"
-    />
-
-    <menuitem
-        id="menu_trmnl_unknown_devices_placeholder"
-        name="Unknown Devices"
-        parent="menu_trmnl_root"
-        sequence="20"
-        groups="base.group_system"
-    />
 </odoo>

@@ -1,17 +1,16 @@
-"""Tests for the TRMNL `/api/setup` endpoint."""
+"""Tests for the TRMNL ``/api/setup`` endpoint."""
 
 from odoo.tests import HttpCase, tagged
 
-from .test_api_common import TrmnlApiHttpCaseMixin
+from .test_api_common import APPROVAL_STATE_ACCEPTED, TrmnlApiHttpCaseMixin
 
 
 @tagged("-at_install", "post_install")
 class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
-    """Verify the `/api/setup` endpoint behavior."""
+    """Verify the ``/api/setup`` endpoint behavior."""
 
     def test_api_setup_success_returns_only_expected_keys(self):
         """A valid setup call should return only the required keys."""
-
         setup_context = self._register_device_through_setup()
         registered_device = setup_context["device"]
         api_token = setup_context["api_token"]
@@ -29,7 +28,6 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
 
     def test_api_setup_rejects_existing_mac_address(self):
         """A second setup request for the same MAC address should be rejected."""
-
         setup_context = self._register_device_through_setup()
         registered_device = setup_context["device"]
         api_token = setup_context["api_token"]
@@ -47,12 +45,11 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
 
         self.assertTrue(stored_device)
         self.assertTrue(stored_device._verify_api_token(api_token))
-        self.assertEqual(stored_device.approval_state, "approved")
+        self.assertEqual(stored_device.approval_state, APPROVAL_STATE_ACCEPTED)
         self.assertEqual(stored_device.setup_request_count, 1)
 
     def test_api_setup_missing_id_returns_404(self):
         """Missing device identity should return the setup error payload."""
-
         setup_response = self.url_open(
             "/api/setup",
             headers={"FW-Version": self.DEVICE_FIRMWARE_VERSION},
@@ -65,7 +62,6 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
 
     def test_api_setup_invalid_mac_returns_404(self):
         """A malformed MAC address should return the setup error payload."""
-
         setup_response = self.url_open(
             "/api/setup",
             headers={

@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from odoo import _, api, fields, models
 
+from .trmnl_device import (
+    APPROVAL_STATE_ACCEPTED,
+    DISPLAY_POLICY_ERROR,
+)
+
 
 class TrmnlDeviceUiExtension(models.Model):
     """Add backend management fields and actions for TRMNL devices.
 
     Provides sequence-based manual ordering, an admin-facing device name,
-    a read-only log relation, a placeholder status indicator, and a
-    display-only field that shows the last refresh rate reported by the
-    device converted to minutes.
+    a read-only log relation, a placeholder status indicator, a display-only
+    field for the last device-reported refresh rate in minutes, and a
+    computed flag that controls visibility of the manual-accept button.
     """
 
     _inherit = "trmnl.device"
@@ -55,6 +60,15 @@ class TrmnlDeviceUiExtension(models.Model):
         store=False,
         help="Refresh rate last reported by the device, displayed in minutes.",
     )
+    accept_button_visible = fields.Boolean(
+        string="Accept Button Visible",
+        compute="_compute_accept_button_visible",
+        store=False,
+        help=(
+            "True when the device is not yet accepted and the current policy "
+            "is set to 'error', making manual acceptance meaningful."
+        ),
+    )
 
     @api.model
     def _next_sequence_value(self):
@@ -76,6 +90,25 @@ class TrmnlDeviceUiExtension(models.Model):
         for device in self:
             raw_seconds = device.refresh_rate or 0
             device.last_reported_refresh_rate_minutes = int(raw_seconds / 60.0)
+
+    @api.depends("approval_state")
+    def _compute_accept_button_visible(self):
+        """Show the accept button only when the policy is 'error' and device is not accepted.
+
+        Re-reads the policy from ``ir.config_parameter`` for every batch so
+        the value stays current without requiring a server restart.
+        """
+        current_policy = (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("trmnl.display_unknown_device_policy", DISPLAY_POLICY_ERROR)
+        )
+        policy_is_error = current_policy == DISPLAY_POLICY_ERROR
+
+        for device in self:
+            device.accept_button_visible = (
+                policy_is_error and device.approval_state != APPROVAL_STATE_ACCEPTED
+            )
 
     @api.model_create_multi
     def create(self, values_list):
@@ -114,6 +147,22 @@ class TrmnlDeviceUiExtension(models.Model):
             action["views"] = [(form_view.id, "form")]
         return action
 
+    def action_open_accept_wizard(self):
+        """Open the accept-confirmation wizard for this device."""
+        self.ensure_one()
+        wizard = self.env["trmnl.device.accept.wizard"].create(
+            {"device_id": self.id}
+        )
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Accept Device"),
+            "res_model": "trmnl.device.accept.wizard",
+            "res_id": wizard.id,
+            "view_mode": "form",
+            "target": "new",
+            "context": {"dialog_size": "medium"},
+        }
+
     def action_open_delete_wizard(self):
         """Open the delete-confirmation wizard for this device."""
         self.ensure_one()
@@ -140,6 +189,20 @@ class TrmnlDeviceUiExtension(models.Model):
             "type": "ir.actions.act_window",
             "name": _("Reset Device"),
             "res_model": "trmnl.device.reset.wizard",
+            "res_id": wizard.id,
+            "view_mode": "form",
+            "target": "new",
+            "context": {"dialog_size": "medium"},
+        }
+
+    @api.model
+    def action_open_policy_wizard(self):
+        """Open the display-policy wizard from the device list header button."""
+        wizard = self.env["trmnl.display.policy.wizard"].create({})
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Display Policy"),
+            "res_model": "trmnl.display.policy.wizard",
             "res_id": wizard.id,
             "view_mode": "form",
             "target": "new",

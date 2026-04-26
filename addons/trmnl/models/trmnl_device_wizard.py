@@ -1,21 +1,153 @@
-"""Confirmation wizards for destructive TRMNL device actions."""
+"""Confirmation wizards for TRMNL device actions and policy management."""
 
 from __future__ import annotations
 
 from odoo import _, fields, models
 from odoo.exceptions import UserError
 
-from .trmnl_device import DISPLAY_POLICY_FACTORY_RESET
+from .trmnl_device import (
+    APPROVAL_STATE_ACCEPTED,
+    APPROVAL_STATE_TOKEN_MISMATCH,
+    APPROVAL_STATE_UNKNOWN_DEVICE,
+    DISPLAY_POLICY_AUTO_ACCEPT,
+    DISPLAY_POLICY_ERROR,
+    DISPLAY_POLICY_FACTORY_RESET,
+    DISPLAY_POLICY_SELECTION,
+    DISPLAY_POLICY_FACTORY_RESET,
+)
 
+
+# ---------------------------------------------------------------------------
+# Accept wizard
+# ---------------------------------------------------------------------------
+
+class TrmnlDeviceAcceptWizard(models.TransientModel):
+    """Confirm and execute the manual acceptance of a TRMNL device.
+
+    Applicable to devices in ``token_mismatch`` or ``unknown_device`` state
+    that have attempted at least one display poll (so a presented token has
+    been stored).  Accepting the device promotes the last-presented token to
+    the accepted-token slot and sets the approval state to ``accepted``.
+    """
+
+    _name = "trmnl.device.accept.wizard"
+    _description = "TRMNL Device Accept Confirmation"
+
+    device_id = fields.Many2one(
+        comodel_name="trmnl.device",
+        string="Device",
+        required=True,
+        ondelete="cascade",
+        readonly=True,
+    )
+    device_display_name = fields.Char(
+        string="Device Display Name",
+        compute="_compute_device_display_name",
+        readonly=True,
+    )
+    approval_state = fields.Selection(
+        related="device_id.approval_state",
+        readonly=True,
+    )
+
+    def _compute_device_display_name(self):
+        """Derive a human-readable label from the linked device."""
+        for wizard in self:
+            device = wizard.device_id
+            wizard.device_display_name = (
+                device.device_name or device.friendly_id or device.mac_address
+            )
+
+    def action_accept(self):
+        """Accept the device by adopting its last-presented token."""
+        self.ensure_one()
+        device = self.device_id
+
+        if not device.exists():
+            raise UserError(_("The device no longer exists."))
+
+        if device.approval_state == APPROVAL_STATE_ACCEPTED:
+            raise UserError(_("This device is already accepted."))
+
+        device.accept_device()
+
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Devices"),
+            "res_model": "trmnl.device",
+            "res_id": device.id,
+            "view_mode": "form",
+            "target": "current",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Display policy wizard
+# ---------------------------------------------------------------------------
+
+class TrmnlDisplayPolicyWizard(models.TransientModel):
+    """Wizard for reviewing and changing the display request policy.
+
+    Replaces the hidden Settings page entry.  Opened from a clearly visible
+    button in the device list header so the admin always has a single,
+    explained place to manage the policy.
+
+    Policy options
+    --------------
+    error          — Unknown MACs and token mismatches are rejected.  A stub
+                     record is created so the admin can manually accept the
+                     device from the list view.
+    auto_accept    — The server adopts whatever token the device presents and
+                     immediately serves it.  Convenient for first-time setup
+                     but gives any device access.
+    factory_reset  — The next unrecognised or mismatched device receives an
+                     HTTP 500 response, which triggers a factory reset on the
+                     device (wipes Wi-Fi credentials).  The policy reverts to
+                     ``error`` automatically after firing once.
+    """
+
+    _name = "trmnl.display.policy.wizard"
+    _description = "TRMNL Display Policy"
+
+    policy = fields.Selection(
+        selection=DISPLAY_POLICY_SELECTION,
+        string="Policy",
+        required=True,
+        default=DISPLAY_POLICY_ERROR,
+    )
+
+    def default_get(self, fields_list):
+        """Pre-populate the policy field from the current stored value."""
+        result = super().default_get(fields_list)
+        if "policy" in fields_list:
+            current_policy = (
+                self.env["ir.config_parameter"]
+                .sudo()
+                .get_param("trmnl.display_unknown_device_policy", DISPLAY_POLICY_ERROR)
+            )
+            result["policy"] = current_policy
+        return result
+
+    def action_apply(self):
+        """Persist the selected policy and close the wizard."""
+        self.ensure_one()
+        self.env["trmnl.device"].sudo()._set_display_request_policy(self.policy)
+        return {"type": "ir.actions.act_window_close"}
+
+
+# ---------------------------------------------------------------------------
+# Delete wizard
+# ---------------------------------------------------------------------------
 
 class TrmnlDeviceDeleteWizard(models.TransientModel):
     """Confirm and execute the permanent removal of a TRMNL device record.
 
     Presents the operator with three choices:
-    - Cancel  — dismiss the dialog without any change.
-    - Remove  — delete the device record from the database.
+
+    - Cancel         — dismiss the dialog without any change.
+    - Remove         — delete the device record from the database.
     - Reset & Remove — trigger a one-shot factory-reset response on the next
-      display poll (status 500) and then delete the device record.
+                       display poll (status 500) and then delete the device record.
     """
 
     _name = "trmnl.device.delete.wizard"
@@ -38,7 +170,9 @@ class TrmnlDeviceDeleteWizard(models.TransientModel):
         """Derive a human-readable label from the linked device."""
         for wizard in self:
             device = wizard.device_id
-            wizard.device_display_name = device.device_name or device.friendly_id or device.mac_address
+            wizard.device_display_name = (
+                device.device_name or device.friendly_id or device.mac_address
+            )
 
     def action_remove(self):
         """Delete the device record without triggering a factory reset."""
@@ -76,6 +210,10 @@ class TrmnlDeviceDeleteWizard(models.TransientModel):
         }
 
 
+# ---------------------------------------------------------------------------
+# Reset wizard
+# ---------------------------------------------------------------------------
+
 class TrmnlDeviceResetWizard(models.TransientModel):
     """Confirm and execute a factory-reset followed by device record removal.
 
@@ -85,6 +223,7 @@ class TrmnlDeviceResetWizard(models.TransientModel):
     The device record is then deleted from the database.
 
     Presents the operator with two choices:
+
     - Cancel — dismiss the dialog without any change.
     - Reset  — arm the factory-reset policy and remove the device record.
     """
@@ -109,7 +248,9 @@ class TrmnlDeviceResetWizard(models.TransientModel):
         """Derive a human-readable label from the linked device."""
         for wizard in self:
             device = wizard.device_id
-            wizard.device_display_name = device.device_name or device.friendly_id or device.mac_address
+            wizard.device_display_name = (
+                device.device_name or device.friendly_id or device.mac_address
+            )
 
     def action_reset(self):
         """Arm the one-shot factory-reset policy and remove the device record."""

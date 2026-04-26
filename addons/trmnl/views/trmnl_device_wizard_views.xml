@@ -2,96 +2,215 @@
 <odoo>
 
     <!-- ══════════════════════════════════════════════════
-         Delete wizard
+         Search view
     ══════════════════════════════════════════════════ -->
 
-    <record id="trmnl_device_delete_wizard_view_form" model="ir.ui.view">
-        <field name="name">trmnl.device.delete.wizard.view.form</field>
-        <field name="model">trmnl.device.delete.wizard</field>
+    <record id="trmnl_device_view_search" model="ir.ui.view">
+        <field name="name">trmnl.device.view.search</field>
+        <field name="model">trmnl.device</field>
         <field name="arch" type="xml">
-            <form string="Remove Device">
-                <sheet>
-                    <div class="o_form_view_container">
-                        <h3>Remove device "<field name="device_display_name" readonly="1" class="oe_inline"/>"?</h3>
+            <search string="TRMNL Devices">
+                <field name="friendly_id"/>
+                <field name="device_name"/>
+                <field name="mac_address"/>
+                <field name="filename"/>
+                <field name="approval_state"/>
+                <field name="registration_source"/>
 
-                        <p>
-                            Removing a device deletes its record from the system.
-                            <strong>The physical device will keep trying to reach this server</strong>.
-                        </p>
-                        <p>
-                            If you no longer need this device, use
-                            <strong>Reset &amp; Remove</strong> instead. This will send a
-                            factory-reset signal on the next display poll so the device wipes its
-                            stored Wi-Fi credentials and stops contacting the server.
-                        </p>
-                    </div>
-                </sheet>
+                <filter
+                    string="Accepted"
+                    name="filter_accepted"
+                    domain="[('approval_state','=','accepted')]"
+                />
 
-                <footer>
+                <filter
+                    string="Needs Attention"
+                    name="filter_needs_attention"
+                    domain="[('approval_state','in',['token_mismatch','unknown_device'])]"
+                />
+
+                <group>
+                    <filter
+                        string="Status"
+                        name="group_approval_state"
+                        context="{'group_by': 'approval_state'}"
+                    />
+                    <filter
+                        string="Registration Source"
+                        name="group_registration_source"
+                        context="{'group_by': 'registration_source'}"
+                    />
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         List view
+    ══════════════════════════════════════════════════ -->
+
+    <record id="trmnl_device_view_list" model="ir.ui.view">
+        <field name="name">trmnl.device.view.list</field>
+        <field name="model">trmnl.device</field>
+        <field name="arch" type="xml">
+            <list
+                string="Devices"
+                create="false"
+                edit="false"
+                delete="true"
+                default_order="sequence, friendly_id, id"
+            >
+                <header>
                     <button
-                        name="action_reset_and_remove"
-                        string="Reset &amp; Remove"
+                        name="action_open_policy_wizard"
+                        string="Display Policy"
+                        type="object"
+                        class="btn-primary"
+                        title="Review and change the server's behavior for unknown or mismatched devices."
+                    />
+                </header>
+
+                <field name="sequence" widget="handle"/>
+                <field name="friendly_id"/>
+                <field name="device_name"/>
+                <field name="mac_address"/>
+
+                <field name="approval_state" string="Status" widget="badge"
+                    decoration-success="approval_state == 'accepted'"
+                    decoration-warning="approval_state == 'token_mismatch'"
+                    decoration-danger="approval_state == 'unknown_device'"
+                />
+
+                <field name="filename"/>
+                <field name="desired_refresh_rate_value" string="Refresh Rate"/>
+                <field name="desired_refresh_rate_unit" string="Unit"/>
+                <field name="battery_percentage"/>
+                <field name="rssi_quality" string="Signal Strength"/>
+
+                <field name="accept_button_visible" column_invisible="1"/>
+
+                <button
+                    name="action_open_accept_wizard"
+                    type="object"
+                    icon="fa-check"
+                    title="Accept this device"
+                    invisible="not accept_button_visible"
+                />
+
+                <button
+                    name="action_open_device_form"
+                    type="object"
+                    icon="fa-cog"
+                    title="Open device"
+                />
+            </list>
+        </field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         Form view
+    ══════════════════════════════════════════════════ -->
+
+    <record id="trmnl_device_view_form" model="ir.ui.view">
+        <field name="name">trmnl.device.view.form</field>
+        <field name="model">trmnl.device</field>
+        <field name="arch" type="xml">
+            <form string="TRMNL Device">
+                <header>
+                    <button
+                        name="action_open_accept_wizard"
+                        string="Accept Device"
+                        type="object"
+                        class="btn-success"
+                        invisible="not accept_button_visible"
+                    />
+                    <button
+                        name="action_open_reset_wizard"
+                        string="Reset Device"
+                        type="object"
+                        class="btn-warning"
+                    />
+                    <button
+                        name="action_open_delete_wizard"
+                        string="Remove Device"
                         type="object"
                         class="btn-danger"
                     />
-                    <button
-                        name="action_remove"
-                        string="Remove"
-                        type="object"
-                        class="btn-secondary"
+                    <field
+                        name="approval_state"
+                        widget="statusbar"
+                        statusbar_visible="unknown_device,token_mismatch,accepted"
+                        readonly="1"
                     />
-                    <button
-                        string="Cancel"
-                        class="btn-secondary"
-                        special="cancel"
-                    />
-                </footer>
+                </header>
+
+                <sheet>
+                    <div class="oe_title">
+                        <label for="device_name" class="oe_edit_only"/>
+                        <h1>
+                            <field name="device_name" placeholder="Admin-facing device name"/>
+                        </h1>
+                        <div class="text-muted">
+                            <field name="friendly_id" readonly="1" class="oe_inline"/>
+                            <span invisible="not friendly_id"> · </span>
+                            <field name="mac_address" readonly="1" class="oe_inline"/>
+                        </div>
+                    </div>
+
+                    <field name="accept_button_visible" invisible="1"/>
+
+                    <group>
+                        <group string="Configuration">
+                            <field name="image_url"/>
+
+                            <label for="desired_refresh_rate_value" string="Refresh Rate"/>
+                            <div class="o_field_widget">
+                                <field name="desired_refresh_rate_value" class="oe_inline" style="width: 80px;"/>
+                                <field name="desired_refresh_rate_unit" widget="select" class="oe_inline" style="margin-left: 8px;"/>
+                            </div>
+
+                            <field name="filename" readonly="1"/>
+                        </group>
+
+                        <group string="Telemetry">
+                            <field name="ui_status" readonly="1"/>
+                            <field name="battery_percentage" readonly="1"/>
+                            <field name="rssi_quality" readonly="1"/>
+                            <field name="last_reported_refresh_rate_minutes" readonly="1" string="Last Reported Refresh Rate (min)"/>
+                            <field name="last_seen_at" readonly="1"/>
+                            <field name="last_display_at" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Logs">
+                            <field name="log_ids" readonly="1" mode="list">
+                                <list create="false" edit="false" delete="false">
+                                    <field name="log_id"/>
+                                    <field name="name"/>
+                                    <field name="creation_timestamp"/>
+                                    <field name="wifi_status"/>
+                                    <field name="refresh_rate"/>
+                                    <field name="battery_voltage"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
             </form>
         </field>
     </record>
 
     <!-- ══════════════════════════════════════════════════
-         Reset wizard
+         Window action
     ══════════════════════════════════════════════════ -->
 
-    <record id="trmnl_device_reset_wizard_view_form" model="ir.ui.view">
-        <field name="name">trmnl.device.reset.wizard.view.form</field>
-        <field name="model">trmnl.device.reset.wizard</field>
-        <field name="arch" type="xml">
-            <form string="Reset Device">
-                <sheet>
-                    <div class="o_form_view_container">
-                        <h3>Reset device "<field name="device_display_name" readonly="1" class="oe_inline"/>"?</h3>
-                        <p>
-                            Resetting a device will:
-                        </p>
-                        <ul>
-                            <li>Send a factory-reset signal on the device's next display poll.</li>
-                            <li>Cause the device to <strong>disconnect from the network</strong> and
-                                <strong>delete its stored Wi-Fi password</strong>.</li>
-                            <li><strong>Remove the device record</strong> from this system.</li>
-                        </ul>
-                        <p>
-                            After that the device must be paired again from scratch.
-                        </p>
-                    </div>
-                </sheet>
-
-                <footer>
-                    <button
-                        name="action_reset"
-                        string="Reset"
-                        type="object"
-                        class="btn-danger"
-                    />
-                    <button
-                        string="Cancel"
-                        class="btn-secondary"
-                        special="cancel"
-                    />
-                </footer>
-            </form>
-        </field>
+    <record id="trmnl_device_action_devices" model="ir.actions.act_window">
+        <field name="name">Devices</field>
+        <field name="res_model">trmnl.device</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="trmnl_device_view_search"/>
+        <field name="context">{'form_view_initial_mode': 'edit'}</field>
     </record>
 
 </odoo>

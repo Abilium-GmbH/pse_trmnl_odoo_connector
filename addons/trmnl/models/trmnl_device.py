@@ -23,6 +23,22 @@ DISPLAY_POLICY_SELECTION = [
     (DISPLAY_POLICY_FACTORY_RESET, "Trigger factory reset once"),
 ]
 
+# Approval state constants
+#
+# accepted       — device is registered and has a valid, matching API token.
+# token_mismatch — device MAC is known but the token it last presented did not
+#                  match the stored hash.
+# unknown_device — device MAC has never been seen before; a stub record has
+#                  been created so the admin can review and manually accept it.
+APPROVAL_STATE_ACCEPTED = "accepted"
+APPROVAL_STATE_TOKEN_MISMATCH = "token_mismatch"
+APPROVAL_STATE_UNKNOWN_DEVICE = "unknown_device"
+APPROVAL_STATE_SELECTION = [
+    (APPROVAL_STATE_ACCEPTED, "Accepted"),
+    (APPROVAL_STATE_TOKEN_MISMATCH, "Token Mismatch"),
+    (APPROVAL_STATE_UNKNOWN_DEVICE, "Unknown Device"),
+]
+
 REFRESH_RATE_UNIT_SECONDS: dict[str, int] = {
     "minutes": 60,
     "hours": 3_600,
@@ -43,6 +59,18 @@ class TrmnlDevice(models.Model):
     Identity fields (mac_address, friendly_id) are write-protected after
     creation and may only be mutated via the ``trmnl_allow_identity_update``
     context flag.
+
+    Approval states
+    ---------------
+    accepted       — device is registered with a matching API token and will
+                     be served display content and have its logs stored.
+    token_mismatch — MAC is known but the token last presented by the device
+                     did not match; the admin can manually accept the device to
+                     adopt the presented token.
+    unknown_device — MAC has never been seen via /api/setup; a stub record was
+                     created automatically so the admin can act on it.  The
+                     friendly_id is absent for such devices because it is only
+                     assigned by the server during /api/setup.
     """
 
     _name = "trmnl.device"
@@ -71,11 +99,13 @@ class TrmnlDevice(models.Model):
 
     friendly_id = fields.Char(
         string="Friendly ID",
-        required=True,
         readonly=True,
         index=True,
         copy=False,
-        help="Short unique identifier returned to the device during setup.",
+        help=(
+            "Short unique identifier returned to the device during /api/setup. "
+            "Absent for devices that were first seen via /api/display."
+        ),
     )
 
     mac_address = fields.Char(
@@ -91,14 +121,32 @@ class TrmnlDevice(models.Model):
         string="API Token Hash",
         readonly=True,
         copy=False,
-        help="Salted hash of the API token.",
+        help="Salted PBKDF2 hash of the accepted API token.",
     )
 
     api_token_salt = fields.Char(
         string="API Token Salt",
         readonly=True,
         copy=False,
-        help="Random salt used to derive the API token hash.",
+        help="Random salt used to derive the accepted API token hash.",
+    )
+
+    last_presented_token_hash = fields.Char(
+        string="Last Presented Token Hash",
+        readonly=True,
+        copy=False,
+        help=(
+            "Salted PBKDF2 hash of the most recent token presented by the "
+            "device in a display call.  Used when an admin manually accepts "
+            "a token-mismatch or unknown-device record."
+        ),
+    )
+
+    last_presented_token_salt = fields.Char(
+        string="Last Presented Token Salt",
+        readonly=True,
+        copy=False,
+        help="Random salt used to derive the last-presented token hash.",
     )
 
     # ------------------------------------------------------------------
@@ -106,13 +154,9 @@ class TrmnlDevice(models.Model):
     # ------------------------------------------------------------------
 
     approval_state = fields.Selection(
-        selection=[
-            ("pending", "Pending"),
-            ("approved", "Approved"),
-            ("rejected", "Rejected"),
-        ],
+        selection=APPROVAL_STATE_SELECTION,
         string="Approval State",
-        default="pending",
+        default=APPROVAL_STATE_UNKNOWN_DEVICE,
         required=True,
         index=True,
         copy=False,
@@ -136,8 +180,7 @@ class TrmnlDevice(models.Model):
     last_setup_at = fields.Datetime(string="Last Setup At", readonly=True, copy=False)
     last_display_at = fields.Datetime(string="Last Display At", readonly=True, copy=False)
     last_log_at = fields.Datetime(string="Last Log At", readonly=True, copy=False)
-    approved_at = fields.Datetime(string="Approved At", readonly=True, copy=False)
-    rejected_at = fields.Datetime(string="Rejected At", readonly=True, copy=False)
+    accepted_at = fields.Datetime(string="Accepted At", readonly=True, copy=False)
     last_access_denied_at = fields.Datetime(
         string="Last Access Denied At",
         readonly=True,
@@ -272,7 +315,11 @@ class TrmnlDevice(models.Model):
             if mac_address:
                 normalized_values["mac_address"] = self._normalize_mac_address(mac_address)
 
-            if not normalized_values.get("friendly_id"):
+            # friendly_id is optional for unknown_device records created via
+            # /api/display.  Only auto-generate one when the state is not
+            # unknown_device, or when the caller explicitly requested one.
+            state = normalized_values.get("approval_state", APPROVAL_STATE_UNKNOWN_DEVICE)
+            if not normalized_values.get("friendly_id") and state != APPROVAL_STATE_UNKNOWN_DEVICE:
                 normalized_values["friendly_id"] = self._generate_unique_friendly_id()
 
             normalized_values_list.append(normalized_values)
@@ -459,7 +506,7 @@ class TrmnlDevice(models.Model):
     @api.model
     def _generate_unique_friendly_id(self):
         """Generate a short unique friendly identifier."""
-        for attempt_number in range(25):
+        for _attempt in range(25):
             friendly_id = f"TRMNL-{secrets.token_hex(3).upper()}"
             if not self.sudo().search([("friendly_id", "=", friendly_id)], limit=1):
                 return friendly_id

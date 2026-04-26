@@ -2,6 +2,8 @@
 
 from odoo import api, fields, models
 
+from .trmnl_device import APPROVAL_STATE_ACCEPTED
+
 
 class TrmnlDeviceTelemetryMixin(models.Model):
     """Extend TRMNL devices with telemetry capture and log ingestion helpers.
@@ -10,6 +12,9 @@ class TrmnlDeviceTelemetryMixin(models.Model):
     stored in read-only fields.  The admin-configurable ``desired_refresh_rate``
     field is intentionally left untouched so that the server can command a
     different interval without the device overwriting it on the next poll.
+
+    Log ingestion only stores entries for devices in the ``accepted`` state.
+    All other devices receive a 401 response without any data being persisted.
     """
 
     _inherit = "trmnl.device"
@@ -151,7 +156,12 @@ class TrmnlDeviceTelemetryMixin(models.Model):
 
     @api.model
     def ingest_logs_from_payload(self, headers, payload):
-        """Create log entries from the raw JSON payload sent by the device."""
+        """Create log entries from the raw JSON payload sent by the device.
+
+        Only devices in the ``accepted`` state have their logs stored.  Any
+        other state (unknown_device, token_mismatch, or missing identity)
+        results in an ``unauthorized`` status so the controller can return 401.
+        """
         mac_address = self._normalize_mac_address(headers.get("ID"))
         token_value = self._parse_to_string(headers.get("Access-Token"))
 
@@ -159,7 +169,7 @@ class TrmnlDeviceTelemetryMixin(models.Model):
             return 0, "missing_identity"
 
         device = self.find_by_mac_and_token(mac_address, token_value)
-        if not device or device.approval_state != "approved":
+        if not device or device.approval_state != APPROVAL_STATE_ACCEPTED:
             return 0, "unauthorized"
 
         raw_entries = self._extract_log_entries(payload)

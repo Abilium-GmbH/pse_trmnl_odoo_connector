@@ -60,16 +60,6 @@
                 delete="true"
                 default_order="sequence, friendly_id, id"
             >
-                <header>
-                    <button
-                        name="action_open_policy_wizard"
-                        string="Display Policy"
-                        type="object"
-                        class="btn-primary"
-                        title="Review and change the server's behavior for unknown or mismatched devices."
-                    />
-                </header>
-
                 <field name="sequence" widget="handle"/>
                 <field name="friendly_id"/>
                 <field name="device_name"/>
@@ -115,7 +105,7 @@
         <field name="name">trmnl.device.view.form</field>
         <field name="model">trmnl.device</field>
         <field name="arch" type="xml">
-            <form string="TRMNL Device">
+            <form string="TRMNL Device" create="false" delete="false">
                 <header>
                     <button
                         name="action_open_accept_wizard"

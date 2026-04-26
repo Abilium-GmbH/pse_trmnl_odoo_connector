@@ -18,9 +18,9 @@ DISPLAY_POLICY_ERROR = "error"
 DISPLAY_POLICY_AUTO_ACCEPT = "auto_accept"
 DISPLAY_POLICY_FACTORY_RESET = "factory_reset"
 DISPLAY_POLICY_SELECTION = [
-    (DISPLAY_POLICY_ERROR, "Return error"),
-    (DISPLAY_POLICY_AUTO_ACCEPT, "Auto accept or register"),
-    (DISPLAY_POLICY_FACTORY_RESET, "Trigger factory reset once"),
+    (DISPLAY_POLICY_ERROR, "Reject and require manual approval"),
+    (DISPLAY_POLICY_AUTO_ACCEPT, "Auto-accept device"),
+    (DISPLAY_POLICY_FACTORY_RESET, "Factory reset device once"),
 ]
 
 # Approval state constants

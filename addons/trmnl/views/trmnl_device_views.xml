@@ -56,9 +56,9 @@
             <list
                 string="Devices"
                 create="false"
-                edit="false"
+                edit="true"
                 delete="true"
-                default_order="sequence, friendly_id, id"
+                default_order="sequence, id"
             >
                 <field name="sequence" widget="handle"/>
                 <field name="friendly_id"/>

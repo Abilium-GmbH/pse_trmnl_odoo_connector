@@ -20,7 +20,7 @@ class TrmnlDeviceUiExtension(models.Model):
     """
 
     _inherit = "trmnl.device"
-    _order = "sequence, friendly_id, id"
+    _order = "sequence, id"
 
     sequence = fields.Integer(
         string="Sequence",

@@ -69,6 +69,12 @@ class TrmnlDeviceUiExtension(models.Model):
             "is set to 'error', making manual acceptance meaningful."
         ),
     )
+    identify_button_visible = fields.Boolean(
+        string="Identify Button Visible",
+        compute="_compute_identify_button_visible",
+        store=False,
+        help="Visible only for accepted devices.",
+    )
 
     @api.model
     def _next_sequence_value(self):
@@ -102,6 +108,14 @@ class TrmnlDeviceUiExtension(models.Model):
         for device in self:
             device.accept_button_visible = (
                 policy_is_error and device.approval_state != APPROVAL_STATE_ACCEPTED
+            )
+
+    @api.depends("approval_state")
+    def _compute_identify_button_visible(self):
+        """Show Identify button only for accepted devices."""
+        for device in self:
+            device.identify_button_visible = (
+                device.approval_state == APPROVAL_STATE_ACCEPTED
             )
 
     @api.model_create_multi
@@ -202,3 +216,11 @@ class TrmnlDeviceUiExtension(models.Model):
             "target": "new",
             "context": {"dialog_size": "medium"},
         }
+
+    def action_identify(self):
+        """Trigger identify command on next device poll."""
+        self.ensure_one()
+
+        self.with_context(trmnl_allow_identity_update=True).write(
+            {"identify_pending": True}
+        )

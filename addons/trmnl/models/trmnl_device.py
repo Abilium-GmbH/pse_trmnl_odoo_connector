@@ -219,6 +219,18 @@ class TrmnlDevice(models.Model):
         help="Action returned to the display on the next poll.",
     )
 
+    identify_pending = fields.Boolean(
+        string="Identify Pending",
+        default=False,
+        copy=False,
+        help=(
+            "One-shot flag set by the admin Identify action.  When True the "
+            "next /api/display response will carry special_function='identify' "
+            "and action='identify'.  The flag is cleared automatically after "
+            "the response is sent."
+        ),
+    )
+
     desired_refresh_rate = fields.Integer(
         string="Desired Refresh Rate (s)",
         default=DEFAULT_REFRESH_RATE,

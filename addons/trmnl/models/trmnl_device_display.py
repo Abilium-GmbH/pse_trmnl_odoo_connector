@@ -47,16 +47,29 @@ class TrmnlDeviceDisplayMixin(models.Model):
         return {"status": status}
 
     def build_display_response(self):
-        """Build the normal display payload for an accepted device."""
+        """Build the normal display payload for an accepted device.
+        
+        This method also handles one-shot special functions and actions.
+        """
         self.ensure_one()
+
+        special_function = "none"
+        display_action = ""
+
+        if self.identify_pending:
+            special_function = "identify"
+            display_action = "identify"
+
+            # IMPORTANT: one-shot behavior
+            self.write({"identify_pending": False})
 
         return {
             "status": 0,
             "filename": self.filename or "",
             "image_url": self.image_url or "",
             "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
-            "special_function": self.special_function or "none",
-            "action": self.display_action or "",
+            "special_function": special_function or "none",
+            "action": display_action or "",
         }
 
     # ------------------------------------------------------------------

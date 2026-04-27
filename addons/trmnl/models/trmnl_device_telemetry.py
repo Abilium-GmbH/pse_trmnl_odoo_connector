@@ -1,5 +1,9 @@
 """TRMNL device telemetry and log ingestion helpers."""
 
+from __future__ import annotations
+
+import datetime as dt
+
 from odoo import api, fields, models
 
 from .trmnl_device import APPROVAL_STATE_ACCEPTED
@@ -112,6 +116,24 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         return [raw_entry for raw_entry in raw_entries if isinstance(raw_entry, dict)]
 
     @api.model
+    def _unix_epoch_to_datetime(self, epoch_value):
+        """Convert a Unix epoch integer to a naive UTC datetime suitable for Odoo.
+
+        Returns ``False`` when the value is absent or cannot be parsed.
+        Odoo's ``Datetime`` fields always store and expect naive UTC datetimes.
+        """
+        parsed_epoch = self._parse_to_int(epoch_value)
+        if parsed_epoch is False:
+            return False
+
+        try:
+            return dt.datetime.fromtimestamp(parsed_epoch, tz=dt.timezone.utc).replace(
+                tzinfo=None
+            )
+        except (OSError, OverflowError, ValueError):
+            return False
+
+    @api.model
     def _prepare_log_values(self, device, entry):
         """Convert one raw TRMNL log entry into ``create()`` values."""
         log_id = self._parse_to_int(entry.get("id"))
@@ -120,7 +142,7 @@ class TrmnlDeviceTelemetryMixin(models.Model):
 
         values = {
             "device_id": device.id,
-            "creation_timestamp": self._parse_to_int(entry.get("created_at")),
+            "created_at": self._unix_epoch_to_datetime(entry.get("created_at")),
             "wifi_rssi_level": self._parse_to_int(entry.get("wifi_signal")),
             "wifi_status": self._parse_to_string(entry.get("wifi_status")),
             "refresh_rate": self._parse_to_int(entry.get("refresh_rate")),

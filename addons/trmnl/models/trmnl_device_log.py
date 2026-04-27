@@ -4,12 +4,18 @@ from odoo import api, fields, models
 
 
 class TrmnlDeviceLog(models.Model):
-    """Store raw log entries reported by TRMNL devices."""
+    """Store log entries reported by TRMNL devices.
+
+    Each entry corresponds to one item inside the ``logs`` array of a
+    ``/api/log`` request.  The ``created_at`` field is stored as a UTC
+    ``Datetime`` so that Odoo's web client can automatically convert it to
+    the viewing user's local timezone for display.
+    """
 
     _name = "trmnl.device.log"
     _description = "TRMNL device log entry"
     _rec_name = "name"
-    _order = "creation_timestamp desc, id desc"
+    _order = "created_at desc, id desc"
 
     _trmnl_device_log_unique_device_log_id = models.Constraint(
         "UNIQUE(device_id, log_id)",
@@ -24,7 +30,11 @@ class TrmnlDeviceLog(models.Model):
         index=True,
     )
 
-    creation_timestamp = fields.Integer(string="Created At (Unix Timestamp)")
+    created_at = fields.Datetime(
+        string="Created At",
+        index=True,
+        help="UTC timestamp converted from the Unix epoch value reported by the device.",
+    )
     wifi_rssi_level = fields.Integer(string="Wi-Fi RSSI Level")
     wifi_status = fields.Char(string="Wi-Fi Status")
     refresh_rate = fields.Integer(string="Refresh Rate")

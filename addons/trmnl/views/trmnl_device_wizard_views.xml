@@ -62,10 +62,10 @@
         </field>
     </record>
 
-    <!-- Delete Device Wizard -->
-    <record id="trmnl_device_delete_wizard_view_form" model="ir.ui.view">
-        <field name="name">trmnl.device.delete.wizard.view.form</field>
-        <field name="model">trmnl.device.delete.wizard</field>
+    <!-- Remove Device Wizard -->
+    <record id="trmnl_device_remove_wizard_view_form" model="ir.ui.view">
+        <field name="name">trmnl.device.remove.wizard.view.form</field>
+        <field name="model">trmnl.device.remove.wizard</field>
         <field name="arch" type="xml">
             <form string="Remove Device">
                 <sheet>

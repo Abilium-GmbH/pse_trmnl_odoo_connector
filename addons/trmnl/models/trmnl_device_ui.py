@@ -157,16 +157,16 @@ class TrmnlDeviceUiExtension(models.Model):
             "context": {"dialog_size": "medium"},
         }
 
-    def action_open_delete_wizard(self):
+    def action_open_remove_wizard(self):
         """Open the delete-confirmation wizard for this device."""
         self.ensure_one()
-        wizard = self.env["trmnl.device.delete.wizard"].create(
+        wizard = self.env["trmnl.device.remove.wizard"].create(
             {"device_id": self.id}
         )
         return {
             "type": "ir.actions.act_window",
             "name": _("Remove Device"),
-            "res_model": "trmnl.device.delete.wizard",
+            "res_model": "trmnl.device.remove.wizard",
             "res_id": wizard.id,
             "view_mode": "form",
             "target": "new",

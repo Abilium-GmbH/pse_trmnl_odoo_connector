@@ -136,10 +136,10 @@ class TrmnlDisplayPolicyWizard(models.TransientModel):
 
 
 # ---------------------------------------------------------------------------
-# Delete wizard
+# Remove wizard
 # ---------------------------------------------------------------------------
 
-class TrmnlDeviceDeleteWizard(models.TransientModel):
+class TrmnlDeviceRemoveWizard(models.TransientModel):
     """Confirm and execute the permanent removal of a TRMNL device record.
 
     Presents the operator with three choices:
@@ -150,8 +150,8 @@ class TrmnlDeviceDeleteWizard(models.TransientModel):
                        display poll (status 500) and then delete the device record.
     """
 
-    _name = "trmnl.device.delete.wizard"
-    _description = "TRMNL Device Delete Confirmation"
+    _name = "trmnl.device.remove.wizard"
+    _description = "TRMNL Device Remove Confirmation"
 
     device_id = fields.Many2one(
         comodel_name="trmnl.device",

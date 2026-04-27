@@ -34,9 +34,25 @@
                     <group>
                         <field name="policy"/>
                     </group>
-                    <p class="text-muted">
-                        Choose what should happen when an unknown or token-mismatched device calls /api/display.
-                    </p>
+                    <div class="text-muted">
+                        <p>
+                            Configure how the server should respond to <code>/api/display</code> requests from unknown devices or from devices whose API token does not match the stored token. Options:
+                        </p>
+                        <ol>
+                            <li>
+                                <strong>Respond with an error (recommended)</strong><br/>
+                                The server returns an error and does not send any data (including image URLs). The device remains unaccepted until an administrator manually approves it.
+                            </li>
+                            <li>
+                                <strong>Automatically accept the device</strong><br/>
+                                The server registers the device automatically and saves the API token it provided on that call as the device's valid token. This allows registration without factory-resetting devices, but it reuses the device's current token.
+                            </li>
+                            <li>
+                                <strong>Send a reset command</strong><br/>
+                                The server sends a response that triggers a factory reset on the device, which erases stored Wi-Fi credentials and API settings. The device will need to be reconfigured before it can call the server again.
+                            </li>
+                        </ol>
+                    </div>
                 </sheet>
                 <footer>
                     <button name="action_apply" string="Apply" type="object" class="btn-primary"/>

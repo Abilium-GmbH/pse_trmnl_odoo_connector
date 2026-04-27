@@ -78,12 +78,6 @@ class TrmnlDeviceUiExtension(models.Model):
         )
         return (highest_sequence_device.sequence or 0) + 10
 
-    @api.depends()
-    def _compute_ui_status(self):
-        """Provide the current placeholder status text."""
-        for device in self:
-            device.ui_status = "Status pending implementation"
-
     @api.depends("refresh_rate")
     def _compute_last_reported_refresh_rate_minutes(self):
         """Convert the device-reported refresh rate from seconds to minutes."""

@@ -163,7 +163,6 @@
                         </group>
 
                         <group string="Telemetry">
-                            <field name="ui_status" readonly="1"/>
                             <field name="battery_percentage" readonly="1"/>
                             <field name="rssi_quality" readonly="1"/>
                             <field name="last_reported_refresh_rate_minutes" readonly="1" string="Last Reported Refresh Rate (min)"/>

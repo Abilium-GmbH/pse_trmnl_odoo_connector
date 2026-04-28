@@ -10,6 +10,10 @@ DISPLAY_POLICY_AUTO_ACCEPT = "auto_accept"
 
 DISPLAY_POLICY_FACTORY_RESET = "factory_reset"
 
+APPROVAL_STATE_ACCEPTED = "accepted"
+APPROVAL_STATE_TOKEN_MISMATCH = "token_mismatch"
+APPROVAL_STATE_UNKNOWN_DEVICE = "unknown_device"
+
 
 class TrmnlApiHttpCaseMixin:
     """Shared helpers for TRMNL API response tests."""
@@ -28,8 +32,7 @@ class TrmnlApiHttpCaseMixin:
     EXPECTED_FILENAME = "abilium_test_screen"
 
     def _response_status(self, http_response):
-        """Return the HTTP status code for a `url_open` response."""
-
+        """Return the HTTP status code for a ``url_open`` response."""
         for attribute_name in ("status_code", "status", "code"):
             status_value = getattr(http_response, attribute_name, None)
             if status_value is not None:
@@ -42,7 +45,6 @@ class TrmnlApiHttpCaseMixin:
 
     def _response_text(self, http_response):
         """Return the HTTP response body as text."""
-
         response_body = getattr(http_response, "content", None)
         if response_body is None and hasattr(http_response, "read"):
             response_body = http_response.read()
@@ -56,12 +58,10 @@ class TrmnlApiHttpCaseMixin:
 
     def _response_json(self, http_response):
         """Return the response body decoded as JSON."""
-
         return json.loads(self._response_text(http_response))
 
     def _setup_headers(self, mac_address=None, firmware_version=None):
         """Return headers for a TRMNL setup request."""
-
         return {
             "ID": mac_address or self.DEVICE_MAC_ADDRESS,
             "FW-Version": firmware_version or self.DEVICE_FIRMWARE_VERSION,
@@ -69,7 +69,6 @@ class TrmnlApiHttpCaseMixin:
 
     def _display_headers(self, api_token, mac_address=None):
         """Return headers for a TRMNL display request."""
-
         return {
             "ID": mac_address or self.DEVICE_MAC_ADDRESS,
             "Access-Token": api_token,
@@ -81,57 +80,78 @@ class TrmnlApiHttpCaseMixin:
             "Height": self.DEVICE_HEIGHT,
         }
 
+    def _display_headers_with_rate(self, token, mac, refresh_rate):
+        """Return display request headers with the device-reported refresh rate."""
+        headers = self._display_headers(token, mac)
+        headers["Refresh-Rate"] = str(refresh_rate)
+        return headers
+
     def _log_headers(self, api_token, mac_address=None):
         """Return headers for a TRMNL log request."""
-
         return {
             "ID": mac_address or self.DEVICE_MAC_ADDRESS,
             "Access-Token": api_token,
-            "Accept": "application/json",
+            "Accept": "application/json, */*",
             "Content-Type": "application/json",
         }
 
-    def _log_payload(self, log_message=""):
-        """Return a realistic TRMNL log payload."""
-
-        return {
-            "log": {
-                "logs_array": [
-                    {
-                        "creation_timestamp": 1234567890,
-                        "device_status_stamp": {
-                            "wifi_rssi_level": -69,
-                            "wifi_status": "WL_CONNECTED",
-                            "refresh_rate": self.DEVICE_REFRESH_RATE,
-                            "time_since_last_sleep_start": 12345,
-                            "current_fw_version": self.DEVICE_FIRMWARE_VERSION,
-                            "special_function": "SF_NONE",
-                            "battery_voltage": 4.1,
-                            "wakeup_reason": "TIMER",
-                            "free_heap_size": 123456,
-                            "max_alloc_size": 98765,
-                        },
-                        "log_id": 1,
-                        "log_message": log_message,
-                        "log_codeline": 256,
-                        "log_sourcefile": "src/bl.cpp",
-                        "additional_info": {
-                            "filename_current": "2024-09-20T00:00:00",
-                            "filename_new": "new-image",
-                        },
-                    }
-                ]
-            }
+    def _log_entry(
+        self,
+        *,
+        log_id=1,
+        created_at=1745000000,
+        message="Test log message",
+        source_line=123,
+        source_path="src/bl.cpp",
+        wifi_signal=-67,
+        wifi_status="Connected",
+        refresh_rate=None,
+        sleep_duration=145,
+        firmware_version=None,
+        special_function="None",
+        battery_voltage=3.95,
+        wake_reason="Timer",
+        free_heap_size=48320,
+        max_alloc_size=38912,
+        retry=None,
+    ):
+        """Return one TRMNL log entry using the current device contract."""
+        log_entry = {
+            "created_at": created_at,
+            "id": log_id,
+            "message": message,
+            "source_line": source_line,
+            "source_path": source_path,
+            "wifi_signal": wifi_signal,
+            "wifi_status": wifi_status,
+            "refresh_rate": refresh_rate if refresh_rate is not None else self.DEVICE_REFRESH_RATE,
+            "sleep_duration": sleep_duration,
+            "firmware_version": firmware_version if firmware_version is not None else self.DEVICE_FIRMWARE_VERSION,
+            "special_function": special_function,
+            "battery_voltage": battery_voltage,
+            "wake_reason": wake_reason,
+            "free_heap_size": free_heap_size,
+            "max_alloc_size": max_alloc_size,
         }
+
+        if retry is not None:
+            log_entry["retry"] = retry
+
+        return log_entry
+
+    def _log_payload(self, log_entries=None):
+        """Return a realistic TRMNL log payload."""
+        if log_entries is None:
+            log_entries = [self._log_entry()]
+
+        return {"logs": list(log_entries)}
 
     def _empty_log_payload(self):
         """Return a payload that contains no log entries."""
-
-        return {"log": {"logs_array": []}}
+        return {"logs": []}
 
     def _call_json_endpoint(self, path, headers=None, payload=None):
         """Call an HTTP endpoint and return the raw response object."""
-
         request_headers = dict(headers or {})
         request_payload = None
 
@@ -142,7 +162,6 @@ class TrmnlApiHttpCaseMixin:
 
     def _set_display_policy(self, policy):
         """Persist the default display policy for unresolved devices."""
-
         self.env["ir.config_parameter"].sudo().set_param(
             DISPLAY_POLICY_PARAMETER,
             policy,
@@ -150,15 +169,13 @@ class TrmnlApiHttpCaseMixin:
 
     def _get_display_policy(self):
         """Return the current default display policy."""
-
         return self.env["ir.config_parameter"].sudo().get_param(
             DISPLAY_POLICY_PARAMETER,
             DISPLAY_POLICY_ERROR,
         )
 
     def _register_device_through_setup(self, mac_address=None):
-        """Register a device through the real `/api/setup` endpoint."""
-
+        """Register a device through the real ``/api/setup`` endpoint."""
         setup_mac_address = mac_address or self.DEVICE_MAC_ADDRESS
         setup_response = self.url_open(
             "/api/setup",
@@ -179,7 +196,7 @@ class TrmnlApiHttpCaseMixin:
         )
 
         self.assertTrue(registered_device, "The setup request should register the device.")
-        self.assertEqual(registered_device.approval_state, "approved")
+        self.assertEqual(registered_device.approval_state, APPROVAL_STATE_ACCEPTED)
         self.assertEqual(registered_device.registration_source, "setup")
         self.assertEqual(registered_device.setup_request_count, 1)
         self.assertEqual(registered_device.friendly_id, setup_payload["friendly_id"])
@@ -201,13 +218,23 @@ class TrmnlApiHttpCaseMixin:
 
     def _display_unknown_headers(self, api_token, mac_address=None):
         """Return headers for an unknown device display request."""
-
         return self._display_headers(api_token, mac_address or self.UNKNOWN_MAC_ADDRESS)
 
     def _assert_display_success_payload(self, display_payload, image_url):
-        """Assert the standard successful `/api/display` payload."""
+        """Assert the standard successful ``/api/display`` payload.
 
-        expected_keys = {"status", "image_url", "filename", "refresh_rate", "special_function", "action"}
+        ``refresh_rate`` in the response reflects the server-configured
+        ``desired_refresh_rate``, which defaults to ``DEFAULT_REFRESH_RATE``
+        (1800 s) for freshly registered devices — matching ``DEVICE_REFRESH_RATE``.
+        """
+        expected_keys = {
+            "status",
+            "image_url",
+            "filename",
+            "refresh_rate",
+            "special_function",
+            "action"
+        }
         self.assertEqual(set(display_payload.keys()), expected_keys)
         self.assertEqual(
             display_payload,
@@ -218,5 +245,29 @@ class TrmnlApiHttpCaseMixin:
                 "refresh_rate": self.DEVICE_REFRESH_RATE,
                 "special_function": "none",
                 "action": "",
+            },
+        )
+
+    def _assert_identify_payload(self, display_payload, image_url):
+        """Assert the identify response payload for /api/display."""
+        expected_keys = {
+            "status",
+            "image_url",
+            "filename",
+            "refresh_rate",
+            "special_function",
+            "action",
+        }
+        self.assertEqual(set(display_payload.keys()), expected_keys)
+
+        self.assertEqual(
+            display_payload,
+            {
+                "status": 0,
+                "image_url": image_url,
+                "filename": self.EXPECTED_FILENAME,
+                "refresh_rate": self.DEVICE_REFRESH_RATE,
+                "special_function": "identify",
+                "action": "identify",
             },
         )

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem
+        id="trmnl_menu_root"
+        name="TRMNL"
+        sequence="10"
+    />
+
+    <menuitem
+        id="trmnl_menu_devices"
+        name="Devices"
+        parent="trmnl_menu_root"
+        action="trmnl_device_action_devices"
+        sequence="10"
+    />
+
+    <record id="trmnl_display_policy_wizard_action" model="ir.actions.act_window">
+        <field name="name">Display Policy</field>
+        <field name="res_model">trmnl.display.policy.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="trmnl_display_policy_wizard_view_form"/>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem
+        id="trmnl_menu_display_policy"
+        name="Display Policy"
+        parent="trmnl_menu_root"
+        action="trmnl_display_policy_wizard_action"
+        sequence="20"
+    />
+
+</odoo>

@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Accept Device Wizard -->
+    <record id="trmnl_device_accept_wizard_view_form" model="ir.ui.view">
+        <field name="name">trmnl.device.accept.wizard.view.form</field>
+        <field name="model">trmnl.device.accept.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Accept Device">
+                <sheet>
+                    <group>
+                        <field name="device_display_name" readonly="1"/>
+                        <field name="approval_state" readonly="1"/>
+                    </group>
+                    <p class="text-muted">
+                        Accept this device by adopting the last token it presented during a display request.
+                    </p>
+                </sheet>
+                <footer>
+                    <button name="action_accept" string="Accept" type="object" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Display Policy Wizard -->
+    <record id="trmnl_display_policy_wizard_view_form" model="ir.ui.view">
+        <field name="name">trmnl.display.policy.wizard.view.form</field>
+        <field name="model">trmnl.display.policy.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Display Policy">
+                <sheet>
+                    <group>
+                        <field name="policy"/>
+                    </group>
+                    <div class="text-muted">
+                        <p>
+                            Configure how the server should respond to <code>/api/display</code> requests from unknown devices or from devices whose API token does not match the stored token. Options:
+                        </p>
+                        <ol>
+                            <li>
+                                <strong>Respond with an error (recommended)</strong><br/>
+                                The server returns an error and does not send any data (including image URLs). The device remains unaccepted until an administrator manually approves it.
+                            </li>
+                            <li>
+                                <strong>Automatically accept the device</strong><br/>
+                                The server registers the device automatically and saves the API token it provided on that call as the device's valid token. This allows registration without factory-resetting devices, but it reuses the device's current token.
+                            </li>
+                            <li>
+                                <strong>Send a reset command</strong><br/>
+                                The server sends a response that triggers a factory reset on the device, which erases stored Wi-Fi credentials and API settings. The device will need to be reconfigured before it can call the server again.
+                            </li>
+                        </ol>
+                    </div>
+                </sheet>
+                <footer>
+                    <button name="action_apply" string="Apply" type="object" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Remove Device Wizard -->
+    <record id="trmnl_device_remove_wizard_view_form" model="ir.ui.view">
+        <field name="name">trmnl.device.remove.wizard.view.form</field>
+        <field name="model">trmnl.device.remove.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Remove Device">
+                <sheet>
+                    <group>
+                        <field name="device_display_name" readonly="1"/>
+                    </group>
+                    <p class="text-muted">
+                        Remove this device record. You can also reset the device first, which will trigger a one-time factory reset response on its next display call.
+                    </p>
+                </sheet>
+                <footer>
+                    <button name="action_remove" string="Remove" type="object" class="btn-danger"/>
+                    <button name="action_reset_and_remove" string="Reset &amp; Remove" type="object" class="btn-warning"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Reset Device Wizard -->
+    <record id="trmnl_device_reset_wizard_view_form" model="ir.ui.view">
+        <field name="name">trmnl.device.reset.wizard.view.form</field>
+        <field name="model">trmnl.device.reset.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Reset Device">
+                <sheet>
+                    <group>
+                        <field name="device_display_name" readonly="1"/>
+                    </group>
+                    <p class="text-muted">
+                        Resetting this device will arm a one-time factory reset response and remove the device record.
+                    </p>
+                </sheet>
+                <footer>
+                    <button name="action_reset" string="Reset" type="object" class="btn-warning"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

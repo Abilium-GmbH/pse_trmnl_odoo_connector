@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 
+# TRMNL-Displays send a 6-octet, uppercase hex, colon-separated string accoring to the
+# firmware, e.g.: A4:CF:12:7E:3B:01
 MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
 
 # PBKDF2-HMAC-SHA256 iteration count chosen per

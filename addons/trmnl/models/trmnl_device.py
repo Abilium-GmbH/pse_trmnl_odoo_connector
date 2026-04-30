@@ -512,7 +512,7 @@ class TrmnlDevice(models.Model):
     @api.model
     def _generate_unique_friendly_id(self):
         """Generate a short unique friendly identifier."""
-        for _attempt in range(25):
+        for attempt in range(25):
             friendly_id = f"TRMNL-{secrets.token_hex(3).upper()}"
             if not self.sudo().search([("friendly_id", "=", friendly_id)], limit=1):
                 return friendly_id

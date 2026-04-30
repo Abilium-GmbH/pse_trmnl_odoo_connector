@@ -214,3 +214,4 @@ class TrmnlDeviceUiExtension(models.Model):
         self.with_context(trmnl_allow_identity_update=True).write(
             {"identify_pending": True}
         )
+        return {"type": "ir.actions.client", "tag": "reload"}

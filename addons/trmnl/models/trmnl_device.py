@@ -10,7 +10,13 @@ from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 
 MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
-API_TOKEN_PBKDF2_ITERATIONS = 310_000
+
+# PBKDF2-HMAC-SHA256 iteration count chosen per
+# OWASP Password Storage Cheat Sheet (2026).
+#
+# Increase this value as hardware improves, but note that changing it
+# invalidates all existing stored hashes without a migration.
+API_TOKEN_PBKDF2_ITERATIONS = 600_000
 API_TOKEN_BYTES = 32
 DEFAULT_REFRESH_RATE = 1800
 DEFAULT_DISPLAY_ERROR_STATUS = 202

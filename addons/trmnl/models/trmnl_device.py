@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timezone
 
 from odoo import api, fields, models
-from odoo.exceptions import ValidationError
+from odoo.exceptions import AccessError, ValidationError
 
 # TRMNL-Displays send a 6-octet, uppercase hex, colon-separated string accoring to the
 # firmware, e.g.: A4:CF:12:7E:3B:01
@@ -347,7 +347,10 @@ class TrmnlDevice(models.Model):
         if protected_fields.intersection(values.keys()) and not self.env.context.get(
             "trmnl_allow_identity_update"
         ):
-            raise ValidationError("MAC address and Friendly ID cannot be changed once set.")
+            raise AccessError(
+                "MAC address and Friendly ID are protected identity fields and "
+                "cannot be modified after creation."
+            )
 
         return super().write(values)
 

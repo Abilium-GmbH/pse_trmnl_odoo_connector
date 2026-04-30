@@ -43,16 +43,6 @@ class TrmnlDeviceUiExtension(models.Model):
         copy=False,
         help="Read-only log entries collected from this device.",
     )
-    ui_status = fields.Char(
-        string="Status",
-        readonly=True,
-        copy=False,
-        compute="_compute_ui_status",
-        help=(
-            "Placeholder for the device responsiveness indicator. "
-            "Replace this with a heartbeat-based implementation later."
-        ),
-    )
     last_reported_refresh_rate_minutes = fields.Integer(
         string="Last Reported Refresh Rate (min)",
         compute="_compute_last_reported_refresh_rate_minutes",

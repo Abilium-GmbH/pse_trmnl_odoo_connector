@@ -213,12 +213,6 @@ class TrmnlDevice(models.Model):
         help="URL returned to the display.",
     )
 
-    display_action = fields.Char(
-        string="Display Action",
-        default="",
-        help="Action returned to the display on the next poll.",
-    )
-
     identify_pending = fields.Boolean(
         string="Identify Pending",
         default=False,

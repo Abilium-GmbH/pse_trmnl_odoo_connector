@@ -22,8 +22,24 @@ from odoo.addons.trmnl.models.trmnl_device import (
 )
 
 
+class TrmnlMacAddressMixin:
+    """Provide unique MAC address suffixes for test record creation.
+
+    Uses a class-level counter to ensure each test gets a distinct
+    MAC address, preventing unique-constraint violations across tests
+    in the same TransactionCase.
+    """
+
+    _mac_counter = 0
+
+    def _mac_suffix(self):
+        """Return a unique two-hex-digit suffix for test MAC addresses."""
+        TrmnlMacAddressMixin._mac_counter += 1
+        return f"{TrmnlMacAddressMixin._mac_counter:02X}"
+
+
 @tagged("-at_install", "post_install")
-class TestDeviceRefreshRateCompute(TransactionCase):
+class TestDeviceRefreshRateCompute(TrmnlMacAddressMixin, TransactionCase):
     """Verify that ``desired_refresh_rate`` is decomposed correctly for the UI.
 
     Each test stores a raw second value and asserts the expected
@@ -36,13 +52,6 @@ class TestDeviceRefreshRateCompute(TransactionCase):
             "mac_address": f"AA:BB:CC:DD:EE:{self._mac_suffix()}",
             "desired_refresh_rate": desired_refresh_rate,
         })
-
-    _mac_counter = 0
-
-    def _mac_suffix(self):
-        """Return a unique two-hex-digit suffix for test MAC addresses."""
-        TestDeviceRefreshRateCompute._mac_counter += 1
-        return f"{TestDeviceRefreshRateCompute._mac_counter:02X}"
 
     # ------------------------------------------------------------------
     # minutes
@@ -97,7 +106,7 @@ class TestDeviceRefreshRateCompute(TransactionCase):
         device = self._create_device(172_800)
         self.assertEqual(device.desired_refresh_rate_value, 2)
         self.assertEqual(device.desired_refresh_rate_unit, "days")
-    
+
     # ------------------------------------------------------------------
     # weeks
     # ------------------------------------------------------------------
@@ -113,7 +122,7 @@ class TestDeviceRefreshRateCompute(TransactionCase):
         device = self._create_device(3 * REFRESH_RATE_UNIT_SECONDS["weeks"])
         self.assertEqual(device.desired_refresh_rate_value, 3)
         self.assertEqual(device.desired_refresh_rate_unit, "weeks")
-    
+
     # ------------------------------------------------------------------
     # months
     # ------------------------------------------------------------------
@@ -155,7 +164,6 @@ class TestDeviceRefreshRateCompute(TransactionCase):
         """
         year_seconds = REFRESH_RATE_UNIT_SECONDS["years"]
         month_seconds = REFRESH_RATE_UNIT_SECONDS["months"]
-        # Confirm the assumption: 1 year is not a whole number of months
         self.assertNotEqual(year_seconds % month_seconds, 0)
 
         device = self._create_device(year_seconds)
@@ -169,7 +177,7 @@ class TestDeviceRefreshRateCompute(TransactionCase):
 
 
 @tagged("-at_install", "post_install")
-class TestDeviceRefreshRateInverse(TransactionCase):
+class TestDeviceRefreshRateInverse(TrmnlMacAddressMixin, TransactionCase):
     """Verify that writing via the UI value/unit fields persists the correct seconds.
 
     The inverse is triggered when ``desired_refresh_rate_value`` or
@@ -184,12 +192,6 @@ class TestDeviceRefreshRateInverse(TransactionCase):
             "mac_address": f"BB:CC:DD:EE:FF:{self._mac_suffix()}",
             "desired_refresh_rate": value * unit_seconds,
         })
-
-    _mac_counter = 0
-
-    def _mac_suffix(self):
-        TestDeviceRefreshRateInverse._mac_counter += 1
-        return f"{TestDeviceRefreshRateInverse._mac_counter:02X}"
 
     def _write_display_fields(self, device, value, unit):
         """Simulate a UI write of both display fields in one operation."""
@@ -243,7 +245,7 @@ class TestDeviceRefreshRateInverse(TransactionCase):
 
 
 @tagged("-at_install", "post_install")
-class TestDeviceRefreshRateBounds(TransactionCase):
+class TestDeviceRefreshRateBounds(TrmnlMacAddressMixin, TransactionCase):
     """Verify the ``_check_desired_refresh_rate_bounds`` constraint.
 
     Tests are grouped into four scenarios:
@@ -253,12 +255,6 @@ class TestDeviceRefreshRateBounds(TransactionCase):
     - Above the upper boundary (rejected).
     - Representative valid values spanning all units.
     """
-
-    _mac_counter = 0
-
-    def _mac_suffix(self):
-        TestDeviceRefreshRateBounds._mac_counter += 1
-        return f"{TestDeviceRefreshRateBounds._mac_counter:02X}"
 
     def _create_device(self, desired_refresh_rate):
         """Attempt to create a device with the given rate; return the record."""

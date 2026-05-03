@@ -232,6 +232,15 @@ class TrmnlDevice(models.Model):
             "the response is sent."
         ),
     )
+    reset_pending = fields.Boolean(
+        string="Reset Pending",
+        default=False,
+        copy=False,
+        help=(
+            "One-shot flag set by the admin Reset action. When True the next "
+            "/api/display poll from this device will receive a reset_firmware."
+        ),
+    )
 
     desired_refresh_rate = fields.Integer(
         string="Desired Refresh Rate (s)",

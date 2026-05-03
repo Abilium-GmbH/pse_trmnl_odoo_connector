@@ -7,7 +7,6 @@ from odoo.exceptions import UserError
 
 from .trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
-    DISPLAY_POLICY_FACTORY_RESET,
     DISPLAY_POLICY_ERROR,
     DISPLAY_POLICY_SELECTION,
 )

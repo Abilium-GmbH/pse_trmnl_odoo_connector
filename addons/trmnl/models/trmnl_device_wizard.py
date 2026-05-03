@@ -123,14 +123,15 @@ class TrmnlDeviceAcceptWizard(models.TransientModel):
 # ---------------------------------------------------------------------------
 
 class TrmnlDeviceRemoveWizard(models.TransientModel):
-    """Confirm and execute the permanent removal of a TRMNL device record.
+    """Confirm and execute the removal of a TRMNL device record.
 
     Presents the user with three choices:
     -------------------------------------
     - Cancel         — dismiss the dialog without any change.
     - Remove         — delete the device record from the database.
-    - Reset & Remove — trigger a one-shot factory-reset response on the next
-                       display poll (status 500) and then delete the device record.
+    - Reset & Remove — schedule a factory reset for the device. The record is
+                       deleted automatically after the reset signal is delivered
+                       on the next /api/display poll.
     """
 
     _name = "trmnl.device.remove.wizard"
@@ -149,21 +150,13 @@ class TrmnlDeviceRemoveWizard(models.TransientModel):
         return self._redirect_to_device_list()
 
     def action_reset_and_remove(self):
-        """Arm the one-shot factory-reset policy and delete the device.
+        """Schedule a factory reset for this device and return to the device list.
 
-        NOTE: This sets a global policy affecting the next unrecognized or
-        mismatched device poll, not strictly this device.
+        The device record is retained until the reset signal is delivered on
+        the next /api/display poll, at which point the record is deleted
+        automatically.
         """
-        self.ensure_one()
-        device = self.device_id
-
-        if not device.exists():
-            raise UserError(_("The device no longer exists."))
-
-        device_model = self.env["trmnl.device"].sudo()
-        device_model._set_display_request_policy(DISPLAY_POLICY_FACTORY_RESET)
-        device.unlink()
-        return self._redirect_to_device_list()
+        return self._action_schedule_reset()
 
 # ---------------------------------------------------------------------------
 # Reset wizard

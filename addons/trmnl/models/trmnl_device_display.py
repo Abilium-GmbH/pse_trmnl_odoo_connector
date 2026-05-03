@@ -40,7 +40,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
     5. MAC known, token valid       → serve display (if accepted).
     6. MAC known, token invalid
        + auto-accept                → adopt new token, serve display.
-       + factory-reset              → consume policy, return 500.
+       + factory-reset              → return 500.
        + error                      → update stub / mismatch record, return error.
     """
 
@@ -175,7 +175,6 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 )
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
-            self._consume_factory_reset_policy()
             return DisplayResolutionResult(
                 self.browse(),
                 self.build_display_error_response(status=500),
@@ -215,7 +214,6 @@ class TrmnlDeviceDisplayMixin(models.Model):
             )
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
-            self._consume_factory_reset_policy()
             return DisplayResolutionResult(
                 device,
                 self.build_display_error_response(status=500),

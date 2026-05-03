@@ -68,12 +68,6 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             policy,
         )
 
-    @api.model
-    def _consume_factory_reset_policy(self):
-        """Reset the one-shot factory-reset behavior back to the default policy."""
-        if self._get_display_request_policy() == DISPLAY_POLICY_FACTORY_RESET:
-            self._set_display_request_policy(DISPLAY_POLICY_ERROR)
-
     # ------------------------------------------------------------------
     # /api/setup registration
     # ------------------------------------------------------------------

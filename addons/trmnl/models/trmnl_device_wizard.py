@@ -202,10 +202,9 @@ class TrmnlDisplayPolicyWizard(models.TransientModel):
     auto_accept    — The server adopts whatever token the device presents and
                      immediately serves it.  Convenient for first-time setup
                      but gives any device access.
-    factory_reset  — The next unrecognised or mismatched device receives an
-                     HTTP 500 response, which triggers a factory reset on the
-                     device (wipes Wi-Fi credentials).  The policy reverts to
-                     ``error`` automatically after firing once.
+    factory_reset  — The unrecognised or mismatched device receives a response,
+                     which triggers a factory reset on the device
+                     (wipes Wi-Fi credentials).
     """
 
     _name = "trmnl.display.policy.wizard"

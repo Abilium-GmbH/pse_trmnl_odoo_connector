@@ -83,6 +83,25 @@ class TrmnlDeviceDisplayMixin(models.Model):
             "action": display_action,
         }
 
+    def build_reset_response(self):
+        """Build the display payload that instructs the device to factory-reset.
+
+        Uses the semantically correct firmware reset signal: status 0 with
+        reset_firmware set to True. All standard display keys are included
+        alongside the reset flag so the firmware can parse the response
+        normally before acting on the reset instruction.
+        """
+        self.ensure_one()
+        return {
+            "status": 0,
+            "filename": self.filename or "",
+            "image_url": self.image_url or "",
+            "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
+            "special_function": "none",
+            "action": "",
+            "reset_firmware": True,
+        }
+
     # ------------------------------------------------------------------
     # request resolution
     # ------------------------------------------------------------------

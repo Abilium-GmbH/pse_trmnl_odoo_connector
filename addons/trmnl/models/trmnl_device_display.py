@@ -35,12 +35,12 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
     1. MAC address missing          → error response, no record touched.
     2. MAC unknown + auto-accept    → register & adopt token, serve display.
-    3. MAC unknown + factory-reset  → consume policy, return 500.
+    3. MAC unknown + factory-reset  → return {"status": 500}.
     4. MAC unknown + error          → create stub record, return error.
     5. MAC known, token valid       → serve display (if accepted).
     6. MAC known, token invalid
        + auto-accept                → adopt new token, serve display.
-       + factory-reset              → return 500.
+       + factory-reset              → return {"status": 500}.
        + error                      → update stub / mismatch record, return error.
     """
 

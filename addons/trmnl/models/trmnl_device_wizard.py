@@ -163,17 +163,15 @@ class TrmnlDeviceRemoveWizard(models.TransientModel):
 # ---------------------------------------------------------------------------
 
 class TrmnlDeviceResetWizard(models.TransientModel):
-    """Confirm and execute a factory-reset followed by device record removal.
+    """Confirm and execute a factory reset for a TRMNL device.
 
-    The reset arms the one-shot ``factory_reset`` display policy so that the
-    device receives an HTTP 500 response on its next display poll, which causes
-    it to wipe its stored Wi-Fi credentials and re-enter the pairing flow.
-    The device record is then deleted from the database.
+    The device record is retained until the reset signal is delivered on the
+    next /api/display poll, at which point the record is deleted automatically.
 
     Presents the user with two choices:
     -----------------------------------
     - Cancel — dismiss the dialog without any change.
-    - Reset  — arm the factory-reset policy and remove the device record.
+    - Reset  — schedule a factory reset for the device.
     """
 
     _name = "trmnl.device.reset.wizard"
@@ -181,21 +179,13 @@ class TrmnlDeviceResetWizard(models.TransientModel):
     _inherit = ["trmnl.device.action.wizard.mixin"]
 
     def action_reset(self):
-        """Arm the one-shot factory-reset policy and remove the device.
+        """Schedule a factory reset for this device and return to the device list.
 
-        NOTE: This sets a global policy affecting the next unrecognized or
-        mismatched device poll, not strictly this device.
+        The device record is retained until the reset signal is delivered on
+        the next /api/display poll, at which point the record is deleted
+        automatically.
         """
-        self.ensure_one()
-        device = self.device_id
-
-        if not device.exists():
-            raise UserError(_("The device no longer exists."))
-
-        device_model = self.env["trmnl.device"].sudo()
-        device_model._set_display_request_policy(DISPLAY_POLICY_FACTORY_RESET)
-        device.unlink()
-        return self._redirect_to_device_list()
+        return self._action_schedule_reset()
 
 # ---------------------------------------------------------------------------
 # Display policy wizard

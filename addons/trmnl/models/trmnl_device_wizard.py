@@ -54,6 +54,26 @@ class TrmnlDeviceActionWizardMixin(models.AbstractModel):
             "target": "current",
         }
 
+    def _action_schedule_reset(self):
+        """Schedule a factory reset for the linked device on its next display poll.
+
+        Sets ``reset_pending`` on the device record. The record is not deleted
+        here — it is removed automatically by ``resolve_display_request`` after
+        the reset signal has been delivered to the device. If the device
+        re-registers via /api/setup before polling /api/display, the pending
+        flag is cleared and the device is re-registered normally.
+        """
+        self.ensure_one()
+        device = self.device_id
+
+        if not device.exists():
+            raise UserError(_("The device no longer exists."))
+
+        device.with_context(trmnl_allow_identity_update=True).write(
+            {"reset_pending": True}
+        )
+        return self._redirect_to_device_list()
+
 # ---------------------------------------------------------------------------
 # Accept wizard
 # ---------------------------------------------------------------------------

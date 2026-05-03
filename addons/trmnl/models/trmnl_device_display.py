@@ -120,6 +120,17 @@ class TrmnlDeviceDisplayMixin(models.Model):
             )
 
         device = self.sudo().search([("mac_address", "=", mac_address)], limit=1)
+
+        # Per-device reset handling (must run before any token validation)
+        if device and device.reset_pending:
+            reset_payload = device.build_reset_response()
+            device.unlink()
+            return DisplayResolutionResult(
+                self.browse(),
+                reset_payload,
+                "reset_pending",
+            )
+
         if not device:
             return self._resolve_unknown_display_request(
                 mac_address, headers, api_token

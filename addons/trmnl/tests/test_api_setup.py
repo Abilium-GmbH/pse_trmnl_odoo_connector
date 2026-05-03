@@ -74,3 +74,36 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
 
         self.assertEqual(self._response_status(setup_response), 200)
         self.assertEqual(setup_payload, {"status": 404})
+
+    def test_api_setup_with_reset_pending_reregisters_device(self):
+        """A setup call from a MAC with reset_pending True should clear the flag and issue a fresh registration."""
+        setup_context = self._register_device_through_setup()
+        registered_device = setup_context["device"]
+        old_device_id = registered_device.id
+        old_token = setup_context["api_token"]
+
+        registered_device.with_context(trmnl_allow_identity_update=True).write(
+            {"reset_pending": True}
+        )
+
+        second_setup_response = self.url_open(
+            "/api/setup",
+            headers=self._setup_headers(),
+        )
+        setup_payload = self._response_json(second_setup_response)
+
+        self.assertEqual(self._response_status(second_setup_response), 200)
+        self.assertEqual(setup_payload["status"], 200)
+        self.assertTrue(setup_payload["api_key"])
+        self.assertNotEqual(setup_payload["api_key"], old_token)
+
+        found_device = self.env["trmnl.device"].sudo().search(
+            [("mac_address", "=", self.DEVICE_MAC_ADDRESS)],
+            limit=1,
+        )
+
+        self.assertTrue(found_device)
+        self.assertNotEqual(found_device.id, old_device_id)
+        self.assertFalse(found_device.reset_pending)
+        self.assertEqual(found_device.approval_state, APPROVAL_STATE_ACCEPTED)
+        self.assertTrue(found_device._verify_api_token(setup_payload["api_key"]))

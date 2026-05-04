@@ -82,9 +82,7 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
         old_device_id = registered_device.id
         old_token = setup_context["api_token"]
 
-        registered_device.with_context(trmnl_allow_identity_update=True).write(
-            {"reset_pending": True}
-        )
+        registered_device.write({"reset_pending": True})
 
         second_setup_response = self.url_open(
             "/api/setup",

@@ -69,9 +69,7 @@ class TrmnlDeviceActionWizardMixin(models.AbstractModel):
         if not device.exists():
             raise UserError(_("The device no longer exists."))
 
-        device.with_context(trmnl_allow_identity_update=True).write(
-            {"reset_pending": True}
-        )
+        device.write({"reset_pending": True})
         return self._redirect_to_device_list()
 
 # ---------------------------------------------------------------------------

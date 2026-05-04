@@ -194,8 +194,5 @@ class TrmnlDeviceUiExtension(models.Model):
     def action_identify(self):
         """Trigger identify command on next device poll."""
         self.ensure_one()
-
-        self.with_context(trmnl_allow_identity_update=True).write(
-            {"identify_pending": True}
-        )
+        self.write({"identify_pending": True})
         return {"type": "ir.actions.client", "tag": "reload"}

@@ -499,9 +499,7 @@ class TestTrmnlDisplayPerDeviceResetApi(HttpCase, TrmnlApiHttpCaseMixin):
         registered_device = setup_context["device"]
         api_token = setup_context["api_token"]
 
-        registered_device.with_context(trmnl_allow_identity_update=True).write(
-            {"reset_pending": True}
-        )
+        registered_device.write({"reset_pending": True})
 
         mac_address = registered_device.mac_address
         filename = registered_device.filename

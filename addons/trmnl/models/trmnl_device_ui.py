@@ -177,20 +177,6 @@ class TrmnlDeviceUiExtension(models.Model):
             "trmnl.device.reset.wizard", _("Reset Device")
         )
 
-    @api.model
-    def action_open_policy_wizard(self):
-        """Open the display-policy wizard from the device list header button."""
-        wizard = self.env["trmnl.display.policy.wizard"].create({})
-        return {
-            "type": "ir.actions.act_window",
-            "name": _("Display Policy"),
-            "res_model": "trmnl.display.policy.wizard",
-            "res_id": wizard.id,
-            "view_mode": "form",
-            "target": "new",
-            "context": {"dialog_size": "medium"},
-        }
-
     def action_identify(self):
         """Trigger identify command on next device poll."""
         self.ensure_one()

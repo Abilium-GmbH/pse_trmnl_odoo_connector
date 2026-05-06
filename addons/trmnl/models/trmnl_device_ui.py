@@ -43,16 +43,6 @@ class TrmnlDeviceUiExtension(models.Model):
         copy=False,
         help="Read-only log entries collected from this device.",
     )
-    ui_status = fields.Char(
-        string="Status",
-        readonly=True,
-        copy=False,
-        compute="_compute_ui_status",
-        help=(
-            "Placeholder for the device responsiveness indicator. "
-            "Replace this with a heartbeat-based implementation later."
-        ),
-    )
     last_reported_refresh_rate_minutes = fields.Integer(
         string="Last Reported Refresh Rate (min)",
         compute="_compute_last_reported_refresh_rate_minutes",
@@ -155,53 +145,37 @@ class TrmnlDeviceUiExtension(models.Model):
             action["views"] = [(form_view.id, "form")]
         return action
 
-    def action_open_accept_wizard(self):
-        """Open the accept-confirmation wizard for this device."""
+    def _open_wizard_for_device(self, wizard_model_name, action_name):
+        """Open a modal wizard for the current device."""
         self.ensure_one()
-        wizard = self.env["trmnl.device.accept.wizard"].create(
-            {"device_id": self.id}
-        )
+        wizard = self.env[wizard_model_name].create({"device_id": self.id})
         return {
             "type": "ir.actions.act_window",
-            "name": _("Accept Device"),
-            "res_model": "trmnl.device.accept.wizard",
+            "name": action_name,
+            "res_model": wizard_model_name,
             "res_id": wizard.id,
             "view_mode": "form",
             "target": "new",
             "context": {"dialog_size": "medium"},
         }
+
+    def action_open_accept_wizard(self):
+        """Open the accept-confirmation wizard for this device."""
+        return self._open_wizard_for_device(
+            "trmnl.device.accept.wizard", _("Accept Device")
+        )
 
     def action_open_remove_wizard(self):
         """Open the delete-confirmation wizard for this device."""
-        self.ensure_one()
-        wizard = self.env["trmnl.device.remove.wizard"].create(
-            {"device_id": self.id}
+        return self._open_wizard_for_device(
+            "trmnl.device.remove.wizard", _("Remove Device")
         )
-        return {
-            "type": "ir.actions.act_window",
-            "name": _("Remove Device"),
-            "res_model": "trmnl.device.remove.wizard",
-            "res_id": wizard.id,
-            "view_mode": "form",
-            "target": "new",
-            "context": {"dialog_size": "medium"},
-        }
 
     def action_open_reset_wizard(self):
         """Open the factory-reset confirmation wizard for this device."""
-        self.ensure_one()
-        wizard = self.env["trmnl.device.reset.wizard"].create(
-            {"device_id": self.id}
+        return self._open_wizard_for_device(
+            "trmnl.device.reset.wizard", _("Reset Device")
         )
-        return {
-            "type": "ir.actions.act_window",
-            "name": _("Reset Device"),
-            "res_model": "trmnl.device.reset.wizard",
-            "res_id": wizard.id,
-            "view_mode": "form",
-            "target": "new",
-            "context": {"dialog_size": "medium"},
-        }
 
     @api.model
     def action_open_policy_wizard(self):
@@ -224,3 +198,4 @@ class TrmnlDeviceUiExtension(models.Model):
         self.with_context(trmnl_allow_identity_update=True).write(
             {"identify_pending": True}
         )
+        return {"type": "ir.actions.client", "tag": "reload"}

@@ -73,7 +73,7 @@
                         <field name="device_display_name" readonly="1"/>
                     </group>
                     <p class="text-muted">
-                        Remove this device record. You can also reset the device first, which will trigger a one-time factory reset response on its next display call.
+                        Remove this device record. We recommend resetting it first — this triggers a one-time factory reset on the device's next display call; otherwise the device will continue to contact the server.
                     </p>
                 </sheet>
                 <footer>

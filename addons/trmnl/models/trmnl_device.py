@@ -7,10 +7,18 @@ import secrets
 from datetime import datetime, timezone
 
 from odoo import api, fields, models
-from odoo.exceptions import ValidationError
+from odoo.exceptions import AccessError, ValidationError
 
+# TRMNL-Displays send a 6-octet, uppercase hex, colon-separated string accoring to the
+# firmware, e.g.: A4:CF:12:7E:3B:01
 MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
-API_TOKEN_PBKDF2_ITERATIONS = 310_000
+
+# PBKDF2-HMAC-SHA256 iteration count chosen per
+# OWASP Password Storage Cheat Sheet (2026).
+#
+# Increase this value as hardware improves, but note that changing it
+# invalidates all existing stored hashes without a migration.
+API_TOKEN_PBKDF2_ITERATIONS = 600_000
 API_TOKEN_BYTES = 32
 DEFAULT_REFRESH_RATE = 1800
 DEFAULT_DISPLAY_ERROR_STATUS = 202
@@ -213,12 +221,6 @@ class TrmnlDevice(models.Model):
         help="URL returned to the display.",
     )
 
-    display_action = fields.Char(
-        string="Display Action",
-        default="",
-        help="Action returned to the display on the next poll.",
-    )
-
     identify_pending = fields.Boolean(
         string="Identify Pending",
         default=False,
@@ -345,7 +347,10 @@ class TrmnlDevice(models.Model):
         if protected_fields.intersection(values.keys()) and not self.env.context.get(
             "trmnl_allow_identity_update"
         ):
-            raise ValidationError("MAC address and Friendly ID cannot be changed once set.")
+            raise AccessError(
+                "MAC address and Friendly ID are protected identity fields and "
+                "cannot be modified after creation."
+            )
 
         return super().write(values)
 
@@ -518,7 +523,7 @@ class TrmnlDevice(models.Model):
     @api.model
     def _generate_unique_friendly_id(self):
         """Generate a short unique friendly identifier."""
-        for _attempt in range(25):
+        for attempt in range(25):
             friendly_id = f"TRMNL-{secrets.token_hex(3).upper()}"
             if not self.sudo().search([("friendly_id", "=", friendly_id)], limit=1):
                 return friendly_id

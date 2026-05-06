@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from odoo import api, models
 
 from .trmnl_device import (
@@ -11,6 +13,14 @@ from .trmnl_device import (
     DISPLAY_POLICY_AUTO_ACCEPT,
     DISPLAY_POLICY_FACTORY_RESET,
 )
+
+
+class DisplayResolutionResult(NamedTuple):
+    """Structured result of a display request resolution."""
+
+    device: object
+    payload: dict
+    record_status: str
 
 
 class TrmnlDeviceDisplayMixin(models.Model):
@@ -46,30 +56,31 @@ class TrmnlDeviceDisplayMixin(models.Model):
             status = DEFAULT_DISPLAY_ERROR_STATUS
         return {"status": status}
 
-    def build_display_response(self):
-        """Build the normal display payload for an accepted device.
-        
-        This method also handles one-shot special functions and actions.
-        """
+    def _consume_identify_flag(self):
+        """Consume the one-shot identify flag if set."""
         self.ensure_one()
 
-        special_function = "none"
-        display_action = ""
-
         if self.identify_pending:
-            special_function = "identify"
-            display_action = "identify"
-
-            # IMPORTANT: one-shot behavior
             self.write({"identify_pending": False})
+            return True
+        return False
+
+    def build_display_response(self):
+        """Build the normal display payload for an accepted device."""
+        self.ensure_one()
+
+        identify_triggered = self._consume_identify_flag()
+
+        special_function = "identify" if identify_triggered else "none"
+        display_action = "identify" if identify_triggered else ""
 
         return {
             "status": 0,
             "filename": self.filename or "",
             "image_url": self.image_url or "",
             "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
-            "special_function": special_function or "none",
-            "action": display_action or "",
+            "special_function": special_function,
+            "action": display_action,
         }
 
     # ------------------------------------------------------------------
@@ -78,49 +89,77 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
     @api.model
     def resolve_display_request(self, headers):
-        """Resolve a TRMNL display poll using the configured device policy.
-
-        Returns a tuple of (device_or_empty_recordset, response_payload, record_status).
-        """
+        """Resolve a TRMNL display poll using the configured device policy."""
         mac_address = self._normalize_mac_address(headers.get("ID"))
         api_token = self._parse_to_string(headers.get("Access-Token"))
 
         if not mac_address:
-            return self.browse(), self.build_display_error_response(), "missing_identity"
+            return DisplayResolutionResult(
+                self.browse(),
+                self.build_display_error_response(),
+                "missing_identity",
+            )
 
         device = self.sudo().search([("mac_address", "=", mac_address)], limit=1)
         if not device:
-            return self._resolve_unknown_display_request(mac_address, headers, api_token)
+            return self._resolve_unknown_display_request(
+                mac_address, headers, api_token
+            )
 
         if api_token and device._verify_api_token(api_token):
             if device.approval_state != APPROVAL_STATE_ACCEPTED:
                 device._record_access_denied(reason=device.approval_state)
-                return device, self.build_display_error_response(), "not_accepted"
+                return DisplayResolutionResult(
+                    device,
+                    self.build_display_error_response(),
+                    "not_accepted",
+                )
 
             device._apply_display_telemetry(headers)
             device._record_display_served()
-            return device, device.build_display_response(), "display"
+            return DisplayResolutionResult(
+                device,
+                device.build_display_response(),
+                "display",
+            )
 
-        return self._resolve_token_mismatch_display_request(device, headers, api_token)
+        return self._resolve_token_mismatch_display_request(
+            device, headers, api_token
+        )
 
     def _resolve_unknown_display_request(self, mac_address, headers, api_token):
         """Resolve a display request from a MAC address not yet in the database."""
         policy = self._get_display_request_policy()
 
         if api_token and policy == DISPLAY_POLICY_AUTO_ACCEPT:
-            device, record_status = self.register_or_adopt_from_display_headers(headers, api_token)
+            device, record_status = self.register_or_adopt_from_display_headers(
+                headers, api_token
+            )
             if device:
                 device._apply_display_telemetry(headers)
                 device._record_display_served()
-                return device, device.build_display_response(), record_status
+                return DisplayResolutionResult(
+                    device,
+                    device.build_display_response(),
+                    record_status,
+                )
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
             self._consume_factory_reset_policy()
-            return self.browse(), self.build_display_error_response(status=500), "factory_reset"
+            return DisplayResolutionResult(
+                self.browse(),
+                self.build_display_error_response(status=500),
+                "factory_reset",
+            )
 
-        # Error policy: persist a stub record so the admin can act on it.
-        stub_device = self.record_unknown_device_from_display(mac_address, api_token, headers)
-        return stub_device, self.build_display_error_response(), "unknown_device"
+        stub_device = self.record_unknown_device_from_display(
+            mac_address, api_token, headers
+        )
+        return DisplayResolutionResult(
+            stub_device,
+            self.build_display_error_response(),
+            "unknown_device",
+        )
 
     def _resolve_token_mismatch_display_request(self, device, headers, api_token):
         """Resolve a display request from a known device that presented a wrong token."""
@@ -139,12 +178,23 @@ class TrmnlDeviceDisplayMixin(models.Model):
             )
             device._apply_display_telemetry(headers)
             device._record_display_served()
-            return device, device.build_display_response(), "token_adopted"
+            return DisplayResolutionResult(
+                device,
+                device.build_display_response(),
+                "token_adopted",
+            )
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
             self._consume_factory_reset_policy()
-            return device, self.build_display_error_response(status=500), "factory_reset"
+            return DisplayResolutionResult(
+                device,
+                self.build_display_error_response(status=500),
+                "factory_reset",
+            )
 
-        # Error policy: record the mismatch so the admin can manually accept.
         self.record_token_mismatch_from_display(device, api_token, headers)
-        return device, self.build_display_error_response(), "token_mismatch"
+        return DisplayResolutionResult(
+            device,
+            self.build_display_error_response(),
+            "token_mismatch",
+        )

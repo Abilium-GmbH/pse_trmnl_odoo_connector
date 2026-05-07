@@ -361,15 +361,21 @@ class TestTrmnlDisplayFactoryResetPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_FACTORY_RESET)
 
     def test_api_display_factory_reset_policy_returns_500_for_every_token_mismatch(self):
-        """Factory reset policy should return 500 for every token mismatch."""
+        """Factory reset policy should return 500 for token mismatch and delete the record.
+
+        The first poll deletes the device record after responding with 500.
+        A subsequent poll from the same MAC is treated as an unknown device
+        and continues to receive 500 under the factory-reset policy.
+        """
         self._set_display_policy(DISPLAY_POLICY_FACTORY_RESET)
 
         setup_context = self._register_device_through_setup()
         registered_device = setup_context["device"]
+        mac_address = registered_device.mac_address
 
         first_response = self.url_open(
             "/api/display",
-            headers=self._display_headers(self.BAD_TOKEN, registered_device.mac_address),
+            headers=self._display_headers(self.BAD_TOKEN, mac_address),
         )
         first_payload = self._response_json(first_response)
 
@@ -377,9 +383,18 @@ class TestTrmnlDisplayFactoryResetPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(first_payload, {"status": 500})
         self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_FACTORY_RESET)
 
+        device_after_first = self.env["trmnl.device"].sudo().search(
+            [("mac_address", "=", mac_address)],
+            limit=1,
+        )
+        self.assertFalse(
+            device_after_first,
+            "The device record must be deleted after the factory-reset response.",
+        )
+
         second_response = self.url_open(
             "/api/display",
-            headers=self._display_headers(self.BAD_TOKEN, registered_device.mac_address),
+            headers=self._display_headers(self.BAD_TOKEN, mac_address),
         )
         second_payload = self._response_json(second_response)
 

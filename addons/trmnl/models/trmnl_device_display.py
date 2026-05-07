@@ -39,9 +39,9 @@ class TrmnlDeviceDisplayMixin(models.Model):
     4. MAC unknown + error          → create stub record, return error.
     5. MAC known, token valid       → serve display (if accepted).
     6. MAC known, token invalid
-       + auto-accept                → adopt new token, serve display.
-       + factory-reset              → return {"status": 500}.
-       + error                      → update stub / mismatch record, return error.
+        + auto-accept               → adopt new token, serve display.
+        + factory-reset             → return {"status": 500}, delete record.
+        + error                     → update mismatch record, return {"status": 202}.
     """
 
     _inherit = "trmnl.device"

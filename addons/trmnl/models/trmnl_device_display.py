@@ -191,7 +191,16 @@ class TrmnlDeviceDisplayMixin(models.Model):
         )
 
     def _resolve_token_mismatch_display_request(self, device, headers, api_token):
-        """Resolve a display request from a known device that presented a wrong token."""
+        """Resolve a display request from a known device that presented a wrong token.
+
+        Under the auto-accept policy the presented token is adopted and the device
+        is served normally.  Under the factory-reset policy the device receives a
+        reset signal (``{"status": 500}``) and its record is deleted, so the device
+        must re-register from scratch.  Under the error policy the mismatch is
+        recorded for manual admin review and the device receives a rejection
+        response (``{"status": 202}``).
+        """
+
         policy = self._get_display_request_policy()
 
         if api_token and policy == DISPLAY_POLICY_AUTO_ACCEPT:
@@ -214,9 +223,11 @@ class TrmnlDeviceDisplayMixin(models.Model):
             )
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
+            error_payload = self.build_display_error_response(status=500)
+            device.unlink()
             return DisplayResolutionResult(
-                device,
-                self.build_display_error_response(status=500),
+                self.browse(),
+                error_payload,
                 "factory_reset",
             )
 

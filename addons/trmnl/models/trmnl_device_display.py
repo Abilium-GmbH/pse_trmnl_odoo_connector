@@ -35,13 +35,13 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
     1. MAC address missing          → error response, no record touched.
     2. MAC unknown + auto-accept    → register & adopt token, serve display.
-    3. MAC unknown + factory-reset  → consume policy, return 500.
+    3. MAC unknown + factory-reset  → return {"status": 500}.
     4. MAC unknown + error          → create stub record, return error.
     5. MAC known, token valid       → serve display (if accepted).
     6. MAC known, token invalid
-       + auto-accept                → adopt new token, serve display.
-       + factory-reset              → consume policy, return 500.
-       + error                      → update stub / mismatch record, return error.
+        + auto-accept               → adopt new token, serve display.
+        + factory-reset             → return {"status": 500}, delete record.
+        + error                     → update mismatch record, return {"status": 202}.
     """
 
     _inherit = "trmnl.device"
@@ -83,6 +83,25 @@ class TrmnlDeviceDisplayMixin(models.Model):
             "action": display_action,
         }
 
+    def build_reset_response(self):
+        """Build the display payload that instructs the device to factory-reset.
+
+        Uses the semantically correct firmware reset signal: status 0 with
+        reset_firmware set to True. All standard display keys are included
+        alongside the reset flag so the firmware can parse the response
+        normally before acting on the reset instruction.
+        """
+        self.ensure_one()
+        return {
+            "status": 0,
+            "filename": self.filename or "",
+            "image_url": self.image_url or "",
+            "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
+            "special_function": "none",
+            "action": "",
+            "reset_firmware": True,
+        }
+
     # ------------------------------------------------------------------
     # request resolution
     # ------------------------------------------------------------------
@@ -101,6 +120,17 @@ class TrmnlDeviceDisplayMixin(models.Model):
             )
 
         device = self.sudo().search([("mac_address", "=", mac_address)], limit=1)
+
+        # Per-device reset handling (must run before any token validation)
+        if device and device.reset_pending:
+            reset_payload = device.build_reset_response()
+            device.unlink()
+            return DisplayResolutionResult(
+                self.browse(),
+                reset_payload,
+                "reset_pending",
+            )
+
         if not device:
             return self._resolve_unknown_display_request(
                 mac_address, headers, api_token
@@ -145,7 +175,6 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 )
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
-            self._consume_factory_reset_policy()
             return DisplayResolutionResult(
                 self.browse(),
                 self.build_display_error_response(status=500),
@@ -162,7 +191,16 @@ class TrmnlDeviceDisplayMixin(models.Model):
         )
 
     def _resolve_token_mismatch_display_request(self, device, headers, api_token):
-        """Resolve a display request from a known device that presented a wrong token."""
+        """Resolve a display request from a known device that presented a wrong token.
+
+        Under the auto-accept policy the presented token is adopted and the device
+        is served normally.  Under the factory-reset policy the device receives a
+        reset signal (``{"status": 500}``) and its record is deleted, so the device
+        must re-register from scratch.  Under the error policy the mismatch is
+        recorded for manual admin review and the device receives a rejection
+        response (``{"status": 202}``).
+        """
+
         policy = self._get_display_request_policy()
 
         if api_token and policy == DISPLAY_POLICY_AUTO_ACCEPT:
@@ -185,10 +223,11 @@ class TrmnlDeviceDisplayMixin(models.Model):
             )
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
-            self._consume_factory_reset_policy()
+            error_payload = self.build_display_error_response(status=500)
+            device.unlink()
             return DisplayResolutionResult(
-                device,
-                self.build_display_error_response(status=500),
+                self.browse(),
+                error_payload,
                 "factory_reset",
             )
 

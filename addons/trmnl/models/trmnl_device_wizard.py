@@ -7,7 +7,6 @@ from odoo.exceptions import UserError
 
 from .trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
-    DISPLAY_POLICY_FACTORY_RESET,
     DISPLAY_POLICY_ERROR,
     DISPLAY_POLICY_SELECTION,
 )
@@ -54,6 +53,24 @@ class TrmnlDeviceActionWizardMixin(models.AbstractModel):
             "view_mode": "list,form",
             "target": "current",
         }
+
+    def _action_schedule_reset(self):
+        """Schedule a factory reset for the linked device on its next display poll.
+
+        Sets ``reset_pending`` on the device record. The record is not deleted
+        here — it is removed automatically by ``resolve_display_request`` after
+        the reset signal has been delivered to the device. If the device
+        re-registers via /api/setup before polling /api/display, the pending
+        flag is cleared and the device is re-registered normally.
+        """
+        self.ensure_one()
+        device = self.device_id
+
+        if not device.exists():
+            raise UserError(_("The device no longer exists."))
+
+        device.write({"reset_pending": True})
+        return self._redirect_to_device_list()
 
 # ---------------------------------------------------------------------------
 # Accept wizard
@@ -104,14 +121,15 @@ class TrmnlDeviceAcceptWizard(models.TransientModel):
 # ---------------------------------------------------------------------------
 
 class TrmnlDeviceRemoveWizard(models.TransientModel):
-    """Confirm and execute the permanent removal of a TRMNL device record.
+    """Confirm and execute the removal of a TRMNL device record.
 
     Presents the user with three choices:
     -------------------------------------
     - Cancel         — dismiss the dialog without any change.
     - Remove         — delete the device record from the database.
-    - Reset & Remove — trigger a one-shot factory-reset response on the next
-                       display poll (status 500) and then delete the device record.
+    - Reset & Remove — schedule a factory reset for the device. The record is
+                       deleted automatically after the reset signal is delivered
+                       on the next /api/display poll.
     """
 
     _name = "trmnl.device.remove.wizard"
@@ -130,38 +148,28 @@ class TrmnlDeviceRemoveWizard(models.TransientModel):
         return self._redirect_to_device_list()
 
     def action_reset_and_remove(self):
-        """Arm the one-shot factory-reset policy and delete the device.
+        """Schedule a factory reset for this device and return to the device list.
 
-        NOTE: This sets a global policy affecting the next unrecognized or
-        mismatched device poll, not strictly this device.
+        The device record is retained until the reset signal is delivered on
+        the next /api/display poll, at which point the record is deleted
+        automatically.
         """
-        self.ensure_one()
-        device = self.device_id
-
-        if not device.exists():
-            raise UserError(_("The device no longer exists."))
-
-        device_model = self.env["trmnl.device"].sudo()
-        device_model._set_display_request_policy(DISPLAY_POLICY_FACTORY_RESET)
-        device.unlink()
-        return self._redirect_to_device_list()
+        return self._action_schedule_reset()
 
 # ---------------------------------------------------------------------------
 # Reset wizard
 # ---------------------------------------------------------------------------
 
 class TrmnlDeviceResetWizard(models.TransientModel):
-    """Confirm and execute a factory-reset followed by device record removal.
+    """Confirm and execute a factory reset for a TRMNL device.
 
-    The reset arms the one-shot ``factory_reset`` display policy so that the
-    device receives an HTTP 500 response on its next display poll, which causes
-    it to wipe its stored Wi-Fi credentials and re-enter the pairing flow.
-    The device record is then deleted from the database.
+    The device record is retained until the reset signal is delivered on the
+    next /api/display poll, at which point the record is deleted automatically.
 
     Presents the user with two choices:
     -----------------------------------
     - Cancel — dismiss the dialog without any change.
-    - Reset  — arm the factory-reset policy and remove the device record.
+    - Reset  — schedule a factory reset for the device.
     """
 
     _name = "trmnl.device.reset.wizard"
@@ -169,21 +177,13 @@ class TrmnlDeviceResetWizard(models.TransientModel):
     _inherit = ["trmnl.device.action.wizard.mixin"]
 
     def action_reset(self):
-        """Arm the one-shot factory-reset policy and remove the device.
+        """Schedule a factory reset for this device and return to the device list.
 
-        NOTE: This sets a global policy affecting the next unrecognized or
-        mismatched device poll, not strictly this device.
+        The device record is retained until the reset signal is delivered on
+        the next /api/display poll, at which point the record is deleted
+        automatically.
         """
-        self.ensure_one()
-        device = self.device_id
-
-        if not device.exists():
-            raise UserError(_("The device no longer exists."))
-
-        device_model = self.env["trmnl.device"].sudo()
-        device_model._set_display_request_policy(DISPLAY_POLICY_FACTORY_RESET)
-        device.unlink()
-        return self._redirect_to_device_list()
+        return self._action_schedule_reset()
 
 # ---------------------------------------------------------------------------
 # Display policy wizard
@@ -200,10 +200,9 @@ class TrmnlDisplayPolicyWizard(models.TransientModel):
     auto_accept    — The server adopts whatever token the device presents and
                      immediately serves it.  Convenient for first-time setup
                      but gives any device access.
-    factory_reset  — The next unrecognised or mismatched device receives an
-                     HTTP 500 response, which triggers a factory reset on the
-                     device (wipes Wi-Fi credentials).  The policy reverts to
-                     ``error`` automatically after firing once.
+    factory_reset  — The unrecognised or mismatched device receives a response,
+                     which triggers a factory reset on the device
+                     (wipes Wi-Fi credentials).
     """
 
     _name = "trmnl.display.policy.wizard"

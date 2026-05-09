@@ -334,10 +334,10 @@ class TestTrmnlDisplayAutoAcceptPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
 
 @tagged("-at_install", "post_install")
 class TestTrmnlDisplayFactoryResetPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
-    """Verify the one-shot factory-reset policy for ``/api/display``."""
+    """Verify the persistent factory-reset policy for ``/api/display``."""
 
-    def test_api_display_unknown_device_triggers_factory_reset_once(self):
-        """The factory-reset policy should emit 500 once and then revert to default."""
+    def test_api_display_factory_reset_policy_returns_500_for_every_unknown_device(self):
+        """Factory reset policy should return 500 for every unknown device poll."""
         self._set_display_policy(DISPLAY_POLICY_FACTORY_RESET)
 
         first_response = self.url_open(
@@ -348,7 +348,7 @@ class TestTrmnlDisplayFactoryResetPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
 
         self.assertEqual(self._response_status(first_response), 200)
         self.assertEqual(first_payload, {"status": 500})
-        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_ERROR)
+        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_FACTORY_RESET)
 
         second_response = self.url_open(
             "/api/display",
@@ -357,35 +357,51 @@ class TestTrmnlDisplayFactoryResetPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         second_payload = self._response_json(second_response)
 
         self.assertEqual(self._response_status(second_response), 200)
-        self.assertEqual(second_payload, {"status": 202})
+        self.assertEqual(second_payload, {"status": 500})
+        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_FACTORY_RESET)
 
-    def test_api_display_known_device_with_invalid_token_triggers_factory_reset_once(self):
-        """Known devices with a bad token should also get the one-shot reset response."""
+    def test_api_display_factory_reset_policy_returns_500_for_every_token_mismatch(self):
+        """Factory reset policy should return 500 for token mismatch and delete the record.
+
+        The first poll deletes the device record after responding with 500.
+        A subsequent poll from the same MAC is treated as an unknown device
+        and continues to receive 500 under the factory-reset policy.
+        """
         self._set_display_policy(DISPLAY_POLICY_FACTORY_RESET)
 
         setup_context = self._register_device_through_setup()
         registered_device = setup_context["device"]
+        mac_address = registered_device.mac_address
 
         first_response = self.url_open(
             "/api/display",
-            headers=self._display_headers(self.BAD_TOKEN, registered_device.mac_address),
+            headers=self._display_headers(self.BAD_TOKEN, mac_address),
         )
         first_payload = self._response_json(first_response)
 
         self.assertEqual(self._response_status(first_response), 200)
         self.assertEqual(first_payload, {"status": 500})
-        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_ERROR)
-        self.assertEqual(registered_device.display_request_count, 0)
-        self.assertEqual(registered_device.invalid_token_count, 0)
+        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_FACTORY_RESET)
+
+        device_after_first = self.env["trmnl.device"].sudo().search(
+            [("mac_address", "=", mac_address)],
+            limit=1,
+        )
+        self.assertFalse(
+            device_after_first,
+            "The device record must be deleted after the factory-reset response.",
+        )
 
         second_response = self.url_open(
             "/api/display",
-            headers=self._display_headers(self.BAD_TOKEN, registered_device.mac_address),
+            headers=self._display_headers(self.BAD_TOKEN, mac_address),
         )
         second_payload = self._response_json(second_response)
 
         self.assertEqual(self._response_status(second_response), 200)
-        self.assertEqual(second_payload, {"status": 202})
+        self.assertEqual(second_payload, {"status": 500})
+        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_FACTORY_RESET)
+
 
 @tagged("-at_install", "post_install")
 class TestTrmnlDisplayIdentifyApi(HttpCase, TrmnlApiHttpCaseMixin):
@@ -399,10 +415,8 @@ class TestTrmnlDisplayIdentifyApi(HttpCase, TrmnlApiHttpCaseMixin):
         registered_device = setup_context["device"]
         api_token = setup_context["api_token"]
 
-        # Trigger identify via backend (simulates button click)
         registered_device.write({"identify_pending": True})
 
-        # --- First call → IDENTIFY ---
         first_response = self.url_open(
             "/api/display",
             headers=self._display_headers(api_token, registered_device.mac_address),
@@ -414,11 +428,8 @@ class TestTrmnlDisplayIdentifyApi(HttpCase, TrmnlApiHttpCaseMixin):
         refreshed_device = self.env["trmnl.device"].sudo().browse(registered_device.id)
 
         self._assert_identify_payload(first_payload, refreshed_device.image_url)
-
-        # ensure flag was cleared
         self.assertFalse(refreshed_device.identify_pending)
 
-        # --- Second call → NORMAL ---
         second_response = self.url_open(
             "/api/display",
             headers=self._display_headers(api_token, registered_device.mac_address),
@@ -436,7 +447,6 @@ class TestTrmnlDisplayIdentifyApi(HttpCase, TrmnlApiHttpCaseMixin):
             refreshed_device_after_second_call.image_url,
         )
 
-        # still false (no re-trigger)
         self.assertFalse(refreshed_device_after_second_call.identify_pending)
 
     def test_api_display_identify_does_not_persist_across_multiple_requests(self):
@@ -449,13 +459,11 @@ class TestTrmnlDisplayIdentifyApi(HttpCase, TrmnlApiHttpCaseMixin):
 
         registered_device.write({"identify_pending": True})
 
-        # First call → identify
         self.url_open(
             "/api/display",
             headers=self._display_headers(api_token, registered_device.mac_address),
         )
 
-        # Multiple subsequent calls → must all be normal
         for iteration_index in range(3):
             response = self.url_open(
                 "/api/display",
@@ -483,9 +491,7 @@ class TestTrmnlDisplayIdentifyApi(HttpCase, TrmnlApiHttpCaseMixin):
         setup_context = self._register_device_through_setup()
         registered_device = setup_context["device"]
 
-        # Force invalid state
         registered_device.write({"approval_state": APPROVAL_STATE_TOKEN_MISMATCH})
-
         registered_device.write({"identify_pending": True})
 
         response = self.url_open(
@@ -494,6 +500,259 @@ class TestTrmnlDisplayIdentifyApi(HttpCase, TrmnlApiHttpCaseMixin):
         )
         payload = self._response_json(response)
 
-        # Should NOT return identify → falls back to error policy
         self.assertEqual(self._response_status(response), 200)
         self.assertEqual(payload, {"status": 202})
+
+
+@tagged("-at_install", "post_install")
+class TestTrmnlDisplayPerDeviceResetApi(HttpCase, TrmnlApiHttpCaseMixin):
+    """Verify per-device factory-reset behaviour via the reset_pending flag."""
+
+    def test_reset_pending_device_receives_reset_firmware_signal_with_correct_token(self):
+        """A device with reset_pending True should receive the reset signal on its next poll."""
+        setup_context = self._register_device_through_setup()
+        registered_device = setup_context["device"]
+        api_token = setup_context["api_token"]
+
+        registered_device.write({"reset_pending": True})
+
+        mac_address = registered_device.mac_address
+        filename = registered_device.filename
+        image_url = registered_device.image_url
+        desired_refresh_rate = registered_device.desired_refresh_rate
+
+        response = self.url_open(
+            "/api/display",
+            headers=self._display_headers(api_token, mac_address),
+        )
+        payload = self._response_json(response)
+
+        self.assertEqual(self._response_status(response), 200)
+        self.assertEqual(
+            payload,
+            {
+                "status": 0,
+                "filename": filename,
+                "image_url": image_url,
+                "refresh_rate": desired_refresh_rate,
+                "special_function": "none",
+                "action": "",
+                "reset_firmware": True,
+            },
+        )
+
+        device_after = self.env["trmnl.device"].sudo().search(
+            [("mac_address", "=", mac_address)],
+            limit=1,
+        )
+        self.assertFalse(device_after)
+
+    def test_reset_pending_device_receives_reset_firmware_signal_with_wrong_token(self):
+        """A device with reset_pending True should receive the reset signal regardless of token."""
+        setup_context = self._register_device_through_setup()
+        registered_device = setup_context["device"]
+
+        registered_device.write({"reset_pending": True})
+
+        mac_address = registered_device.mac_address
+
+        response = self.url_open(
+            "/api/display",
+            headers=self._display_headers(self.BAD_TOKEN, mac_address),
+        )
+        payload = self._response_json(response)
+
+        self.assertEqual(self._response_status(response), 200)
+        self.assertIn("reset_firmware", payload)
+        self.assertTrue(payload["reset_firmware"])
+        self.assertEqual(payload["status"], 0)
+
+        device_after = self.env["trmnl.device"].sudo().search(
+            [("mac_address", "=", mac_address)],
+            limit=1,
+        )
+        self.assertFalse(device_after)
+
+    def test_reset_pending_device_does_not_affect_other_devices(self):
+        """Setting reset_pending on one device must not affect other devices' display polls."""
+        setup_context_a = self._register_device_through_setup(
+            mac_address=self.DEVICE_MAC_ADDRESS
+        )
+        device_a = setup_context_a["device"]
+
+        setup_context_b = self._register_device_through_setup(
+            mac_address="FF:EE:DD:CC:BB:AA"
+        )
+        device_b = setup_context_b["device"]
+        token_b = setup_context_b["api_token"]
+
+        device_a.write({"reset_pending": True})
+
+        response = self.url_open(
+            "/api/display",
+            headers=self._display_headers(token_b, device_b.mac_address),
+        )
+        payload = self._response_json(response)
+
+        self.assertEqual(self._response_status(response), 200)
+        self.assertNotIn("reset_firmware", payload)
+
+        device_b_after = self.env["trmnl.device"].sudo().browse(device_b.id)
+        self.assertTrue(device_b_after)
+
+        device_a_after = self.env["trmnl.device"].sudo().browse(device_a.id)
+        self.assertTrue(device_a_after)
+
+    def test_reset_pending_flag_is_cleared_by_setup_call_and_device_is_reregistered(self):
+        """A setup call from a reset_pending device should clear the flag and reregister."""
+        setup_context = self._register_device_through_setup()
+        registered_device = setup_context["device"]
+        old_device_id = registered_device.id
+        old_token = setup_context["api_token"]
+
+        registered_device.write({"reset_pending": True})
+
+        mac_address = registered_device.mac_address
+
+        response = self.url_open(
+            "/api/setup",
+            headers=self._setup_headers(),
+        )
+        payload = self._response_json(response)
+
+        self.assertEqual(self._response_status(response), 200)
+        self.assertEqual(payload["status"], 200)
+        self.assertTrue(payload["api_key"])
+        self.assertNotEqual(payload["api_key"], old_token)
+
+        devices = self.env["trmnl.device"].sudo().search(
+            [("mac_address", "=", mac_address)]
+        )
+        self.assertEqual(len(devices), 1)
+
+        new_device = devices[0]
+        self.assertNotEqual(new_device.id, old_device_id)
+        self.assertFalse(new_device.reset_pending)
+        self.assertEqual(new_device.approval_state, APPROVAL_STATE_ACCEPTED)
+        self.assertTrue(new_device._verify_api_token(payload["api_key"]))
+
+
+@tagged("-at_install", "post_install")
+class TestTrmnlDisplayPolicyPersistenceApi(HttpCase, TrmnlApiHttpCaseMixin):
+    """Verify that all three display policies persist until explicitly changed by an admin."""
+
+    def test_error_policy_persists_across_multiple_unknown_device_polls(self):
+        """The error policy should continue returning 202 for every unknown device poll."""
+        self._set_display_policy(DISPLAY_POLICY_ERROR)
+
+        for iteration_index in range(3):
+            response = self.url_open(
+                "/api/display",
+                headers=self._display_unknown_headers(self.UNKNOWN_DEVICE_TOKEN),
+            )
+            payload = self._response_json(response)
+
+            self.assertEqual(self._response_status(response), 200)
+            self.assertEqual(payload, {"status": 202})
+
+        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_ERROR)
+
+    def test_auto_accept_policy_persists_and_accepts_every_new_unknown_device(self):
+        """The auto-accept policy should accept every unknown device until manually changed."""
+        self._set_display_policy(DISPLAY_POLICY_AUTO_ACCEPT)
+
+        response_a = self.url_open(
+            "/api/display",
+            headers=self._display_unknown_headers(self.UNKNOWN_DEVICE_TOKEN),
+        )
+        payload_a = self._response_json(response_a)
+
+        self.assertEqual(self._response_status(response_a), 200)
+        self.assertEqual(payload_a["status"], 0)
+
+        device_a = self.env["trmnl.device"].sudo().search(
+            [("mac_address", "=", self.UNKNOWN_MAC_ADDRESS)],
+            limit=1,
+        )
+        self.assertTrue(device_a)
+        self.assertEqual(device_a.approval_state, APPROVAL_STATE_ACCEPTED)
+
+        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_AUTO_ACCEPT)
+
+        second_mac = "AA:BB:CC:DD:EE:11"
+        second_token = "second-unknown-token"
+
+        response_b = self.url_open(
+            "/api/display",
+            headers=self._display_headers(second_token, second_mac),
+        )
+        payload_b = self._response_json(response_b)
+
+        self.assertEqual(self._response_status(response_b), 200)
+        self.assertEqual(payload_b["status"], 0)
+
+        device_b = self.env["trmnl.device"].sudo().search(
+            [("mac_address", "=", second_mac)],
+            limit=1,
+        )
+        self.assertTrue(device_b)
+        self.assertEqual(device_b.approval_state, APPROVAL_STATE_ACCEPTED)
+
+        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_AUTO_ACCEPT)
+
+    def test_factory_reset_policy_persists_and_resets_every_unknown_device(self):
+        """The factory-reset policy should return 500 for every unknown device until changed."""
+        self._set_display_policy(DISPLAY_POLICY_FACTORY_RESET)
+
+        test_cases = [
+            ("AA:BB:CC:DD:EE:11", "token-one"),
+            ("AA:BB:CC:DD:EE:22", "token-two"),
+            ("AA:BB:CC:DD:EE:33", "token-three"),
+        ]
+
+        for mac_address, token in test_cases:
+            response = self.url_open(
+                "/api/display",
+                headers=self._display_headers(token, mac_address),
+            )
+            payload = self._response_json(response)
+
+            self.assertEqual(self._response_status(response), 200)
+            self.assertEqual(payload, {"status": 500})
+
+        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_FACTORY_RESET)
+
+    def test_policy_change_takes_effect_immediately_on_next_poll(self):
+        """Changing the policy mid-session must take effect on the very next poll."""
+        self._set_display_policy(DISPLAY_POLICY_ERROR)
+
+        first_response = self.url_open(
+            "/api/display",
+            headers=self._display_unknown_headers(self.UNKNOWN_DEVICE_TOKEN),
+        )
+        first_payload = self._response_json(first_response)
+
+        self.assertEqual(first_payload, {"status": 202})
+        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_ERROR)
+
+        self._set_display_policy(DISPLAY_POLICY_FACTORY_RESET)
+
+        second_response = self.url_open(
+            "/api/display",
+            headers=self._display_unknown_headers(self.UNKNOWN_DEVICE_TOKEN),
+        )
+        second_payload = self._response_json(second_response)
+
+        self.assertEqual(second_payload, {"status": 500})
+        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_FACTORY_RESET)
+
+        self._set_display_policy(DISPLAY_POLICY_ERROR)
+
+        third_response = self.url_open(
+            "/api/display",
+            headers=self._display_unknown_headers(self.UNKNOWN_DEVICE_TOKEN),
+        )
+        third_payload = self._response_json(third_response)
+
+        self.assertEqual(third_payload, {"status": 202})
+        self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_ERROR)

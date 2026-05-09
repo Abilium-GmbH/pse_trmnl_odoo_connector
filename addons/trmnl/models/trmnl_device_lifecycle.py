@@ -68,12 +68,6 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             policy,
         )
 
-    @api.model
-    def _consume_factory_reset_policy(self):
-        """Reset the one-shot factory-reset behavior back to the default policy."""
-        if self._get_display_request_policy() == DISPLAY_POLICY_FACTORY_RESET:
-            self._set_display_request_policy(DISPLAY_POLICY_ERROR)
-
     # ------------------------------------------------------------------
     # /api/setup registration
     # ------------------------------------------------------------------
@@ -90,7 +84,13 @@ class TrmnlDeviceLifecycleMixin(models.Model):
 
         existing_device = self.sudo().search([("mac_address", "=", mac_address)], limit=1)
         if existing_device:
-            raise ValidationError(_("TRMNL device with this MAC address is already registered."))
+            if existing_device.reset_pending:
+                existing_device.with_context(trmnl_allow_identity_update=True).write({
+                    "reset_pending": False
+                })
+                existing_device.unlink()
+            else:
+                raise ValidationError(_("TRMNL device with this MAC address is already registered."))
 
         firmware_version = self._parse_to_string(headers.get("FW-Version"))
         now_value = fields.Datetime.now()

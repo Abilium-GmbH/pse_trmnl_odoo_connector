@@ -19,8 +19,9 @@ class TrmnlDeviceSecurityMixin(models.Model):
     Two distinct token slots are managed here:
 
     api_token_hash / api_token_salt
-        The accepted, authoritative token for the device.  Written once
-        during /api/setup (or when an admin manually accepts the device).
+        The accepted, authoritative token for the device.  Written during
+        /api/setup, on auto-accept via /api/display, or when an admin
+        manually accepts the device via the accept wizard.
 
     last_presented_token_hash / last_presented_token_salt
         The most-recent token that the device presented in a /api/display

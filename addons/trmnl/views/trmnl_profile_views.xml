@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="trmnl_profile_view_list" model="ir.ui.view">
+        <field name="name">trmnl.profile.list</field>
+        <field name="model">trmnl.profile</field>
+        <field name="arch" type="xml">
+            <list string="TRMNL Profiles">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="device_id"/>
+                <field name="app_module_id"/>
+                <field name="odoo_action_id"/>
+                <field name="trmnl_layout"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="trmnl_profile_view_form" model="ir.ui.view">
+        <field name="name">trmnl.profile.form</field>
+        <field name="model">trmnl.profile</field>
+        <field name="arch" type="xml">
+            <form string="TRMNL Profile">
+                <header>
+                    <button
+                        name="action_render_preview"
+                        string="Render Preview"
+                        type="object"
+                        class="btn-primary"
+                        invisible="not odoo_action_id"
+                    />
+                </header>
+
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="device_id"/>
+                        <field name="active"/>
+                    </group>
+
+                    <group string="Odoo Source">
+                        <field name="app_module_id"/>
+                        <field name="odoo_action_id"/>
+                        <field name="app_model_id" readonly="1"/>
+                    </group>
+
+                    <group string="Display Fields" invisible="not app_model_id">
+                        <field
+                            name="display_field_ids"
+                            domain="[('model_id', '=', app_model_id), ('ttype', 'not in', ['binary', 'html', 'one2many', 'many2many', 'serialized', 'reference'])]"
+                            widget="many2many_tags"
+                            nolabel="1"
+                        />
+                    </group>
+
+                    <group string="Display Settings" invisible="not odoo_action_id">
+                        <field name="trmnl_layout"/>
+                        <field name="display_limit"/>
+                        <field name="display_order" placeholder="e.g. date desc, name asc"/>
+                    </group>
+
+                    <group string="Preview" invisible="not preview_image">
+                        <field name="preview_generated_at" readonly="1"/>
+                        <field
+                            name="preview_image"
+                            widget="image"
+                            readonly="1"
+                            nolabel="1"
+                            colspan="2"
+                        />
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="trmnl_profile_action_profiles" model="ir.actions.act_window">
+        <field name="name">Profiles</field>
+        <field name="res_model">trmnl.profile</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

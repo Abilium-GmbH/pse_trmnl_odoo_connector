@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import NamedTuple
 
 from odoo import api, models
+
+_logger = logging.getLogger(__name__)
 
 from .trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
@@ -68,12 +71,65 @@ class TrmnlDeviceDisplayMixin(models.Model):
     def build_display_response(self):
         """Build the normal display payload for an accepted device."""
         self.ensure_one()
+
+        image_url, filename = self._resolve_display_image()
+
         return {
             "status": 0,
-            "filename": self.filename or "",
-            "image_url": self.image_url or "",
+            "filename": filename,
+            "image_url": image_url,
             "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
         }
+
+    def _resolve_display_image(self):
+        """Return (image_url, filename) from the active profile or device fallback.
+
+        Renders the profile image on first call if it has not been generated yet.
+        Falls back to device.image_url / device.filename on any error.
+        """
+        self.ensure_one()
+        device_ref = f"device_id={self.id} mac={self.mac_address or '?'}"
+        try:
+            profile = self.env["trmnl.profile"].sudo().search(
+                [("device_id", "=", self.id), ("active", "=", True)],
+                limit=1,
+            )
+
+            if not profile:
+                _logger.info("TRMNL display: no active profile for %s — using device fallback", device_ref)
+                return self.image_url or "", self.filename or ""
+
+            _logger.info(
+                "TRMNL display: found profile id=%s name=%r has_image=%s for %s",
+                profile.id, profile.name, bool(profile.preview_image), device_ref,
+            )
+
+            if not profile.preview_image:
+                _logger.info("TRMNL display: rendering preview for profile id=%s", profile.id)
+                profile._render_and_store_preview()
+
+            image_url = profile._get_display_image_url()
+            filename = profile._get_display_filename()
+
+            _logger.info(
+                "TRMNL display: profile id=%s resolved image_url=%r filename=%r",
+                profile.id, image_url, filename,
+            )
+
+            if image_url and filename:
+                return image_url, filename
+
+            _logger.warning(
+                "TRMNL display: profile id=%s returned empty url=%r or filename=%r — using device fallback",
+                profile.id, image_url, filename,
+            )
+        except Exception as exc:
+            _logger.warning(
+                "TRMNL display: exception resolving profile image for %s: %s",
+                device_ref, exc, exc_info=True,
+            )
+
+        return self.image_url or "", self.filename or ""
 
     def build_reset_response(self):
         """Build the display payload that instructs the device to factory-reset.

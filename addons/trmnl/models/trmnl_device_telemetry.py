@@ -27,7 +27,6 @@ class TrmnlDeviceTelemetryMixin(models.Model):
     # display telemetry
     # ------------------------------------------------------------------
 
-    @api.model
     def _apply_display_telemetry(self, headers):
         """Persist the latest telemetry snapshot reported by a display poll.
 

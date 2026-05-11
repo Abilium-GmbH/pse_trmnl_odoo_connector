@@ -9,12 +9,15 @@ from odoo import api, models
 
 _logger = logging.getLogger(__name__)
 
+from urllib.parse import urlparse as _urlparse
+
 from .trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
     DEFAULT_DISPLAY_ERROR_STATUS,
     DEFAULT_REFRESH_RATE,
     DISPLAY_POLICY_AUTO_ACCEPT,
     DISPLAY_POLICY_FACTORY_RESET,
+    _INTERNAL_HOST_RE,
 )
 
 
@@ -117,10 +120,17 @@ class TrmnlDeviceDisplayMixin(models.Model):
             )
 
             if image_url and filename:
+                _logger.info(
+                    "TRMNL display: serving profile image — profile id=%s "
+                    "image_url=%r filename=%r",
+                    profile.id, image_url, filename,
+                )
                 return image_url, filename
 
             _logger.warning(
-                "TRMNL display: profile id=%s returned empty url=%r or filename=%r — using device fallback",
+                "TRMNL display: profile id=%s image_url=%r or filename=%r is empty "
+                "— trmnl.public_base_url is likely not set and web.base.url is an "
+                "internal address. Falling back to device default image.",
                 profile.id, image_url, filename,
             )
         except Exception as exc:
@@ -129,6 +139,10 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 device_ref, exc, exc_info=True,
             )
 
+        _logger.info(
+            "TRMNL display: using device fallback image_url=%r filename=%r for %s",
+            self.image_url or "", self.filename or "", device_ref,
+        )
         return self.image_url or "", self.filename or ""
 
     def build_reset_response(self):
@@ -147,6 +161,30 @@ class TrmnlDeviceDisplayMixin(models.Model):
             "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
             "reset_firmware": True,
         }
+
+    # ------------------------------------------------------------------
+    # public base URL auto-detection
+    # ------------------------------------------------------------------
+
+    @api.model
+    def _maybe_auto_set_public_base_url(self, candidate_url):
+        """Auto-set trmnl.public_base_url from the device's Host header if not configured."""
+        params = self.env["ir.config_parameter"].sudo()
+        if params.get_param("trmnl.public_base_url"):
+            return
+        try:
+            host = _urlparse(candidate_url).hostname or ""
+            if host and not _INTERNAL_HOST_RE.match(host):
+                params.set_param("trmnl.public_base_url", candidate_url.rstrip("/"))
+                _logger.info(
+                    "TRMNL auto-set trmnl.public_base_url=%r from device Host header",
+                    candidate_url,
+                )
+        except Exception as exc:
+            _logger.debug(
+                "TRMNL could not auto-set public_base_url from %r: %s",
+                candidate_url, exc,
+            )
 
     # ------------------------------------------------------------------
     # request resolution

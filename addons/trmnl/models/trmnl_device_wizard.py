@@ -9,6 +9,7 @@ from .trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
     DISPLAY_POLICY_ERROR,
     DISPLAY_POLICY_SELECTION,
+    TRMNL_POLICY_PARAM,
 )
 
 
@@ -222,7 +223,7 @@ class TrmnlDisplayPolicyWizard(models.TransientModel):
             current_policy = (
                 self.env["ir.config_parameter"]
                 .sudo()
-                .get_param("trmnl.display_unknown_device_policy", DISPLAY_POLICY_ERROR)
+                .get_param(TRMNL_POLICY_PARAM, DISPLAY_POLICY_ERROR)
             )
             result["policy"] = current_policy
         return result

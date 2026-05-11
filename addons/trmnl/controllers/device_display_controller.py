@@ -36,6 +36,11 @@ class DeviceDisplayController(TrmnlApiControllerMixin, http.Controller):
         )
 
         try:
+            host_header = headers.get("Host", "")
+            if host_header:
+                scheme = "https" if request.httprequest.is_secure else "http"
+                device_model._maybe_auto_set_public_base_url(f"{scheme}://{host_header}")
+
             device, payload, record_status = device_model.resolve_display_request(headers)
 
             _logger.info(

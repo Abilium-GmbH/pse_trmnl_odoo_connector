@@ -13,6 +13,27 @@ from odoo.exceptions import AccessError, ValidationError
 # firmware, e.g.: A4:CF:12:7E:3B:01
 MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
 
+# System parameter key for the display-request policy.  Defined once here so
+# lifecycle, UI, and wizard code all reference the same string.
+TRMNL_POLICY_PARAM = "trmnl.display_unknown_device_policy"
+
+# Hosts/IPs that are unreachable from a physical device on the LAN: loopback,
+# the libvirt/KVM virbr0 bridge (192.168.122.x), and Docker bridge ranges
+# (172.16–172.31).  Used by both the display and profile modules to reject
+# internal addresses when generating device-facing image URLs.
+_INTERNAL_HOST_RE = re.compile(
+    r"^("
+    r"localhost"
+    r"|127(?:\.\d+){3}"
+    r"|::1"
+    r"|192\.168\.122\.\d+"
+    r"|172\.1[6-9]\.\d+\.\d+"
+    r"|172\.2\d\.\d+\.\d+"
+    r"|172\.3[01]\.\d+\.\d+"
+    r")$",
+    re.IGNORECASE,
+)
+
 # PBKDF2-HMAC-SHA256 iteration count chosen per
 # OWASP Password Storage Cheat Sheet (2026).
 #

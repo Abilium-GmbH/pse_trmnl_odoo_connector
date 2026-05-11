@@ -30,6 +30,16 @@
                         class="btn-primary"
                         invisible="not odoo_action_id"
                     />
+                    <button
+                        name="action_set_fast_refresh"
+                        string="Set Fast Refresh (60s)"
+                        type="object"
+                    />
+                    <button
+                        name="action_restore_refresh"
+                        string="Restore 30 min Refresh"
+                        type="object"
+                    />
                 </header>
 
                 <sheet>
@@ -107,6 +117,27 @@
                             readonly="1"
                             nolabel="1"
                             colspan="2"
+                        />
+                    </group>
+
+                    <!-- ── Device Delivery Status ─────────────────────── -->
+                    <group string="Device Delivery Status">
+                        <field name="device_last_polled_at" readonly="1"/>
+                        <field name="device_next_expected_poll_at" readonly="1"/>
+                        <field name="device_refresh_rate" readonly="1"/>
+                        <field
+                            name="display_image_url"
+                            readonly="1"
+                            widget="url"
+                            invisible="not display_image_url"
+                        />
+                        <field
+                            name="url_warning"
+                            readonly="1"
+                            invisible="not url_warning"
+                            colspan="2"
+                            nolabel="1"
+                            style="color: #b45309; background: #fef3c7; padding: 8px; border-radius: 4px;"
                         />
                     </group>
                 </sheet>

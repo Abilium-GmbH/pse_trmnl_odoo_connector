@@ -8,6 +8,7 @@ from odoo.exceptions import UserError
 from .trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
     DISPLAY_POLICY_ERROR,
+    TRMNL_POLICY_PARAM,
 )
 
 
@@ -87,7 +88,7 @@ class TrmnlDeviceUiExtension(models.Model):
         current_policy = (
             self.env["ir.config_parameter"]
             .sudo()
-            .get_param("trmnl.display_unknown_device_policy", DISPLAY_POLICY_ERROR)
+            .get_param(TRMNL_POLICY_PARAM, DISPLAY_POLICY_ERROR)
         )
         policy_is_error = current_policy == DISPLAY_POLICY_ERROR
 

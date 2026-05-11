@@ -4,9 +4,12 @@ import base64
 import logging
 from calendar import monthrange
 from datetime import date, timedelta
+from urllib.parse import urlparse
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+
+from .trmnl_device import _INTERNAL_HOST_RE
 
 _logger = logging.getLogger(__name__)
 
@@ -163,6 +166,32 @@ class TrmnlProfile(models.Model):
 
     preview_image = fields.Binary(string="Preview", readonly=True)
     preview_generated_at = fields.Datetime(string="Preview Generated At", readonly=True)
+
+    device_last_polled_at = fields.Datetime(
+        string="Device Last Polled",
+        related="device_id.last_display_at",
+        readonly=True,
+    )
+    device_refresh_rate = fields.Integer(
+        string="Current Refresh Rate (s)",
+        related="device_id.desired_refresh_rate",
+        readonly=True,
+    )
+    device_next_expected_poll_at = fields.Datetime(
+        string="Next Expected Poll",
+        compute="_compute_device_next_expected_poll_at",
+        readonly=True,
+    )
+    display_image_url = fields.Char(
+        string="Image URL",
+        compute="_compute_display_image_url",
+        readonly=True,
+    )
+    url_warning = fields.Char(
+        string="URL Warning",
+        compute="_compute_url_warning",
+        readonly=True,
+    )
 
     # ------------------------------------------------------------------
     # onchange
@@ -494,6 +523,91 @@ class TrmnlProfile(models.Model):
         return render_list_preview(rows, field_labels)
 
     # ------------------------------------------------------------------
+    # computed delivery-status fields
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_publicly_reachable_base_url(url):
+        """Return True if url's host is not a localhost/internal/bridge address."""
+        try:
+            host = urlparse(url).hostname or ""
+            return bool(host) and not _INTERNAL_HOST_RE.match(host)
+        except Exception:
+            return False
+
+    @api.depends("device_id.last_display_at", "device_id.desired_refresh_rate")
+    def _compute_device_next_expected_poll_at(self):
+        for rec in self:
+            last = rec.device_id.last_display_at
+            rate = rec.device_id.desired_refresh_rate
+            if last and rate:
+                rec.device_next_expected_poll_at = last + timedelta(seconds=rate)
+            else:
+                rec.device_next_expected_poll_at = False
+
+    @api.depends("preview_image", "preview_generated_at")
+    def _compute_display_image_url(self):
+        for rec in self:
+            rec.display_image_url = rec._get_display_image_url() or ""
+
+    @api.depends("preview_image", "preview_generated_at")
+    def _compute_url_warning(self):
+        for rec in self:
+            if not rec.preview_image:
+                rec.url_warning = ""
+                continue
+            params = rec.env["ir.config_parameter"].sudo()
+            if params.get_param("trmnl.public_base_url", "").strip():
+                rec.url_warning = ""
+                continue
+            web_url = params.get_param("web.base.url", "").strip()
+            if not rec._is_publicly_reachable_base_url(web_url):
+                rec.url_warning = (
+                    f"trmnl.public_base_url is not set and web.base.url ({web_url}) "
+                    f"is an internal address unreachable by physical devices. "
+                    f"Go to Settings → Technical → Parameters → System Parameters "
+                    f"and set trmnl.public_base_url to your LAN IP "
+                    f"(e.g. http://192.168.1.127:8069)."
+                )
+            else:
+                rec.url_warning = ""
+
+    # ------------------------------------------------------------------
+    # refresh-rate actions
+    # ------------------------------------------------------------------
+
+    def action_set_fast_refresh(self):
+        self.ensure_one()
+        self.device_id.write({"desired_refresh_rate": 60})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Fast Refresh Enabled"),
+                "message": _(
+                    "Device refresh rate set to 60 seconds. "
+                    "The device will apply this on its next poll."
+                ),
+                "type": "info",
+                "sticky": False,
+            },
+        }
+
+    def action_restore_refresh(self):
+        self.ensure_one()
+        self.device_id.write({"desired_refresh_rate": 1800})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Refresh Restored"),
+                "message": _("Device refresh rate restored to 30 minutes."),
+                "type": "info",
+                "sticky": False,
+            },
+        }
+
+    # ------------------------------------------------------------------
     # preview rendering
     # ------------------------------------------------------------------
 
@@ -502,7 +616,34 @@ class TrmnlProfile(models.Model):
         if not self.odoo_action_id or not self.odoo_action_id.res_model:
             raise UserError(_("Select a Data View before rendering a preview."))
         self._render_and_store_preview()
-        return {"type": "ir.actions.client", "tag": "reload"}
+
+        last_poll = self.device_id.last_display_at
+        rate = self.device_id.desired_refresh_rate or 1800
+
+        if last_poll:
+            next_poll = last_poll + timedelta(seconds=rate)
+            msg = (
+                f"Preview updated. "
+                f"Last poll: {last_poll.strftime('%Y-%m-%d %H:%M')} UTC · "
+                f"Next expected poll: {next_poll.strftime('%Y-%m-%d %H:%M')} UTC."
+            )
+        else:
+            msg = _(
+                "Preview updated. "
+                "The device has not polled yet — power-cycle it to trigger the first poll."
+            )
+
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Preview Updated"),
+                "message": msg,
+                "type": "success",
+                "sticky": True,
+                "next": {"type": "ir.actions.client", "tag": "reload"},
+            },
+        }
 
     def _render_and_store_preview(self):
         """Render the preview image and persist it. Raises on configuration errors."""
@@ -539,20 +680,42 @@ class TrmnlProfile(models.Model):
         })
 
     def _get_display_image_url(self):
-        """Return the public URL for this profile's preview image, or False.
+        """Return a device-reachable URL for this profile's preview PNG, or False.
 
-        Checks ``trmnl.public_base_url`` first so that a LAN/public hostname
-        can be configured when ``web.base.url`` resolves to localhost.
-        Set it in Settings → Technical → Parameters → System Parameters.
+        Resolution order:
+        1. trmnl.public_base_url  — admin-set, always trusted, no validation.
+        2. web.base.url           — used only when its host is not localhost /
+                                    a Docker bridge / the libvirt KVM bridge.
+
+        If neither yields a reachable URL a warning is logged and False is
+        returned so the caller can fall back gracefully.
         """
         if not self.preview_image:
             return False
+
         params = self.env["ir.config_parameter"].sudo()
-        base_url = (
-            params.get_param("trmnl.public_base_url", "")
-            or params.get_param("web.base.url", "")
-        ).rstrip("/")
-        return f"{base_url}/api/profile/image/{self.id}"
+
+        public_url = params.get_param("trmnl.public_base_url", "").strip().rstrip("/")
+        if public_url:
+            url = f"{public_url}/api/profile/image/{self.id}"
+            _logger.info("TRMNL profile id=%s image_url (trmnl.public_base_url): %s", self.id, url)
+            return url
+
+        web_url = params.get_param("web.base.url", "").strip().rstrip("/")
+        if web_url and self._is_publicly_reachable_base_url(web_url):
+            url = f"{web_url}/api/profile/image/{self.id}"
+            _logger.info("TRMNL profile id=%s image_url (web.base.url): %s", self.id, url)
+            return url
+
+        _logger.warning(
+            "TRMNL profile id=%s: cannot generate a reachable image URL — "
+            "trmnl.public_base_url is not set and web.base.url=%r is a "
+            "localhost/internal address. "
+            "Set trmnl.public_base_url to your LAN IP in System Parameters "
+            "(e.g. http://192.168.1.127:8069).",
+            self.id, web_url,
+        )
+        return False
 
     def _get_display_filename(self):
         """Return a filename that changes whenever the preview is regenerated."""

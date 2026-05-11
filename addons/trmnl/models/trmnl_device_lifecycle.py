@@ -12,6 +12,7 @@ from .trmnl_device import (
     DISPLAY_POLICY_AUTO_ACCEPT,
     DISPLAY_POLICY_ERROR,
     DISPLAY_POLICY_FACTORY_RESET,
+    TRMNL_POLICY_PARAM,
 )
 
 
@@ -40,7 +41,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         """Return the configured default policy for unresolved display polls."""
         config_parameter = self.env["ir.config_parameter"].sudo()
         policy = config_parameter.get_param(
-            "trmnl.display_unknown_device_policy",
+            TRMNL_POLICY_PARAM,
             DISPLAY_POLICY_ERROR,
         )
 
@@ -64,7 +65,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             raise ValidationError(_("Unsupported TRMNL display policy."))
 
         self.env["ir.config_parameter"].sudo().set_param(
-            "trmnl.display_unknown_device_policy",
+            TRMNL_POLICY_PARAM,
             policy,
         )
 
@@ -84,11 +85,12 @@ class TrmnlDeviceLifecycleMixin(models.Model):
 
         existing_device = self.sudo().search([("mac_address", "=", mac_address)], limit=1)
         if existing_device:
-            if existing_device.reset_pending:
-                existing_device.with_context(trmnl_allow_identity_update=True).write({
-                    "reset_pending": False
-                })
-                existing_device.unlink()
+            # Allow re-registration for stub records (unknown_device) created by an
+            # unanswered display poll — the device was never properly registered on this
+            # server and setup is the correct way to claim it.
+            # Also allow when reset_pending is set (admin-initiated factory reset).
+            if existing_device.reset_pending or existing_device.approval_state == APPROVAL_STATE_UNKNOWN_DEVICE:
+                existing_device.with_context(trmnl_allow_identity_update=True).unlink()
             else:
                 raise ValidationError(_("TRMNL device with this MAC address is already registered."))
 

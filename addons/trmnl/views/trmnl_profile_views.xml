@@ -10,7 +10,7 @@
                 <field name="name"/>
                 <field name="device_id"/>
                 <field name="app_module_id"/>
-                <field name="odoo_action_id"/>
+                <field name="app_model_id"/>
                 <field name="trmnl_layout"/>
                 <field name="active"/>
             </list>
@@ -33,19 +33,36 @@
                 </header>
 
                 <sheet>
+                    <!-- ── Identity ──────────────────────────────────── -->
                     <group>
                         <field name="name"/>
                         <field name="device_id"/>
                         <field name="active"/>
                     </group>
 
+                    <!-- ── Odoo Source ───────────────────────────────── -->
+                    <!-- odoo_action_id is hidden once app_model_id is   -->
+                    <!-- resolved (known app auto-selected); shown for   -->
+                    <!-- unknown apps where the user must pick manually. -->
                     <group string="Odoo Source">
                         <field name="app_module_id"/>
-                        <field name="odoo_action_id"/>
+                        <field
+                            name="odoo_action_id"
+                            invisible="app_model_id"
+                            help="Auto-selected for known apps. Select manually for others."
+                        />
+                        <field
+                            name="trmnl_layout"
+                            invisible="not app_model_id"
+                        />
                         <field name="app_model_id" readonly="1"/>
                     </group>
 
-                    <group string="Display Fields" invisible="not app_model_id">
+                    <!-- ── Display Fields (list/table layouts only) ─── -->
+                    <group
+                        string="Display Fields"
+                        invisible="not app_model_id or trmnl_layout == 'calendar'"
+                    >
                         <field
                             name="display_field_ids"
                             domain="[('model_id', '=', app_model_id), ('ttype', 'not in', ['binary', 'html', 'one2many', 'many2many', 'serialized', 'reference'])]"
@@ -54,12 +71,34 @@
                         />
                     </group>
 
-                    <group string="Display Settings" invisible="not odoo_action_id">
-                        <field name="trmnl_layout"/>
+                    <!-- ── Display Settings (list/table layouts only) ── -->
+                    <group
+                        string="Display Settings"
+                        invisible="not odoo_action_id or trmnl_layout == 'calendar'"
+                    >
+                        <field name="filter_preset"/>
+                        <field name="sort_preset"/>
                         <field name="display_limit"/>
-                        <field name="display_order" placeholder="e.g. date desc, name asc"/>
+                        <field
+                            name="display_order"
+                            placeholder="e.g. date desc, name asc"
+                            help="Advanced: manual ORDER BY clause. Ignored when Sort is not Default."
+                        />
                     </group>
 
+                    <!-- ── Calendar Settings (calendar layout only) ─── -->
+                    <group string="Calendar Settings" invisible="trmnl_layout != 'calendar'">
+                        <field name="calendar_view_mode"/>
+                        <field name="calendar_week_mode"
+                               invisible="calendar_view_mode != 'week'"/>
+                        <field name="calendar_reference_mode"/>
+                        <field
+                            name="calendar_reference_date"
+                            invisible="calendar_reference_mode != 'custom'"
+                        />
+                    </group>
+
+                    <!-- ── Preview ───────────────────────────────────── -->
                     <group string="Preview" invisible="not preview_image">
                         <field name="preview_generated_at" readonly="1"/>
                         <field

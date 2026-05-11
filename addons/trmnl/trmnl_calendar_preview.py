@@ -34,9 +34,15 @@ GRID_TOP      = HEADER_H + DOW_H        # 60 px from top
 # Grayscale palette
 WHITE      = 255
 BLACK      = 0
-GRAY_LIGHT = 230   # out-of-month cell fill
 GRAY_GRID  = 180   # grid lines
 GRAY_MUTED = 110   # day-of-week labels and "+N more" text
+
+# Out-of-month cells: light gray base + tighter diagonal crosshatch (e-ink).
+_OUT_BASE   = 247
+_OUT_HATCH1 = 9   # primary diagonal tone step
+_OUT_HATCH2 = 6   # secondary diagonal (kariert)
+_OUT_SPACING = 6  # line spacing (smaller = denser, more “muted”)
+_OUT_FLOOR  = 216  # keep floor light enough for readability if lines intersect
 
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -98,6 +104,23 @@ def _col_x(col: int) -> int:
 def _col_right(col: int) -> int:
     """Right edge — last column absorbs the 2px width remainder."""
     return WIDTH if col == COLS - 1 else (col + 1) * COL_W
+
+
+def _fill_out_of_month_cell(img: Image.Image, x0: int, y0: int, x1: int, y1: int) -> None:
+    """Tighter diagonal crosshatch than in-month white (muted / disabled look on e-ink)."""
+    px = img.load()
+    s = _OUT_SPACING
+    for yy in range(y0, y1 + 1):
+        for xx in range(x0, x1 + 1):
+            v = _OUT_BASE
+            dx, dy = xx - x0, yy - y0
+            if (dx + dy) % s == 0:
+                v -= _OUT_HATCH1
+            if (dx - dy) % s == 0:
+                v -= _OUT_HATCH2
+            if v < _OUT_FLOOR:
+                v = _OUT_FLOOR
+            px[xx, yy] = v
 
 
 # ── Renderer ─────────────────────────────────────────────────────────────────
@@ -168,14 +191,15 @@ def render_calendar_preview(
             out_of_month = (day_num == 0)
             is_today     = (not out_of_month and date(year, month, day_num) == today)
 
-            # Cell background
+            if out_of_month:
+                _fill_out_of_month_cell(img, cx, cy, cright - 1, cy + row_h - 1)
+                continue
+
+            # Current-month cell: clean white
             draw.rectangle(
                 [cx, cy, cright - 1, cy + row_h - 1],
-                fill=GRAY_LIGHT if out_of_month else WHITE,
+                fill=WHITE,
             )
-
-            if out_of_month:
-                continue
 
             # Today: solid black strip behind the day number
             if is_today:

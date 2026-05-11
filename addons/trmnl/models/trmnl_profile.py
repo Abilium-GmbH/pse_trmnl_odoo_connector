@@ -550,7 +550,11 @@ class TrmnlProfile(models.Model):
         return f"{device_label} · Last poll: {local_dt.strftime('%Y-%m-%d %H:%M')}"
 
     def _get_footer_device_label(self):
-        """Human-readable device label for the footer (name → friendly_id → MAC)."""
+        """Human-readable device label for the footer.
+
+        Priority: admin ``device_name`` (device "name" in the UI), then
+        ``friendly_id``, then ``mac_address``.
+        """
         self.ensure_one()
         device = self.device_id
         name = (device.device_name or "").strip()
@@ -565,7 +569,7 @@ class TrmnlProfile(models.Model):
 
         Layout renderers produce ``(DISPLAY_WIDTH, CONTENT_HEIGHT)`` bytes. This
         method composites them into a full TRMNL frame with a separator line and
-        optional bottom-right poll metadata.
+        optional centered poll metadata in the footer band.
         """
         self.ensure_one()
         from odoo.addons.trmnl.trmnl_display_canvas import (
@@ -635,8 +639,8 @@ class TrmnlProfile(models.Model):
                 font = ImageFont.load_default()
 
             label = self._format_poll_timestamp(self._get_footer_device_label(), poll_at)
-            margin_r, margin_b = 8, 4
-            max_text_w = DISPLAY_WIDTH - 2 * margin_r
+            margin_h, margin_b = 8, 9
+            max_text_w = DISPLAY_WIDTH - 2 * margin_h
 
             def _text_w(txt):
                 try:
@@ -652,10 +656,12 @@ class TrmnlProfile(models.Model):
             bbox = draw.textbbox((0, 0), label, font=font)
             text_w = bbox[2] - bbox[0]
             text_h = bbox[3] - bbox[1]
-            x = DISPLAY_WIDTH - margin_r - text_w
+            x = (DISPLAY_WIDTH - text_w) // 2
             y = DISPLAY_HEIGHT - margin_b - text_h
             if y < FOOTER_BODY_TOP:
                 y = FOOTER_BODY_TOP
+            if x < margin_h:
+                x = margin_h
             draw.text((x, y), label, fill=0, font=font)
 
         buf = io.BytesIO()

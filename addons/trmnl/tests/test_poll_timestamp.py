@@ -57,35 +57,52 @@ class TestFormatPollTimestamp(TransactionCase):
         result = self._get_profile_class()._format_poll_timestamp("X", poll_at)
         self.assertRegex(result, r"^.+ · Last poll: \d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
 
+    def test_format_accepts_mac_as_label(self):
+        """Arbitrary label string (e.g. MAC) is embedded verbatim."""
+        mac = "AA:BB:CC:DD:EE:02"
+        poll_at = dt.datetime(2026, 5, 11, 10, 0, 0)
+        result = self._get_profile_class()._format_poll_timestamp(mac, poll_at)
+        self.assertIn(mac, result)
+        self.assertIn("Last poll:", result)
+
 
 @tagged("-at_install", "post_install")
 class TestGetFooterDeviceLabel(TransactionCase):
     """Footer device label: device_name → friendly_id → MAC."""
 
-    def setUp(self):
-        super().setUp()
-        self.device = self.env["trmnl.device"].sudo().create({
-            "mac_address": "AA:BB:CC:DD:EE:AA",
-            "approval_state": "accepted",
-            "registration_source": "setup",
-        })
-
-    def _profile(self):
+    def _profile(self, device):
         return self.env["trmnl.profile"].sudo().create({
             "name": "P",
-            "device_id": self.device.id,
+            "device_id": device.id,
         })
 
     def test_prefers_device_name(self):
-        self.device.write({"device_name": "  Lobby Unit  ", "friendly_id": "lobby-1"})
-        self.assertEqual(self._profile()._get_footer_device_label(), "Lobby Unit")
+        device = self.env["trmnl.device"].sudo().create({
+            "mac_address": "AA:BB:CC:DD:EE:A1",
+            "approval_state": "accepted",
+            "registration_source": "setup",
+        })
+        device.write({"device_name": "  Lobby Unit  "})
+        self.assertEqual(self._profile(device)._get_footer_device_label(), "Lobby Unit")
 
     def test_friendly_id_without_device_name(self):
-        self.device.write({"friendly_id": "hallway", "device_name": False})
-        self.assertEqual(self._profile()._get_footer_device_label(), "hallway")
+        device = self.env["trmnl.device"].sudo().create({
+            "mac_address": "AA:BB:CC:DD:EE:A2",
+            "approval_state": "accepted",
+            "registration_source": "setup",
+        })
+        device.with_context(trmnl_allow_identity_update=True).write({"friendly_id": "hallway"})
+        self.assertEqual(self._profile(device)._get_footer_device_label(), "hallway")
 
     def test_mac_when_no_name_or_friendly(self):
-        self.assertEqual(self._profile()._get_footer_device_label(), "AA:BB:CC:DD:EE:AA")
+        # unknown_device stubs may exist without friendly_id (see trmnl.device.create).
+        device = self.env["trmnl.device"].sudo().create({
+            "mac_address": "CC:CC:CC:CC:CC:CC",
+            "approval_state": "unknown_device",
+            "registration_source": "display",
+        })
+        self.assertFalse(device.friendly_id)
+        self.assertEqual(self._profile(device)._get_footer_device_label(), "CC:CC:CC:CC:CC:CC")
 
 
 @tagged("-at_install", "post_install")
@@ -148,7 +165,7 @@ class TestFinalizeDisplayImage(TransactionCase):
         found = any(
             px[x, y] < 160
             for y in range(FOOTER_BODY_TOP, DISPLAY_HEIGHT)
-            for x in range(DISPLAY_WIDTH - 400, DISPLAY_WIDTH)
+            for x in range(0, DISPLAY_WIDTH)
         )
         self.assertTrue(found, "expected footer text pixels darker than background")
 

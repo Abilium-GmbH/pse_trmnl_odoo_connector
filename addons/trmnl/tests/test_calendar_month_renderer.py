@@ -171,3 +171,87 @@ class TestCalendarMonthWithEvents(TransactionCase):
         ]
         img = _img(_render(2026, 5, events))
         self.assertEqual(img.size, (800, CONTENT_HEIGHT))
+
+
+@tagged("-at_install", "post_install")
+class TestCalendarMonthOutOfMonthHatch(TransactionCase):
+    """Out-of-month cells use a tighter hatch vs clean white in-month."""
+
+    def test_may_2026_leading_pad_is_muted_hatch(self):
+        """May 2026 week 1: Mon–Wed are previous-month padding."""
+        from odoo.addons.trmnl.trmnl_calendar_preview import GRID_TOP
+
+        img = _img(_render(2026, 5))
+        px = img.load()
+        cell_vals = [
+            px[x, y]
+            for x in range(8, 105)
+            for y in range(GRID_TOP + 8, GRID_TOP + min(72, img.height - GRID_TOP - 2))
+        ]
+        self.assertTrue(all(200 < v < 255 for v in cell_vals))
+        self.assertGreater(max(cell_vals) - min(cell_vals), 8)
+        # Denser hatch reads visibly darker than pure white on average.
+        self.assertLess(sum(cell_vals) / len(cell_vals), 248.0)
+
+    def test_april_2026_trailing_pad_is_muted_hatch(self):
+        """April 2026 last row: trailing Thu–Sat are next-month padding (day 0)."""
+        import calendar as _cal
+
+        from odoo.addons.trmnl.trmnl_calendar_preview import COL_W, GRID_TOP
+
+        img = _img(_render(2026, 4))
+        weeks = _cal.monthcalendar(2026, 4)
+        n_rows = len(weeks)
+        row_h = (img.height - GRID_TOP) // n_rows
+        px = img.load()
+        self.assertIn(0, weeks[-1][-3:])  # sanity: trailing zeros exist
+        last_row_y = GRID_TOP + (n_rows - 1) * row_h
+        # Column 5 in last row is padding (week [... 30, 0, 0, 0]).
+        cx_pad = 5 * COL_W
+        cell_vals = [
+            px[x, y]
+            for x in range(cx_pad + 6, cx_pad + 90)
+            for y in range(last_row_y + 10, last_row_y + min(65, row_h - 12))
+        ]
+        self.assertTrue(all(200 < v < 255 for v in cell_vals))
+        self.assertGreater(max(cell_vals) - min(cell_vals), 8)
+        self.assertLess(sum(cell_vals) / len(cell_vals), 248.0)
+
+    def test_event_text_stays_dark_on_in_month_day(self):
+        """Event glyphs remain high-contrast on current-month cells."""
+        import calendar as _cal
+
+        from odoo.addons.trmnl.trmnl_calendar_preview import COL_W, GRID_TOP
+
+        events = [{"start": datetime.date(2026, 1, 15), "title": "Meet", "time_str": "10:00"}]
+        img = _img(_render(2026, 1, events))
+        px = img.load()
+        # Jan 2026: day 15 is column 3 in row index 2.
+        row_h = (img.height - GRID_TOP) // len(_cal.monthcalendar(2026, 1))
+        cy = GRID_TOP + 2 * row_h
+        cx = 3 * COL_W
+        # First line of event text (below day number strip).
+        ink = px[cx + 6, cy + 22]
+        self.assertLess(ink, 90)
+
+    def test_current_month_cell_interior_is_white(self):
+        from odoo.addons.trmnl.trmnl_calendar_preview import COL_W, GRID_TOP
+
+        img = _img(_render(2026, 5))
+        px = img.load()
+        # Thu 1 May 2026 → day 1 starts at col index 4 (0-based Mon=0).
+        cx = 4 * COL_W
+        self.assertGreaterEqual(px[cx + 50, GRID_TOP + 55], 254)
+
+
+@tagged("-at_install", "post_install")
+class TestCalendarWeekRendererContentSize(TransactionCase):
+    """Week calendar renderer uses the same content strip height as month view."""
+
+    def test_week_preview_matches_content_height(self):
+        from datetime import date
+
+        from odoo.addons.trmnl.trmnl_calendar_week_preview import render_calendar_week_preview
+
+        png = render_calendar_week_preview([], date(2026, 5, 4), "work_week")
+        self.assertEqual(_img(png).size, (800, CONTENT_HEIGHT))

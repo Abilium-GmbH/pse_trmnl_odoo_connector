@@ -28,7 +28,7 @@ DAY_HDR_H     = 28           # per-day column headers (day name + date)
 HEADER_H      = WEEK_HDR_H + DAY_HDR_H   # 50 px total
 
 GRID_TOP      = HEADER_H
-GRID_H        = HEIGHT - GRID_TOP         # 430 px
+GRID_H        = HEIGHT - GRID_TOP         # remaining pixels below headers
 
 # Visible time range
 HOUR_START    = 7             # 07:00

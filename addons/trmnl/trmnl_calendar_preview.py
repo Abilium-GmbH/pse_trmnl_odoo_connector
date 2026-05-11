@@ -1,6 +1,9 @@
-"""Pure-Pillow month-view calendar renderer for TRMNL (800×480 e-ink).
+"""Pure-Pillow month-view calendar renderer for TRMNL e-ink.
 
-No Odoo imports. Receives plain Python data, returns PNG bytes.
+Renders into the profile content strip (800×CONTENT_HEIGHT). The server
+composites a footer to produce the final 800×480 device image.
+
+No Odoo ORM imports. Receives plain Python data, returns PNG bytes.
 """
 from __future__ import annotations
 
@@ -13,16 +16,20 @@ try:
 except ImportError as exc:
     raise ImportError("Pillow is required: pip install Pillow") from exc
 
+from . import trmnl_display_canvas as _canvas
+
 
 # ── Canvas constants ─────────────────────────────────────────────────────────
 
-WIDTH, HEIGHT = 800, 480
+WIDTH = _canvas.DISPLAY_WIDTH
+HEIGHT = _canvas.CONTENT_HEIGHT
 HEADER_H      = 36                      # "Month Year" title strip
 DOW_H         = 24                      # Mon–Sun label row
-COLS, ROWS    = 7, 6
+COLS          = 7
+MAX_ROWS      = 6                       # upper bound; actual row count is dynamic
 COL_W         = WIDTH // COLS           # 114 px (last col absorbs 2px remainder)
 GRID_TOP      = HEADER_H + DOW_H        # 60 px from top
-ROW_H         = (HEIGHT - GRID_TOP) // ROWS   # 70 px
+# ROW_H is computed dynamically inside render_calendar_preview based on n_rows
 
 # Grayscale palette
 WHITE      = 255
@@ -100,7 +107,7 @@ def render_calendar_preview(
     year: int,
     month: int,
 ) -> bytes:
-    """Render a month-view calendar as an 800×480 grayscale PNG.
+    """Render a month-view calendar as an 800×CONTENT_HEIGHT grayscale PNG.
 
     Args:
         events:      List of dicts. Each must contain:
@@ -141,24 +148,29 @@ def render_calendar_preview(
                   fill=GRAY_MUTED, font=f_dow)
 
     # ── Day cells ────────────────────────────────────────────────────────
-    # monthcalendar() returns weeks of 7 ints; 0 means no day in that slot.
+    # monthcalendar() returns Mon–Sun weeks as lists of 7 ints; 0 means outside
+    # the displayed month. Python already returns 4–6 rows with no trailing
+    # all-zero week for real months; we still strip any trailing [0,…,0] rows
+    # defensively so row height is shared only across real week rows.
     weeks = calendar.monthcalendar(year, month)
-    while len(weeks) < ROWS:          # pad to exactly 6 rows
-        weeks.append([0] * 7)
+    while weeks and not any(weeks[-1]):
+        weeks.pop()
+    n_rows = len(weeks)              # 4, 5, or 6 depending on the month
+    row_h  = (HEIGHT - GRID_TOP) // n_rows
 
     for row_i, week in enumerate(weeks):
         for col_i, day_num in enumerate(week):
             cx     = _col_x(col_i)
             cright = _col_right(col_i)
             cw     = cright - cx
-            cy     = GRID_TOP + row_i * ROW_H
+            cy     = GRID_TOP + row_i * row_h
 
             out_of_month = (day_num == 0)
             is_today     = (not out_of_month and date(year, month, day_num) == today)
 
             # Cell background
             draw.rectangle(
-                [cx, cy, cright - 1, cy + ROW_H - 1],
+                [cx, cy, cright - 1, cy + row_h - 1],
                 fill=GRAY_LIGHT if out_of_month else WHITE,
             )
 
@@ -180,8 +192,8 @@ def render_calendar_preview(
             if not day_events:
                 continue
 
-            # ROW_H=70, day number strip=19px → 51px left → floor(51/13)=3 events max
-            max_ev  = (ROW_H - 20) // 13
+            # day number strip ≈ 19 px; each event line is 13 px
+            max_ev  = (row_h - 20) // 13
             ev_y    = cy + 19
             max_lbl = cw - 8
 
@@ -202,12 +214,12 @@ def render_calendar_preview(
                           fill=GRAY_MUTED, font=f_event)
 
     # ── Grid lines (drawn last so they sit on top of all fills) ──────────
-    for r in range(ROWS + 1):
-        y = GRID_TOP + r * ROW_H
+    for r in range(n_rows + 1):
+        y = GRID_TOP + r * row_h
         draw.line([(0, y), (WIDTH - 1, y)], fill=GRAY_GRID, width=1)
     for c in range(1, COLS):
         x = _col_x(c)
-        draw.line([(x, GRID_TOP), (x, GRID_TOP + ROWS * ROW_H)],
+        draw.line([(x, GRID_TOP), (x, GRID_TOP + n_rows * row_h)],
                   fill=GRAY_GRID, width=1)
 
     buf = io.BytesIO()

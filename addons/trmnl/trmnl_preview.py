@@ -9,8 +9,11 @@ import io
 
 from PIL import Image, ImageDraw, ImageFont
 
-DISPLAY_WIDTH = 800
-DISPLAY_HEIGHT = 480
+from . import trmnl_display_canvas as _canvas
+
+DISPLAY_WIDTH = _canvas.DISPLAY_WIDTH
+# Height of the drawable list/table strip; profile adds the footer to reach 480 px.
+DISPLAY_HEIGHT = _canvas.CONTENT_HEIGHT
 
 _BG = 255        # white background
 _FG = 0          # black text / borders
@@ -44,7 +47,9 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont:
 
 
 def render_list_preview(rows: list[list[str]], field_labels: list[str]) -> bytes:
-    """Render a list of string rows as a black-and-white 800×480 PNG.
+    """Render a list of string rows as a grayscale 800×CONTENT_HEIGHT PNG.
+
+    The profile composites this into a full 800×480 frame with a footer strip.
 
     :param rows: table data — each inner list is one row of cell strings.
     :param field_labels: column headers — same length as each row.

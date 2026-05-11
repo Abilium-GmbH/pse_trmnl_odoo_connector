@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import NamedTuple
 
-from odoo import api, models
+from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
 
@@ -107,12 +107,38 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 profile.id, profile.name, bool(profile.preview_image), device_ref,
             )
 
-            if not profile.preview_image:
+            now = fields.Datetime.now()
+            generated_at = profile.preview_generated_at
+            interval = profile.auto_refresh_interval_minutes or 10
+            threshold = (generated_at + __import__("datetime").timedelta(minutes=interval)) if generated_at else None
+
+            _logger.debug(
+                "TRMNL display: now=%s preview_generated_at=%s interval=%smin "
+                "next_refresh_at=%s auto_refresh_enabled=%s profile id=%s",
+                now, generated_at, interval, threshold,
+                profile.auto_refresh_enabled, profile.id,
+            )
+
+            old_filename = profile._get_display_filename()
+            auto_refresh_due = profile._is_auto_refresh_due()
+
+            _logger.debug(
+                "TRMNL display: auto_refresh_due=%s has_image=%s "
+                "will_render=%s old_filename=%r profile id=%s",
+                auto_refresh_due, bool(profile.preview_image),
+                (not profile.preview_image or auto_refresh_due), old_filename, profile.id,
+            )
+
+            if not profile.preview_image or auto_refresh_due:
                 _logger.info("TRMNL display: rendering preview for profile id=%s", profile.id)
                 profile._render_and_store_preview()
 
             image_url = profile._get_display_image_url()
             filename = profile._get_display_filename()
+            _logger.debug(
+                "TRMNL display: old_filename=%r new_filename=%r filename_changed=%s profile id=%s",
+                old_filename, filename, old_filename != filename, profile.id,
+            )
 
             _logger.info(
                 "TRMNL display: profile id=%s resolved image_url=%r filename=%r",

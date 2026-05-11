@@ -108,6 +108,15 @@
                         />
                     </group>
 
+                    <!-- ── Auto Refresh ─────────────────────────────── -->
+                    <group string="Auto Refresh" invisible="not app_model_id">
+                        <field name="auto_refresh_enabled"/>
+                        <field
+                            name="auto_refresh_interval_minutes"
+                            invisible="not auto_refresh_enabled"
+                        />
+                    </group>
+
                     <!-- ── Preview ───────────────────────────────────── -->
                     <group string="Preview" invisible="not preview_image">
                         <field name="preview_generated_at" readonly="1"/>

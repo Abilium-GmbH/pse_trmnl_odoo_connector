@@ -211,6 +211,7 @@ class TrmnlDevice(models.Model):
     last_seen_at = fields.Datetime(string="Last Seen At", readonly=True, copy=False)
     last_setup_at = fields.Datetime(string="Last Setup At", readonly=True, copy=False)
     last_display_at = fields.Datetime(string="Last Display At", readonly=True, copy=False)
+    last_poll_at = fields.Datetime(string="Last Poll At", readonly=True, copy=False)
     last_log_at = fields.Datetime(string="Last Log At", readonly=True, copy=False)
     accepted_at = fields.Datetime(string="Accepted At", readonly=True, copy=False)
     last_access_denied_at = fields.Datetime(

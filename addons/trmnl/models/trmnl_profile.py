@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import base64
+import io
 import logging
 from calendar import monthrange
-from datetime import date, timedelta
+from datetime import date, timedelta, timezone
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -166,6 +168,20 @@ class TrmnlProfile(models.Model):
 
     preview_image = fields.Binary(string="Preview", readonly=True)
     preview_generated_at = fields.Datetime(string="Preview Generated At", readonly=True)
+
+    auto_refresh_enabled = fields.Boolean(
+        string="Auto Refresh",
+        default=True,
+        help=(
+            "When enabled, the preview is automatically re-rendered during device polls "
+            "if it is older than the configured interval."
+        ),
+    )
+    auto_refresh_interval_minutes = fields.Integer(
+        string="Auto Refresh Interval (min)",
+        default=10,
+        help="How many minutes between automatic re-renders. Minimum effective value is 1.",
+    )
 
     device_last_polled_at = fields.Datetime(
         string="Device Last Polled",
@@ -523,6 +539,130 @@ class TrmnlProfile(models.Model):
         return render_list_preview(rows, field_labels)
 
     # ------------------------------------------------------------------
+    # display footer (reserved bottom strip on 800×480)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _format_poll_timestamp(device_label, poll_at):
+        """Return the footer label string in Europe/Zurich local time."""
+        zurich = ZoneInfo("Europe/Zurich")
+        local_dt = poll_at.replace(tzinfo=timezone.utc).astimezone(zurich)
+        return f"{device_label} · Last poll: {local_dt.strftime('%Y-%m-%d %H:%M')}"
+
+    def _get_footer_device_label(self):
+        """Human-readable device label for the footer (name → friendly_id → MAC)."""
+        self.ensure_one()
+        device = self.device_id
+        name = (device.device_name or "").strip()
+        if name:
+            return name
+        if device.friendly_id:
+            return device.friendly_id
+        return device.mac_address or "TRMNL"
+
+    def _finalize_display_image(self, png_bytes):
+        """Paste content-sized PNG onto 800×480 and draw the poll footer strip.
+
+        Layout renderers produce ``(DISPLAY_WIDTH, CONTENT_HEIGHT)`` bytes. This
+        method composites them into a full TRMNL frame with a separator line and
+        optional bottom-right poll metadata.
+        """
+        self.ensure_one()
+        from odoo.addons.trmnl.trmnl_display_canvas import (
+            CONTENT_HEIGHT,
+            DISPLAY_HEIGHT,
+            DISPLAY_WIDTH,
+            FOOTER_BODY_TOP,
+            SEPARATOR_Y,
+        )
+
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+        except ImportError:
+            return png_bytes
+
+        try:
+            content = Image.open(io.BytesIO(png_bytes)).convert("L")
+        except Exception:
+            _logger.debug(
+                "TRMNL profile id=%s: invalid content PNG for finalize", self.id, exc_info=True
+            )
+            return png_bytes
+
+        cw, ch = content.size
+        if cw != DISPLAY_WIDTH:
+            _logger.debug(
+                "TRMNL profile id=%s: unexpected content width %s (expected %s)",
+                self.id, cw, DISPLAY_WIDTH,
+            )
+            return png_bytes
+        if ch == DISPLAY_HEIGHT:
+            content = content.crop((0, 0, DISPLAY_WIDTH, CONTENT_HEIGHT))
+            ch = CONTENT_HEIGHT
+        elif ch != CONTENT_HEIGHT:
+            _logger.debug(
+                "TRMNL profile id=%s: unexpected content height %s (expected %s)",
+                self.id, ch, CONTENT_HEIGHT,
+            )
+            return png_bytes
+
+        out = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 255)
+        out.paste(content, (0, 0))
+        draw = ImageDraw.Draw(out)
+
+        # Separator between main content and footer band
+        draw.line([(0, SEPARATOR_Y), (DISPLAY_WIDTH - 1, SEPARATOR_Y)], fill=180, width=1)
+        # Subtle footer background (e-ink friendly light gray)
+        draw.rectangle(
+            [0, FOOTER_BODY_TOP, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1],
+            fill=248,
+        )
+
+        poll_at = self.device_id.last_poll_at
+        if poll_at:
+            font = None
+            for path in (
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            ):
+                try:
+                    font = ImageFont.truetype(path, 11)
+                    break
+                except (OSError, IOError):
+                    continue
+            if font is None:
+                font = ImageFont.load_default()
+
+            label = self._format_poll_timestamp(self._get_footer_device_label(), poll_at)
+            margin_r, margin_b = 8, 4
+            max_text_w = DISPLAY_WIDTH - 2 * margin_r
+
+            def _text_w(txt):
+                try:
+                    return int(draw.textlength(txt, font=font))
+                except AttributeError:
+                    return draw.textsize(txt, font=font)[0]
+
+            while len(label) > 8 and _text_w(label + "…") > max_text_w:
+                label = label[:-1]
+            if _text_w(label) > max_text_w:
+                label = (label[: max(4, len(label) - 4)] + "…") if label else ""
+
+            bbox = draw.textbbox((0, 0), label, font=font)
+            text_w = bbox[2] - bbox[0]
+            text_h = bbox[3] - bbox[1]
+            x = DISPLAY_WIDTH - margin_r - text_w
+            y = DISPLAY_HEIGHT - margin_b - text_h
+            if y < FOOTER_BODY_TOP:
+                y = FOOTER_BODY_TOP
+            draw.text((x, y), label, fill=0, font=font)
+
+        buf = io.BytesIO()
+        out.save(buf, format="PNG")
+        return buf.getvalue()
+
+    # ------------------------------------------------------------------
     # computed delivery-status fields
     # ------------------------------------------------------------------
 
@@ -611,6 +751,34 @@ class TrmnlProfile(models.Model):
     # preview rendering
     # ------------------------------------------------------------------
 
+    def _is_auto_refresh_due(self):
+        """Return True if the profile preview should be re-rendered now.
+
+        False when auto-refresh is disabled.
+        True when no preview has ever been generated (preview_generated_at is unset).
+        Otherwise True when the time elapsed since the last render exceeds the interval.
+        A zero or negative interval is treated as 10 minutes.
+        """
+        self.ensure_one()
+        if not self.auto_refresh_enabled:
+            _logger.debug("TRMNL auto-refresh: DISABLED for profile id=%s → False", self.id)
+            return False
+        if not self.preview_generated_at:
+            _logger.debug("TRMNL auto-refresh: no preview_generated_at for profile id=%s → True", self.id)
+            return True
+        interval = self.auto_refresh_interval_minutes
+        if not interval or interval <= 0:
+            interval = 10
+        threshold = self.preview_generated_at + timedelta(minutes=interval)
+        now = fields.Datetime.now()
+        due = now >= threshold
+        _logger.debug(
+            "TRMNL auto-refresh: profile id=%s generated_at=%s interval=%smin "
+            "threshold=%s now=%s due=%s",
+            self.id, self.preview_generated_at, interval, threshold, now, due,
+        )
+        return due
+
     def action_render_preview(self):
         self.ensure_one()
         if not self.odoo_action_id or not self.odoo_action_id.res_model:
@@ -673,6 +841,7 @@ class TrmnlProfile(models.Model):
 
         records = self._load_records(model_name, field_names)
         png_bytes = self._dispatch_renderer(model_name, field_names, field_labels, records)
+        png_bytes = self._finalize_display_image(png_bytes)
 
         self.write({
             "preview_image": base64.b64encode(png_bytes),

@@ -66,6 +66,7 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         self.with_context(trmnl_allow_identity_update=True).write(
             {
                 "last_display_at": now_value,
+                "last_poll_at": now_value,
                 "last_seen_at": now_value,
                 "display_request_count": (self.display_request_count or 0) + 1,
             }

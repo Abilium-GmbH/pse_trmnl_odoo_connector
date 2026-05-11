@@ -1,6 +1,9 @@
-"""Pure-Pillow week-view calendar renderer for TRMNL (800×480 e-ink).
+"""Pure-Pillow week-view calendar renderer for TRMNL e-ink.
 
-No Odoo imports. Receives plain Python data, returns PNG bytes.
+Renders into the profile content strip (800×CONTENT_HEIGHT). The server
+composites a footer to produce the final 800×480 device image.
+
+No Odoo ORM imports. Receives plain Python data, returns PNG bytes.
 """
 from __future__ import annotations
 
@@ -12,10 +15,13 @@ try:
 except ImportError as exc:
     raise ImportError("Pillow is required: pip install Pillow") from exc
 
+from . import trmnl_display_canvas as _canvas
+
 
 # ── Canvas constants ─────────────────────────────────────────────────────────
 
-WIDTH, HEIGHT = 800, 480
+WIDTH = _canvas.DISPLAY_WIDTH
+HEIGHT = _canvas.CONTENT_HEIGHT
 TIME_COL_W    = 48           # left column: hour labels
 WEEK_HDR_H    = 22           # "Week N · Month Year" title strip
 DAY_HDR_H     = 28           # per-day column headers (day name + date)

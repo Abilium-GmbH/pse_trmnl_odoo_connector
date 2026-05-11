@@ -6,6 +6,7 @@
     "author": "Abilium GmbH",
     "license": "Other OSI approved licence",
     "version": "1.0.0",
+    "images": ["static/description/icon.png"],
     "depends": ["base",],
     "external_dependencies": {"python": ["Pillow", "requests"]},
     "data": [

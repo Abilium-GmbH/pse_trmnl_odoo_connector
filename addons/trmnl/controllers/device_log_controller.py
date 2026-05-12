@@ -29,6 +29,16 @@ class DeviceLogController(TrmnlApiControllerMixin, http.Controller):
         headers = request.httprequest.headers
         masked_mac_address = self._mask_identifier(headers.get("ID"))
 
+        if device_model._is_trmnl_api_debug_enabled():
+            _logger.info(
+                "TRMNL API DEBUG request path=%s method=%s host=%r secure=%s id_header_masked=%s",
+                request.httprequest.path,
+                request.httprequest.method,
+                headers.get("Host"),
+                request.httprequest.is_secure,
+                masked_mac_address,
+            )
+
         _logger.info(
             "TRMNL request endpoint=/api/log method=%s mac=%s",
             request.httprequest.method,

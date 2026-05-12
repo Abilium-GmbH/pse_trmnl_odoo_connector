@@ -2,6 +2,7 @@
 
 import base64
 import datetime as dt
+import hashlib
 from unittest.mock import patch
 
 from odoo.tests import HttpCase, TransactionCase, tagged
@@ -109,6 +110,30 @@ class TestIsAutoRefreshDue(TransactionCase):
         )
         with patch("odoo.fields.Datetime.now", return_value=now):
             self.assertFalse(profile._is_auto_refresh_due())
+
+    def test_multiple_active_profiles_prefers_lowest_sequence(self):
+        """Display polling uses one deterministic profile when several are active."""
+        hi = self._profile(name="Later", sequence=100)
+        lo = self._profile(name="First", sequence=5)
+        found = self.env["trmnl.profile"].sudo().search(
+            [("device_id", "=", self.device.id), ("active", "=", True)],
+            limit=1,
+            order="sequence asc, id asc",
+        )
+        self.assertEqual(found.id, lo.id)
+
+    def test_display_filename_suffix_matches_png_hash(self):
+        """Filenames include a hash so two renders in the same second still differ if PNG differs."""
+        ts = dt.datetime(2026, 5, 11, 12, 0, 0)
+        profile = self._profile(
+            preview_image=_FAKE_PNG,
+            preview_generated_at=ts,
+        )
+        fn = profile._get_display_filename()
+        raw = base64.b64decode(_FAKE_PNG)
+        expected_digest = hashlib.sha256(raw).hexdigest()[:12]
+        self.assertIn(expected_digest, fn)
+        self.assertTrue(fn.startswith(f"profile_{profile.id}_"))
 
 
 # ---------------------------------------------------------------------------

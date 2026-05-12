@@ -29,6 +29,17 @@ class DeviceSetupController(TrmnlApiControllerMixin, http.Controller):
         headers = request.httprequest.headers
         masked_mac_address = self._mask_identifier(headers.get("ID"))
 
+        if device_model._is_trmnl_api_debug_enabled():
+            _logger.info(
+                "TRMNL API DEBUG request path=%s method=%s host=%r secure=%s fw=%r id_header_masked=%s",
+                request.httprequest.path,
+                request.httprequest.method,
+                headers.get("Host"),
+                request.httprequest.is_secure,
+                headers.get("FW-Version"),
+                masked_mac_address,
+            )
+
         _logger.info(
             "TRMNL request endpoint=/api/setup method=%s mac=%s",
             request.httprequest.method,
@@ -44,6 +55,9 @@ class DeviceSetupController(TrmnlApiControllerMixin, http.Controller):
                 masked_mac_address,
                 record_status,
             )
+            if device_model._is_trmnl_api_debug_enabled():
+                safe = {k: ("***" if k == "api_key" else v) for k, v in payload.items()}
+                _logger.info("TRMNL API DEBUG /api/setup payload=%s", safe)
             return self._json_response(payload, status=200)
         except Exception as exc:  # keep protocol responses stable
             _logger.warning(

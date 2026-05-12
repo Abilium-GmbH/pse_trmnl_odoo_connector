@@ -16,6 +16,8 @@ MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
 # System parameter key for the display-request policy.  Defined once here so
 # lifecycle, UI, and wizard code all reference the same string.
 TRMNL_POLICY_PARAM = "trmnl.display_unknown_device_policy"
+# When set to 1/true/yes/on, TRMNL HTTP controllers log extra request/branch detail.
+TRMNL_API_DEBUG_PARAM = "trmnl.api_debug"
 
 # Hosts/IPs that are unreachable from a physical device on the LAN: loopback,
 # the libvirt/KVM virbr0 bridge (192.168.122.x), and Docker bridge ranges
@@ -513,6 +515,12 @@ class TrmnlDevice(models.Model):
             return False
 
         return mac_address
+
+    @api.model
+    def _is_trmnl_api_debug_enabled(self):
+        """Return True when verbose TRMNL API tracing is enabled (System Parameters)."""
+        raw = self.env["ir.config_parameter"].sudo().get_param(TRMNL_API_DEBUG_PARAM, "")
+        return str(raw).strip().lower() in ("1", "true", "yes", "on")
 
     @api.model
     def _generate_unique_friendly_id(self):

@@ -75,14 +75,26 @@ class TrmnlDeviceDisplayMixin(models.Model):
         """Build the normal display payload for an accepted device."""
         self.ensure_one()
 
-        image_url, filename = self._resolve_display_image()
-
-        return {
-            "status": 0,
-            "filename": filename,
-            "image_url": image_url,
-            "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
-        }
+        try:
+            image_url, filename = self._resolve_display_image()
+            return {
+                "status": 0,
+                "filename": filename,
+                "image_url": image_url,
+                "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
+            }
+        except Exception:
+            _logger.exception(
+                "TRMNL display: build_display_response failed for device id=%s — "
+                "returning device fallback fields only",
+                self.id,
+            )
+            return {
+                "status": 0,
+                "filename": self.filename or "",
+                "image_url": self.image_url or "",
+                "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
+            }
 
     def _resolve_display_image(self):
         """Return (image_url, filename) from the active profile or device fallback.
@@ -96,6 +108,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
             profile = self.env["trmnl.profile"].sudo().search(
                 [("device_id", "=", self.id), ("active", "=", True)],
                 limit=1,
+                order="sequence asc, id asc",
             )
 
             if not profile:
@@ -103,8 +116,12 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 return self.image_url or "", self.filename or ""
 
             _logger.info(
-                "TRMNL display: found profile id=%s name=%r has_image=%s for %s",
-                profile.id, profile.name, bool(profile.preview_image), device_ref,
+                "TRMNL display: active profile id=%s name=%r sequence=%s has_preview=%s | %s",
+                profile.id,
+                profile.name,
+                profile.sequence,
+                bool(profile.preview_image),
+                device_ref,
             )
 
             now = fields.Datetime.now()
@@ -112,44 +129,80 @@ class TrmnlDeviceDisplayMixin(models.Model):
             interval = profile.auto_refresh_interval_minutes or 10
             threshold = (generated_at + __import__("datetime").timedelta(minutes=interval)) if generated_at else None
 
-            _logger.debug(
-                "TRMNL display: now=%s preview_generated_at=%s interval=%smin "
-                "next_refresh_at=%s auto_refresh_enabled=%s profile id=%s",
-                now, generated_at, interval, threshold,
-                profile.auto_refresh_enabled, profile.id,
+            _logger.info(
+                "TRMNL display: poll timing profile id=%s desired_refresh_rate=%ss "
+                "device_reported_refresh_rate=%s auto_refresh_enabled=%s interval_min=%s "
+                "preview_generated_at=%s next_refresh_at=%s now=%s",
+                profile.id,
+                self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
+                self.refresh_rate,
+                profile.auto_refresh_enabled,
+                interval,
+                generated_at,
+                threshold,
+                now,
             )
 
             old_filename = profile._get_display_filename()
             auto_refresh_due = profile._is_auto_refresh_due()
+            will_render = not profile.preview_image or auto_refresh_due
 
-            _logger.debug(
-                "TRMNL display: auto_refresh_due=%s has_image=%s "
-                "will_render=%s old_filename=%r profile id=%s",
-                auto_refresh_due, bool(profile.preview_image),
-                (not profile.preview_image or auto_refresh_due), old_filename, profile.id,
+            _logger.info(
+                "TRMNL display: refresh decision profile id=%s auto_refresh_due=%s "
+                "has_preview_binary=%s will_render=%s old_filename=%r",
+                profile.id,
+                auto_refresh_due,
+                bool(profile.preview_image),
+                will_render,
+                old_filename,
             )
 
-            if not profile.preview_image or auto_refresh_due:
-                _logger.info("TRMNL display: rendering preview for profile id=%s", profile.id)
+            if will_render:
+                _logger.info("TRMNL display: render START profile id=%s", profile.id)
+                if self._is_trmnl_api_debug_enabled():
+                    _logger.info(
+                        "TRMNL API DEBUG display: _render_and_store_preview start profile_id=%s device_id=%s",
+                        profile.id,
+                        self.id,
+                    )
                 profile._render_and_store_preview()
+                profile = profile.browse(profile.id)
+                if self._is_trmnl_api_debug_enabled():
+                    _logger.info(
+                        "TRMNL API DEBUG display: _render_and_store_preview done profile_id=%s "
+                        "preview_generated_at=%s",
+                        profile.id,
+                        profile.preview_generated_at,
+                    )
+                _logger.info(
+                    "TRMNL display: render DONE profile id=%s preview_generated_at=%s",
+                    profile.id,
+                    profile.preview_generated_at,
+                )
 
             image_url = profile._get_display_image_url()
             filename = profile._get_display_filename()
-            _logger.debug(
-                "TRMNL display: old_filename=%r new_filename=%r filename_changed=%s profile id=%s",
-                old_filename, filename, old_filename != filename, profile.id,
+            _logger.info(
+                "TRMNL display: filenames profile id=%s old=%r new=%r changed=%s",
+                profile.id,
+                old_filename,
+                filename,
+                old_filename != filename,
             )
 
             _logger.info(
-                "TRMNL display: profile id=%s resolved image_url=%r filename=%r",
-                profile.id, image_url, filename,
+                "TRMNL display: resolved profile id=%s image_url=%r filename=%r",
+                profile.id,
+                image_url,
+                filename,
             )
 
             if image_url and filename:
                 _logger.info(
-                    "TRMNL display: serving profile image — profile id=%s "
-                    "image_url=%r filename=%r",
-                    profile.id, image_url, filename,
+                    "TRMNL display: serving profile image profile id=%s url=%r filename=%r",
+                    profile.id,
+                    image_url,
+                    filename,
                 )
                 return image_url, filename
 
@@ -157,7 +210,9 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 "TRMNL display: profile id=%s image_url=%r or filename=%r is empty "
                 "— trmnl.public_base_url is likely not set and web.base.url is an "
                 "internal address. Falling back to device default image.",
-                profile.id, image_url, filename,
+                profile.id,
+                image_url,
+                filename,
             )
         except Exception as exc:
             _logger.warning(
@@ -219,10 +274,23 @@ class TrmnlDeviceDisplayMixin(models.Model):
     @api.model
     def resolve_display_request(self, headers):
         """Resolve a TRMNL display poll using the configured device policy."""
+        debug = self._is_trmnl_api_debug_enabled()
+        policy = self._get_display_request_policy()
         mac_address = self._normalize_mac_address(headers.get("ID"))
         api_token = self._parse_to_string(headers.get("Access-Token"))
 
+        if debug:
+            _logger.info(
+                "TRMNL API DEBUG display: policy=%r host=%r token_header=%s mac_normalized=%s",
+                policy,
+                (headers or {}).get("Host"),
+                bool(api_token),
+                bool(mac_address),
+            )
+
         if not mac_address:
+            if debug:
+                _logger.info("TRMNL API DEBUG display: outcome=missing_identity")
             return DisplayResolutionResult(
                 self.browse(),
                 self.build_display_error_response(),
@@ -233,6 +301,8 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
         # Per-device reset handling (must run before any token validation)
         if device and device.reset_pending:
+            if debug:
+                _logger.info("TRMNL API DEBUG display: outcome=reset_pending device_id=%s", device.id)
             reset_payload = device.build_reset_response()
             device.unlink()
             return DisplayResolutionResult(
@@ -242,12 +312,25 @@ class TrmnlDeviceDisplayMixin(models.Model):
             )
 
         if not device:
+            if debug:
+                _logger.info("TRMNL API DEBUG display: unknown MAC — calling _resolve_unknown_display_request")
             return self._resolve_unknown_display_request(
                 mac_address, headers, api_token
             )
 
-        if api_token and device._verify_api_token(api_token):
+        token_ok = bool(api_token and device._verify_api_token(api_token))
+        if debug:
+            _logger.info(
+                "TRMNL API DEBUG display: device_id=%s approval_state=%s token_ok=%s",
+                device.id,
+                device.approval_state,
+                token_ok,
+            )
+
+        if token_ok:
             if device.approval_state != APPROVAL_STATE_ACCEPTED:
+                if debug:
+                    _logger.info("TRMNL API DEBUG display: outcome=not_accepted state=%s", device.approval_state)
                 device._record_access_denied(reason=device.approval_state)
                 return DisplayResolutionResult(
                     device,
@@ -257,12 +340,16 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
             device._apply_display_telemetry(headers)
             device._record_display_served()
+            if debug:
+                _logger.info("TRMNL API DEBUG display: outcome=display device_id=%s", device.id)
             return DisplayResolutionResult(
                 device,
                 device.build_display_response(),
                 "display",
             )
 
+        if debug:
+            _logger.info("TRMNL API DEBUG display: token mismatch path device_id=%s", device.id)
         return self._resolve_token_mismatch_display_request(
             device, headers, api_token
         )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import logging
 from calendar import monthrange
@@ -995,8 +996,10 @@ class TrmnlProfile(models.Model):
             CONTENT_HEIGHT,
             DISPLAY_HEIGHT,
             DISPLAY_WIDTH,
-            FOOTER_BODY_TOP,
+            FOOTER_BAND_FILL,
+            FOOTER_SEPARATOR_GRAY,
             SEPARATOR_Y,
+            draw_poll_footer_strip,
         )
 
         try:
@@ -1033,17 +1036,10 @@ class TrmnlProfile(models.Model):
         out.paste(content, (0, 0))
         draw = ImageDraw.Draw(out)
 
-        # Separator between main content and footer band
-        draw.line([(0, SEPARATOR_Y), (DISPLAY_WIDTH - 1, SEPARATOR_Y)], fill=180, width=1)
-        # Subtle footer background (e-ink friendly light gray)
-        draw.rectangle(
-            [0, FOOTER_BODY_TOP, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1],
-            fill=248,
-        )
-
         poll_at = self.device_id.last_poll_at
+        label = None
+        font = None
         if poll_at:
-            font = None
             for path in (
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                 "/usr/share/fonts/dejavu/DejaVuSans.ttf",
@@ -1058,7 +1054,7 @@ class TrmnlProfile(models.Model):
                 font = ImageFont.load_default()
 
             label = self._format_poll_timestamp(self._get_footer_device_label(), poll_at)
-            margin_h, margin_b = 8, 9
+            margin_h = 8
             max_text_w = DISPLAY_WIDTH - 2 * margin_h
 
             def _text_w(txt):
@@ -1072,20 +1068,34 @@ class TrmnlProfile(models.Model):
             if _text_w(label) > max_text_w:
                 label = (label[: max(4, len(label) - 4)] + "…") if label else ""
 
-            bbox = draw.textbbox((0, 0), label, font=font)
-            text_w = bbox[2] - bbox[0]
-            text_h = bbox[3] - bbox[1]
-            x = (DISPLAY_WIDTH - text_w) // 2
-            y = DISPLAY_HEIGHT - margin_b - text_h
-            if y < FOOTER_BODY_TOP:
-                y = FOOTER_BODY_TOP
-            if x < margin_h:
-                x = margin_h
-            draw.text((x, y), label, fill=0, font=font)
-
-        buf = io.BytesIO()
-        out.save(buf, format="PNG")
-        return buf.getvalue()
+        try:
+            draw_poll_footer_strip(draw, label=label, font=font)
+            buf = io.BytesIO()
+            out.save(buf, format="PNG")
+            return buf.getvalue()
+        except Exception as exc:
+            _logger.warning(
+                "TRMNL profile id=%s: finalize footer/save failed (%s) — "
+                "returning full frame with content + empty footer band",
+                self.id,
+                exc,
+                exc_info=True,
+            )
+            out2 = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 255)
+            out2.paste(content, (0, 0))
+            d2 = ImageDraw.Draw(out2)
+            d2.line(
+                [(0, SEPARATOR_Y), (DISPLAY_WIDTH - 1, SEPARATOR_Y)],
+                fill=FOOTER_SEPARATOR_GRAY,
+                width=1,
+            )
+            d2.rectangle(
+                [0, SEPARATOR_Y + 1, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1],
+                fill=FOOTER_BAND_FILL,
+            )
+            buf2 = io.BytesIO()
+            out2.save(buf2, format="PNG")
+            return buf2.getvalue()
 
     # ------------------------------------------------------------------
     # computed delivery-status fields
@@ -1325,11 +1335,21 @@ class TrmnlProfile(models.Model):
         return False
 
     def _get_display_filename(self):
-        """Return a filename that changes whenever the preview is regenerated."""
+        """Return a filename that changes whenever the preview is regenerated.
+
+        Includes a short hash of the PNG bytes so the name changes even when two
+        renders fall in the same wall-clock second (TRMNL uses filename equality to
+        decide whether to re-download the image).
+        """
         if not self.preview_image or not self.preview_generated_at:
             return False
         ts = self.preview_generated_at.strftime("%Y%m%dT%H%M%S")
-        return f"profile_{self.id}_{ts}"
+        try:
+            raw = base64.b64decode(self.preview_image)
+            digest = hashlib.sha256(raw).hexdigest()[:12]
+        except Exception:
+            digest = "unknown"
+        return f"profile_{self.id}_{ts}_{digest}"
 
     def _load_records(self, model_name, field_names):
         """Search the target model applying filter_preset domain and sort_preset order.

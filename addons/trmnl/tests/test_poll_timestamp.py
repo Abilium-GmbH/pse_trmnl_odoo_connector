@@ -8,7 +8,9 @@ from odoo.addons.trmnl.trmnl_display_canvas import (
     CONTENT_HEIGHT,
     DISPLAY_HEIGHT,
     DISPLAY_WIDTH,
+    FOOTER_BAND_FILL,
     FOOTER_BODY_TOP,
+    FOOTER_SEPARATOR_GRAY,
     SEPARATOR_Y,
 )
 from odoo.tests import HttpCase, TransactionCase, tagged
@@ -135,8 +137,8 @@ class TestFinalizeDisplayImage(TransactionCase):
         img = Image.open(io.BytesIO(result))
         self.assertEqual(img.size, (DISPLAY_WIDTH, DISPLAY_HEIGHT))
         px = img.load()
-        self.assertEqual(px[0, SEPARATOR_Y], 180)
-        self.assertEqual(px[4, FOOTER_BODY_TOP], 248)
+        self.assertEqual(px[0, SEPARATOR_Y], FOOTER_SEPARATOR_GRAY)
+        self.assertEqual(px[4, FOOTER_BODY_TOP], FOOTER_BAND_FILL)
 
     def test_with_poll_at_returns_800x480_png(self):
         """When device has last_poll_at, result is a valid full-size PNG."""

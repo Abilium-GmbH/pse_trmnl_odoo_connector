@@ -38,6 +38,11 @@ class ProfileImageController(http.Controller):
                 return request.make_response("", status=404)
 
             png_bytes = base64.b64decode(profile.preview_image)
+            _logger.info(
+                "TRMNL profile image GET profile_id=%s bytes=%s cache=no-store",
+                profile_id,
+                len(png_bytes),
+            )
             return request.make_response(
                 png_bytes,
                 headers=[

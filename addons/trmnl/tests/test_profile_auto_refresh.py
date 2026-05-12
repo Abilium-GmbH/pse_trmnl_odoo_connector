@@ -1,4 +1,4 @@
-"""Tests for profile auto-refresh behaviour during /api/display polling."""
+"""Tests for profile render-interval behaviour during /api/display polling."""
 
 import base64
 import datetime as dt
@@ -18,7 +18,11 @@ _FAKE_PNG = base64.b64encode(b"fakepng").decode()
 
 @tagged("-at_install", "post_install")
 class TestIsAutoRefreshDue(TransactionCase):
-    """Unit tests for TrmnlProfile._is_auto_refresh_due()."""
+    """Unit tests for TrmnlProfile._is_auto_refresh_due().
+
+    auto_refresh_enabled has been removed; refresh is always active.
+    The method only checks preview_generated_at against the interval.
+    """
 
     def setUp(self):
         super().setUp()
@@ -32,19 +36,10 @@ class TestIsAutoRefreshDue(TransactionCase):
         vals = {
             "name": "Test Profile",
             "device_id": self.device.id,
-            "auto_refresh_enabled": True,
             "auto_refresh_interval_minutes": 10,
         }
         vals.update(kwargs)
         return self.env["trmnl.profile"].sudo().create(vals)
-
-    def test_disabled_returns_false(self):
-        """Auto-refresh disabled → never due regardless of age."""
-        profile = self._profile(
-            auto_refresh_enabled=False,
-            preview_generated_at=dt.datetime(2020, 1, 1),
-        )
-        self.assertFalse(profile._is_auto_refresh_due())
 
     def test_no_generated_at_returns_true(self):
         """No previous render → always due."""
@@ -113,7 +108,7 @@ class TestIsAutoRefreshDue(TransactionCase):
 
     def test_multiple_active_profiles_prefers_lowest_sequence(self):
         """Display polling uses one deterministic profile when several are active."""
-        hi = self._profile(name="Later", sequence=100)
+        self._profile(name="Later", sequence=100)
         lo = self._profile(name="First", sequence=5)
         found = self.env["trmnl.profile"].sudo().search(
             [("device_id", "=", self.device.id), ("active", "=", True)],
@@ -135,6 +130,14 @@ class TestIsAutoRefreshDue(TransactionCase):
         self.assertIn(expected_digest, fn)
         self.assertTrue(fn.startswith(f"profile_{profile.id}_"))
 
+    def test_refresh_always_active_no_field_to_disable(self):
+        """auto_refresh_enabled field no longer exists; refresh cannot be disabled."""
+        profile = self._profile(preview_generated_at=False)
+        self.assertFalse(hasattr(profile, "auto_refresh_enabled"),
+                         "auto_refresh_enabled was removed; it should not exist as a field")
+        # A profile with no prior render is always due.
+        self.assertTrue(profile._is_auto_refresh_due())
+
 
 # ---------------------------------------------------------------------------
 # Integration tests — display polling triggers / skips render
@@ -151,7 +154,6 @@ class TestAutoRefreshOnDisplayPoll(HttpCase, TrmnlApiHttpCaseMixin):
             "device_id": device.id,
             "preview_image": _FAKE_PNG,
             "preview_generated_at": dt.datetime(2026, 5, 11, 10, 0, 0),
-            "auto_refresh_enabled": True,
             "auto_refresh_interval_minutes": 10,
         }
         vals.update(kwargs)
@@ -165,7 +167,6 @@ class TestAutoRefreshOnDisplayPoll(HttpCase, TrmnlApiHttpCaseMixin):
         self.env["trmnl.profile"].sudo().create({
             "name": "Test",
             "device_id": ctx["device"].id,
-            "auto_refresh_enabled": True,
             "auto_refresh_interval_minutes": 10,
         })
 
@@ -222,29 +223,6 @@ class TestAutoRefreshOnDisplayPoll(HttpCase, TrmnlApiHttpCaseMixin):
             )
 
         mock_render.assert_called_once()
-
-    def test_auto_refresh_disabled_skips_render_when_stale(self):
-        """Stale preview is not re-rendered when auto-refresh is disabled."""
-        self._set_display_policy(DISPLAY_POLICY_ERROR)
-        ctx = self._register_device_through_setup()
-
-        now = dt.datetime(2026, 5, 11, 12, 0, 0)
-        self._make_profile(
-            ctx["device"],
-            auto_refresh_enabled=False,
-            preview_generated_at=now - dt.timedelta(minutes=15),
-        )
-
-        with patch("odoo.fields.Datetime.now", return_value=now), \
-             patch(
-                 "odoo.addons.trmnl.models.trmnl_profile.TrmnlProfile._render_and_store_preview"
-             ) as mock_render:
-            self.url_open(
-                "/api/display",
-                headers=self._display_headers(ctx["api_token"], ctx["device"].mac_address),
-            )
-
-        mock_render.assert_not_called()
 
     def test_filename_changes_after_render(self):
         """Re-rendering updates preview_generated_at so the filename changes."""

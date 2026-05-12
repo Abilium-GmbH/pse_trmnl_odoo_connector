@@ -10,7 +10,9 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from odoo import _, api, fields, models
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
+from odoo.osv import expression
+from odoo.tools.safe_eval import safe_eval
 
 from .trmnl_device import _INTERNAL_HOST_RE
 
@@ -23,139 +25,23 @@ _FILTER_DATE_FIELDS = ["date_deadline", "date_order", "start", "date", "create_d
 # Priority-ordered list of amount fields used by sort_preset=amount.
 _SORT_AMOUNT_FIELDS = ["amount_total", "expected_revenue", "planned_revenue"]
 
-# Maps Odoo module name → res_models allowed for the action picker for that app.
-# First model is the default primary when no app-specific display mode applies.
-_APP_ALLOWED_MODELS = {
-    "calendar":      ["calendar.event"],
-    "project":       ["project.project", "project.task"],
-    "project_todo":  ["project.task"],
-    "crm":           ["crm.lead"],
-    "point_of_sale": ["pos.order"],
-    "mail":          ["mail.activity"],
-}
-
-# Back-compat: primary model per app (first entry of _APP_ALLOWED_MODELS).
-_APP_MODELS = {k: v[0] for k, v in _APP_ALLOWED_MODELS.items()}
-
-
-# App-specific display presets (keys match Selection values on trmnl.profile).
-# Applied after picking a matching ir.actions.act_window for ``res_model``.
-# ``read_group_field``: when set, list/table data is built via read_group on that field.
-# ``pos_dashboard``: aggregate pos.order rows for a simple KPI-style list.
-# ``crm_calendar``: use month calendar renderer with crm.lead date_deadline.
-_APP_DISPLAY_PRESETS = {
-    # --- Project ---
-    "project_projects_overview": {
-        "res_model": "project.project",
-        "layout": "list",
-        "fields": ["name", "partner_id", "user_id", "date_start", "task_count"],
-        "order": "sequence, name",
-        "limit": 20,
-        "filter_preset": "my_records",
-        "sort_preset": "name",
-        "prefer_action_view": "kanban",
-    },
-    "project_tasks_detail": {
-        "res_model": "project.task",
-        "layout": "list",
-        "fields": ["name", "project_id", "stage_id", "date_deadline", "priority", "user_id"],
-        "order": "priority desc, date_deadline asc",
-        "limit": 20,
-        "filter_preset": "none",
-        "sort_preset": "priority",
-        "prefer_action_view": "kanban",
-    },
-    # --- To-Do (project_todo) ---
-    "todo_list": {
-        "res_model": "project.task",
-        "layout": "list",
-        "fields": ["name", "project_id", "date_deadline", "priority", "user_id"],
-        "order": "date_deadline asc, priority desc",
-        "limit": 25,
-        "filter_preset": "today",
-        "sort_preset": "date",
-        "prefer_action_view": "tree",
-    },
-    "todo_kanban_style": {
-        "res_model": "project.task",
-        "layout": "kanban",
-        "fields": ["name", "stage_id", "date_deadline", "priority"],
-        "order": "stage_id, priority desc",
-        "limit": 30,
-        "filter_preset": "none",
-        "sort_preset": "priority",
-        "prefer_action_view": "kanban",
-    },
-    # --- CRM ---
-    "crm_pipeline": {
-        "res_model": "crm.lead",
-        "layout": "list",
-        "fields": ["name", "partner_id", "stage_id", "expected_revenue", "probability"],
-        "order": "stage_id, expected_revenue desc",
-        "limit": 15,
-        "filter_preset": "none",
-        "sort_preset": "amount",
-        "read_group_field": "stage_id",
-        "prefer_action_view": "kanban",
-    },
-    "crm_list": {
-        "res_model": "crm.lead",
-        "layout": "table",
-        "fields": ["name", "partner_id", "email_from", "phone", "stage_id", "expected_revenue", "date_deadline"],
-        "order": "create_date desc",
-        "limit": 15,
-        "filter_preset": "none",
-        "sort_preset": "default",
-        "prefer_action_view": "tree",
-    },
-    "crm_calendar": {
-        "res_model": "crm.lead",
-        "layout": "calendar",
-        "fields": ["name", "date_deadline", "expected_revenue", "stage_id"],
-        "order": "date_deadline asc",
-        "limit": 200,
-        "filter_preset": "this_month",
-        "sort_preset": "date",
-        "calendar_view_mode": "month",
-        "calendar_reference_mode": "today",
-        "crm_calendar": True,
-        "prefer_action_view": "calendar",
-    },
-    # --- Point of Sale ---
-    "pos_dashboard": {
-        "res_model": "pos.order",
-        "layout": "list",
-        "fields": ["name", "date_order", "amount_total", "state"],
-        "order": "date_order desc",
-        "limit": 1,
-        "filter_preset": "today",
-        "sort_preset": "default",
-        "pos_dashboard": True,
-        "prefer_action_view": "tree",
-    },
-    "pos_orders": {
-        "res_model": "pos.order",
-        "layout": "table",
-        "fields": ["name", "date_order", "partner_id", "amount_total", "state"],
-        "order": "date_order desc",
-        "limit": 15,
-        "filter_preset": "today",
-        "sort_preset": "default",
-        "prefer_action_view": "tree",
-    },
-}
-
-_APP_DEFAULT_DISPLAY_MODE = {
-    "project": "project_projects_overview",
-    "project_todo": "todo_list",
-    "crm": "crm_pipeline",
-    "point_of_sale": "pos_dashboard",
-}
-
-# Presets prefill layout/fields/order/limit when a known model is selected.
-# Users can edit all values afterwards. Fields are validated against
-# ir.model.fields at apply time so missing optional modules are silently skipped.
-_MODEL_PRESETS = {
+# Full display presets keyed by model technical name.
+# Applied automatically when app_model_id changes (model-first flow) and also
+# when odoo_action_id resolves to a known model.
+# All values can be edited freely after the preset is applied.
+# Fields are validated against ir.model.fields at apply time — unknown fields
+# (e.g. from optional modules not installed) are silently skipped.
+#
+# Supported keys:
+#   layout, fields, order, limit        — always applied
+#   filter_preset, sort_preset          — applied when present
+#   calendar_view_mode,                 — applied when present
+#   calendar_reference_mode
+#   read_group_field                    — sets trmnl_read_group_field_name for
+#                                         pipeline-style read_group aggregation
+#   pos_dashboard                       — sets pos_display_mode="pos_dashboard"
+#                                         to use the KPI dashboard renderer
+_MODEL_DISPLAY_PRESETS = {
     "calendar.event": {
         "layout": "calendar",
         "fields": ["name", "start", "stop", "location", "user_id"],
@@ -168,33 +54,45 @@ _MODEL_PRESETS = {
     },
     "project.task": {
         "layout": "list",
-        "fields": ["name", "project_id", "stage_id", "date_deadline", "priority"],
+        "fields": ["name", "project_id", "stage_id", "date_deadline", "priority", "user_id"],
         "order": "priority desc, date_deadline asc",
-        "limit": 15,
+        "limit": 20,
+        "filter_preset": "none",
+        "sort_preset": "priority",
     },
     "project.project": {
         "layout": "list",
         "fields": ["name", "partner_id", "user_id", "date_start", "task_count"],
         "order": "sequence, name",
         "limit": 20,
+        "filter_preset": "my_records",
+        "sort_preset": "name",
+    },
+    "crm.lead": {
+        "layout": "list",
+        "fields": ["name", "partner_id", "stage_id", "expected_revenue", "probability"],
+        "order": "stage_id, expected_revenue desc",
+        "limit": 15,
+        "filter_preset": "none",
+        "sort_preset": "amount",
+        "read_group_field": "stage_id",
+    },
+    "pos.order": {
+        "layout": "list",
+        "fields": ["name", "date_order", "amount_total", "state"],
+        "order": "date_order desc",
+        "limit": 1,
+        "filter_preset": "today",
+        "sort_preset": "default",
+        "pos_dashboard": True,
     },
     "mail.activity": {
         "layout": "list",
         "fields": ["summary", "activity_type_id", "date_deadline", "user_id", "res_model"],
         "order": "date_deadline asc",
         "limit": 15,
-    },
-    "crm.lead": {
-        "layout": "list",
-        "fields": ["name", "partner_id", "contact_name", "email_from", "phone", "stage_id", "expected_revenue", "priority"],
-        "order": "expected_revenue desc",
-        "limit": 10,
-    },
-    "pos.order": {
-        "layout": "table",
-        "fields": ["name", "date_order", "partner_id", "amount_total", "state"],
-        "order": "date_order desc",
-        "limit": 10,
+        "filter_preset": "none",
+        "sort_preset": "date",
     },
 }
 
@@ -215,12 +113,6 @@ class TrmnlProfile(models.Model):
         ondelete="cascade",
     )
 
-    app_module_id = fields.Many2one(
-        "ir.module.module",
-        string="Odoo App",
-        domain=[("state", "=", "installed")],
-    )
-
     odoo_action_id = fields.Many2one(
         "ir.actions.act_window",
         string="Data View",
@@ -229,6 +121,12 @@ class TrmnlProfile(models.Model):
     app_model_id = fields.Many2one(
         "ir.model",
         string="Odoo Model",
+    )
+
+    app_model_name = fields.Char(
+        related="app_model_id.model",
+        string="Model Technical Name",
+        store=False,
         readonly=True,
     )
 
@@ -265,6 +163,16 @@ class TrmnlProfile(models.Model):
         ("overdue",    "Overdue"),
     ], string="Filter", default="none", required=True)
 
+    filter_domain = fields.Char(
+        string="Custom Domain",
+        default="[]",
+        help=(
+            "Extra Odoo domain applied on top of the Filter preset. "
+            "Example: [('priority', '=', '1')] \n"
+            "Supports: uid, context_today(), True, False."
+        ),
+    )
+
     sort_preset = fields.Selection([
         ("default",  "Default (use Display Order)"),
         ("name",     "Name"),
@@ -294,18 +202,14 @@ class TrmnlProfile(models.Model):
     preview_image = fields.Binary(string="Preview", readonly=True)
     preview_generated_at = fields.Datetime(string="Preview Generated At", readonly=True)
 
-    auto_refresh_enabled = fields.Boolean(
-        string="Auto Refresh",
-        default=True,
-        help=(
-            "When enabled, the preview is automatically re-rendered during device polls "
-            "if it is older than the configured interval."
-        ),
-    )
     auto_refresh_interval_minutes = fields.Integer(
-        string="Auto Refresh Interval (min)",
+        string="Render Interval (min)",
         default=10,
-        help="How many minutes between automatic re-renders. Minimum effective value is 1.",
+        help=(
+            "How often Odoo re-renders the preview image during device polls. "
+            "Zero or negative falls back to 10 minutes. "
+            "The device poll frequency is controlled separately by Refresh Rate on the device."
+        ),
     )
 
     device_last_polled_at = fields.Datetime(
@@ -334,32 +238,6 @@ class TrmnlProfile(models.Model):
         readonly=True,
     )
 
-    # App-specific display modes (only one is relevant per app_module_id).
-    project_display_mode = fields.Selection(
-        [
-            ("project_projects_overview", "Projects Overview"),
-            ("project_tasks_detail", "Tasks Detail"),
-        ],
-        string="Project display",
-        help="Preset for the Project app. Leave empty to keep manual Data View configuration.",
-    )
-    todo_display_mode = fields.Selection(
-        [
-            ("todo_list", "List"),
-            ("todo_kanban_style", "Kanban-style"),
-        ],
-        string="To-Do display",
-        help="Preset for the To-Do app (project_todo).",
-    )
-    crm_display_mode = fields.Selection(
-        [
-            ("crm_pipeline", "Pipeline"),
-            ("crm_list", "List"),
-            ("crm_calendar", "Calendar"),
-        ],
-        string="CRM display",
-        help="Preset for the CRM app.",
-    )
     pos_display_mode = fields.Selection(
         [
             ("pos_dashboard", "Dashboard"),
@@ -387,168 +265,12 @@ class TrmnlProfile(models.Model):
             return "kpi"
         return "list"
 
-    def _clear_app_display_mode_selections(self):
-        """Clear app-specific display mode fields (manual Data View pick)."""
-        self.project_display_mode = False
-        self.todo_display_mode = False
-        self.crm_display_mode = False
-        self.pos_display_mode = False
-
-    def _active_display_preset_key(self):
-        """Return the active ``_APP_DISPLAY_PRESETS`` key for the current app, if any."""
-        self.ensure_one()
-        if not self.app_module_id:
-            return False
-        mod = self.app_module_id.name
-        if mod == "project":
-            return self.project_display_mode or False
-        if mod == "project_todo":
-            return self.todo_display_mode or False
-        if mod == "crm":
-            return self.crm_display_mode or False
-        if mod == "point_of_sale":
-            return self.pos_display_mode or False
-        return False
-
-    def _pick_action_window_for_model(self, module_name, res_model, prefer_view_contains=None):
-        """Pick a sensible ``ir.actions.act_window`` for ``res_model`` declared in ``module_name``."""
-        Act = self.env["ir.actions.act_window"].sudo()
-        imd = self.env["ir.model.data"].sudo().search([
-            ("module", "=", module_name),
-            ("model", "=", "ir.actions.act_window"),
-        ])
-        actions = Act.browse(imd.mapped("res_id")).exists().filtered(lambda a: a.res_model == res_model)
-        if not actions:
-            actions = Act.search([("res_model", "=", res_model)], limit=8, order="id")
-        if not actions:
-            return Act.browse()
-        tokens = []
-        if prefer_view_contains:
-            tokens = [prefer_view_contains] if isinstance(prefer_view_contains, str) else list(prefer_view_contains)
-        for token in tokens:
-            if not token:
-                continue
-            hit = actions.filtered(lambda a, t=token: a.view_mode and t in a.view_mode)
-            if hit:
-                return hit[0]
-        return actions[0]
-
-    def _apply_app_display_preset_from_mode(self):
-        """Apply ``_APP_DISPLAY_PRESETS`` for the active app display mode field.
-
-        Returns True when a preset was applied, False otherwise.
-        """
-        key = self._active_display_preset_key()
-        self.trmnl_read_group_field_name = False
-        if not key or not self.app_module_id:
-            return False
-        preset = _APP_DISPLAY_PRESETS.get(key)
-        if not preset:
-            return False
-        res_model = preset.get("res_model")
-        if not res_model or res_model not in self.env:
-            return False
-
-        module_name = self.app_module_id.name
-        action = self._pick_action_window_for_model(
-            module_name,
-            res_model,
-            preset.get("prefer_action_view"),
-        )
-        if action:
-            self.odoo_action_id = action
-
-        model = self.env["ir.model"].sudo().search([("model", "=", res_model)], limit=1)
-        self.app_model_id = model
-
-        field_names = preset.get("fields") or []
-        valid_fields = self.env["ir.model.fields"].sudo().search([
-            ("model", "=", res_model),
-            ("name", "in", field_names),
-        ])
-        order_map = {n: i for i, n in enumerate(field_names)}
-        self.display_field_ids = valid_fields.sorted(lambda f, om=order_map: om.get(f.name, 99))
-
-        self.trmnl_layout = preset["layout"]
-        self.display_limit = preset.get("limit", 20)
-        self.display_order = preset.get("order", "id desc")
-        self.filter_preset = preset.get("filter_preset", "none")
-        self.sort_preset = preset.get("sort_preset", "default")
-        if "calendar_view_mode" in preset:
-            self.calendar_view_mode = preset["calendar_view_mode"]
-        if "calendar_reference_mode" in preset:
-            self.calendar_reference_mode = preset["calendar_reference_mode"]
-        if preset.get("read_group_field"):
-            fname = preset["read_group_field"]
-            if self.env["ir.model.fields"].sudo().search_count([
-                ("model", "=", res_model),
-                ("name", "=", fname),
-            ]):
-                self.trmnl_read_group_field_name = fname
-        return True
-
-    @api.onchange("app_module_id")
-    def _onchange_app_module_id(self):
-        self.odoo_action_id = False
-        self.app_model_id = False
-        self.display_field_ids = False
-        self.trmnl_read_group_field_name = False
-        self._clear_app_display_mode_selections()
-
-        if not self.app_module_id:
-            return {"domain": {"odoo_action_id": [("id", "=", False)]}}
-
-        imd = self.env["ir.model.data"].sudo().search([
-            ("module", "=", self.app_module_id.name),
-            ("model", "=", "ir.actions.act_window"),
-        ])
-
-        actions = self.env["ir.actions.act_window"].sudo().browse(
-            imd.mapped("res_id")
-        ).exists()
-
-        allowed = _APP_ALLOWED_MODELS.get(self.app_module_id.name)
-        if allowed:
-            actions = actions.filtered(lambda a: a.res_model in allowed)
-
-        mod_name = self.app_module_id.name
-        if mod_name in _APP_DEFAULT_DISPLAY_MODE:
-            default_key = _APP_DEFAULT_DISPLAY_MODE[mod_name]
-            if mod_name == "project":
-                self.project_display_mode = default_key
-            elif mod_name == "project_todo":
-                self.todo_display_mode = default_key
-            elif mod_name == "crm":
-                self.crm_display_mode = default_key
-            elif mod_name == "point_of_sale":
-                self.pos_display_mode = default_key
-            self._apply_app_display_preset_from_mode()
-            return {"domain": {"odoo_action_id": [("id", "in", actions.ids)]}}
-
-        # Calendar, Mail, … — preserve legacy auto-pick behaviour.
-        if actions:
-            preferred = actions.filtered(lambda a: "calendar" in (a.view_mode or ""))
-            self.odoo_action_id = preferred[0] if preferred else actions[0]
-            self._onchange_odoo_action_id()
-
-        return {"domain": {"odoo_action_id": [("id", "in", actions.ids)]}}
-
-    @api.onchange(
-        "project_display_mode",
-        "todo_display_mode",
-        "crm_display_mode",
-        "pos_display_mode",
-    )
-    def _onchange_app_specific_display_modes(self):
-        if self.app_module_id and self.app_module_id.name in _APP_DEFAULT_DISPLAY_MODE:
-            self._apply_app_display_preset_from_mode()
-
     @api.onchange("odoo_action_id")
     def _onchange_odoo_action_id(self):
-        self._clear_app_display_mode_selections()
+        self.pos_display_mode = False
         self.trmnl_read_group_field_name = False
         if not self.odoo_action_id or not self.odoo_action_id.res_model:
-            self.app_model_id = False
+            # Don't clear app_model_id — the user may have set it directly.
             self.display_field_ids = False
             return
 
@@ -565,26 +287,53 @@ class TrmnlProfile(models.Model):
                 self.odoo_action_id.view_mode
             )
 
+    @api.onchange("app_model_id")
+    def _onchange_app_model_id(self):
+        """Model picked directly (model-first flow): reset dependents and apply preset."""
+        self.pos_display_mode = False
+        self.trmnl_read_group_field_name = False
+        self.display_field_ids = False
+
+        if not self.app_model_id:
+            self.odoo_action_id = False
+            return
+
+        model_name = self.app_model_id.model
+
+        # Optional: find a matching action window so the helper is pre-filled.
+        action = self.env["ir.actions.act_window"].sudo().search(
+            [("res_model", "=", model_name)], limit=1, order="id asc"
+        )
+        if action:
+            self.odoo_action_id = action
+
+        self._apply_model_preset(model_name)
+
     def _apply_model_preset(self, model_name):
-        """Prefill layout/fields/order/limit from _MODEL_PRESETS if a preset exists.
+        """Prefill profile settings from _MODEL_DISPLAY_PRESETS for a known model.
 
         Returns True if a preset was applied, False if the model is unknown.
         Fields are validated against ir.model.fields so that optional modules
         that did not install a field are silently skipped.
         """
-        preset = _MODEL_PRESETS.get(model_name)
+        preset = _MODEL_DISPLAY_PRESETS.get(model_name)
         if not preset:
             return False
 
+        field_names = preset.get("fields") or []
         valid_fields = self.env["ir.model.fields"].sudo().search([
             ("model", "=", model_name),
-            ("name", "in", preset["fields"]),
+            ("name", "in", field_names),
         ])
+        order_map = {n: i for i, n in enumerate(field_names)}
+        self.display_field_ids = valid_fields.sorted(
+            lambda f, om=order_map: om.get(f.name, 99)
+        )
 
         self.trmnl_layout = preset["layout"]
-        self.display_field_ids = valid_fields
-        self.display_limit = preset["limit"]
-        self.display_order = preset["order"]
+        self.display_limit = preset.get("limit", 20)
+        self.display_order = preset.get("order", "id desc")
+
         if "filter_preset" in preset:
             self.filter_preset = preset["filter_preset"]
         if "sort_preset" in preset:
@@ -593,7 +342,110 @@ class TrmnlProfile(models.Model):
             self.calendar_view_mode = preset["calendar_view_mode"]
         if "calendar_reference_mode" in preset:
             self.calendar_reference_mode = preset["calendar_reference_mode"]
+
+        # Pipeline-style read_group aggregation (e.g. CRM grouped by stage).
+        if preset.get("read_group_field"):
+            fname = preset["read_group_field"]
+            exists = self.env["ir.model.fields"].sudo().search_count([
+                ("model", "=", model_name),
+                ("name", "=", fname),
+            ])
+            self.trmnl_read_group_field_name = fname if exists else False
+        else:
+            self.trmnl_read_group_field_name = False
+
+        # POS dashboard KPI renderer.
+        if preset.get("pos_dashboard") and model_name == "pos.order":
+            self.pos_display_mode = "pos_dashboard"
+
         return True
+
+    def _eval_filter_domain(self, domain_str):
+        """Evaluate a domain string using safe_eval with a restricted Odoo context.
+
+        Returns a plain list suitable for use in ``search()``.
+        Raises ``ValueError`` on syntax/type errors so callers can wrap it in
+        whatever exception type is appropriate for their context.
+        """
+        if not domain_str or domain_str.strip() in ("", "[]"):
+            return []
+        eval_ctx = {
+            "uid": self.env.uid,
+            "user": self.env.user,
+            "context_today": lambda: fields.Date.today(),
+            "current_date": str(fields.Date.today()),
+            "True": True,
+            "False": False,
+            "None": None,
+        }
+        result = safe_eval(domain_str, eval_ctx)
+        if not isinstance(result, list):
+            raise ValueError(_("Domain must evaluate to a list, got %s.") % type(result).__name__)
+        return result
+
+    def _build_effective_domain(self, model_name):
+        """Combine all active domain sources into a single ORM domain list.
+
+        Sources applied with AND in this order:
+        1. Action domain  — from odoo_action_id.domain; silently skipped on eval error.
+        2. Filter preset  — from _build_filter_domain(); always silent.
+        3. Custom domain  — from filter_domain; raises UserError on eval error.
+
+        Used by both _load_records() and _build_trmnl_read_group_rows() so that
+        list rendering and grouped rendering always see the same effective filter.
+        """
+        domains = []
+
+        # 1. Action domain
+        action_domain_str = (
+            self.odoo_action_id.domain
+            if self.odoo_action_id and self.odoo_action_id.domain
+            else None
+        )
+        if action_domain_str:
+            try:
+                action_domain = self._eval_filter_domain(action_domain_str)
+                if action_domain:
+                    domains.append(action_domain)
+            except Exception:
+                _logger.debug(
+                    "TRMNL profile id=%s: could not eval action domain %r — skipping",
+                    self.id, action_domain_str,
+                )
+
+        # 2. Filter preset domain
+        preset_domain = self._build_filter_domain(model_name)
+        if preset_domain:
+            domains.append(preset_domain)
+
+        # 3. Custom filter_domain
+        raw_custom = (self.filter_domain or "").strip()
+        if raw_custom and raw_custom != "[]":
+            try:
+                custom_domain = self._eval_filter_domain(raw_custom)
+                if custom_domain:
+                    domains.append(custom_domain)
+            except Exception as exc:
+                raise UserError(
+                    _("Custom Domain is invalid and could not be applied: %s") % exc
+                ) from exc
+
+        return expression.AND(domains) if domains else []
+
+    @api.constrains("filter_domain")
+    def _check_filter_domain(self):
+        for rec in self:
+            raw = (rec.filter_domain or "").strip()
+            if not raw or raw == "[]":
+                continue
+            try:
+                domain = rec._eval_filter_domain(raw)
+                # Validate structure via Odoo's expression normalizer.
+                expression.normalize_domain(domain)
+            except Exception as exc:
+                raise ValidationError(
+                    _("Custom Domain is not a valid Odoo domain: %s") % exc
+                ) from exc
 
     def _build_filter_domain(self, model_name):
         """Return an ORM domain list for the active filter_preset.
@@ -762,6 +614,7 @@ class TrmnlProfile(models.Model):
 
         Bypasses filter_preset date ranges (the month window overrides them)
         but still respects my_records so personal calendars work correctly.
+        Applies filter_domain on top.
         """
         _, last_day = monthrange(year, month)
         month_start = date(year, month, 1)
@@ -770,6 +623,17 @@ class TrmnlProfile(models.Model):
 
         if self.filter_preset == "my_records":
             domain.append(("user_id", "=", self.env.uid))
+
+        raw_custom = (self.filter_domain or "").strip()
+        if raw_custom and raw_custom != "[]":
+            try:
+                custom_domain = self._eval_filter_domain(raw_custom)
+                if custom_domain:
+                    domain = expression.AND([domain, custom_domain])
+            except Exception as exc:
+                raise UserError(
+                    _("Custom Domain is invalid and could not be applied: %s") % exc
+                ) from exc
 
         limit = self.display_limit or 200
         return self.env["calendar.event"].sudo().search(
@@ -780,30 +644,49 @@ class TrmnlProfile(models.Model):
         """Load calendar.event records for the full Mon–Sun week window.
 
         Always loads the full 7 days regardless of week_mode so the renderer
-        can decide which columns to draw. Respects my_records filter.
+        can decide which columns to draw. Respects my_records filter and
+        applies filter_domain on top.
         """
         week_end = week_start + timedelta(days=6)
         domain = [("start", ">=", week_start), ("start", "<=", week_end)]
         if self.filter_preset == "my_records":
             domain.append(("user_id", "=", self.env.uid))
+
+        raw_custom = (self.filter_domain or "").strip()
+        if raw_custom and raw_custom != "[]":
+            try:
+                custom_domain = self._eval_filter_domain(raw_custom)
+                if custom_domain:
+                    domain = expression.AND([domain, custom_domain])
+            except Exception as exc:
+                raise UserError(
+                    _("Custom Domain is invalid and could not be applied: %s") % exc
+                ) from exc
+
         limit = self.display_limit or 200
         return self.env["calendar.event"].sudo().search(
             domain, limit=limit, order="start asc"
         )
 
     def _load_crm_lead_calendar_month(self, year: int, month: int):
-        """Load crm.lead records whose deadline falls in the given calendar month."""
+        """Load crm.lead records whose deadline falls in the given calendar month.
+
+        The month window is ANDed with the full effective domain (preset + custom
+        filter_domain + action domain) so calendar filtering is consistent with
+        list rendering.
+        """
         Lead = self.env["crm.lead"].sudo()
         if "date_deadline" not in Lead._fields:
             return Lead.browse()
         _, last_day = monthrange(year, month)
         month_start = date(year, month, 1)
         month_end = date(year, month, last_day)
-        domain = [
+        month_domain = [
             ("date_deadline", ">=", month_start),
             ("date_deadline", "<=", month_end),
         ]
-        domain += self._build_filter_domain("crm.lead")
+        effective = self._build_effective_domain("crm.lead")
+        domain = expression.AND([month_domain, effective]) if effective else month_domain
         limit = self.display_limit or 200
         try:
             return Lead.search(domain, limit=limit, order="date_deadline asc")
@@ -839,13 +722,17 @@ class TrmnlProfile(models.Model):
         return 0
 
     def _build_trmnl_read_group_rows(self, model_name: str, group_field: str):
-        """Build (rows, headers) for a simple read_group summary table."""
+        """Build (rows, headers) for a simple read_group summary table.
+
+        Uses _build_effective_domain so that action domain, filter preset, and
+        custom filter_domain are all applied — consistent with _load_records.
+        """
         if model_name not in self.env or not group_field:
             return None
         Model = self.env[model_name].sudo()
         if group_field not in Model._fields:
             return None
-        domain = self._build_filter_domain(model_name)
+        domain = self._build_effective_domain(model_name)
         limit = self.display_limit or 30
         gb = group_field.split(":")[0]
         fields_spec = ["id"]
@@ -931,11 +818,7 @@ class TrmnlProfile(models.Model):
                     self.id, exc, exc_info=True,
                 )
 
-        if (
-            self.trmnl_layout == "calendar"
-            and model_name == "crm.lead"
-            and self.crm_display_mode == "crm_calendar"
-        ):
+        if self.trmnl_layout == "calendar" and model_name == "crm.lead":
             try:
                 year, month = self._resolve_calendar_date()
                 events = self._prepare_crm_lead_calendar_events(
@@ -1189,17 +1072,12 @@ class TrmnlProfile(models.Model):
     def _is_auto_refresh_due(self):
         """Return True if the profile preview should be re-rendered now.
 
-        False when auto-refresh is disabled.
         True when no preview has ever been generated (preview_generated_at is unset).
         Otherwise True when the time elapsed since the last render exceeds the interval.
         A zero or negative interval is treated as 10 minutes.
         """
         self.ensure_one()
-        if not self.auto_refresh_enabled:
-            _logger.debug("TRMNL auto-refresh: DISABLED for profile id=%s → False", self.id)
-            return False
         if not self.preview_generated_at:
-            _logger.debug("TRMNL auto-refresh: no preview_generated_at for profile id=%s → True", self.id)
             return True
         interval = self.auto_refresh_interval_minutes
         if not interval or interval <= 0:
@@ -1208,16 +1086,46 @@ class TrmnlProfile(models.Model):
         now = fields.Datetime.now()
         due = now >= threshold
         _logger.debug(
-            "TRMNL auto-refresh: profile id=%s generated_at=%s interval=%smin "
+            "TRMNL render-interval: profile id=%s generated_at=%s interval=%smin "
             "threshold=%s now=%s due=%s",
             self.id, self.preview_generated_at, interval, threshold, now, due,
         )
         return due
 
+    def _backfill_model_id(self):
+        """Lazily populate app_model_id from odoo_action_id for pre-refactor records.
+
+        Called at the start of every render path so that profiles saved before the
+        model-first refactor (which have app_model_id=False but a valid odoo_action_id)
+        are migrated transparently on their first render after an upgrade.
+
+        Returns True when app_model_id is set (either already was, or just backfilled).
+        Returns False when the model cannot be determined (genuinely unconfigured profile).
+        """
+        self.ensure_one()
+        if self.app_model_id:
+            return True
+        if not self.odoo_action_id or not self.odoo_action_id.res_model:
+            return False
+        model_name = self.odoo_action_id.res_model
+        ir_model = self.env["ir.model"].sudo().search(
+            [("model", "=", model_name)], limit=1
+        )
+        if not ir_model:
+            return False
+        _logger.info(
+            "TRMNL profile id=%s: backfilling app_model_id from odoo_action_id "
+            "res_model=%r (pre-refactor record).",
+            self.id, model_name,
+        )
+        self.app_model_id = ir_model
+        return True
+
     def action_render_preview(self):
         self.ensure_one()
-        if not self.odoo_action_id or not self.odoo_action_id.res_model:
-            raise UserError(_("Select a Data View before rendering a preview."))
+        self._backfill_model_id()
+        if not self.app_model_id:
+            raise UserError(_("Select an Odoo Model before rendering a preview."))
         self._render_and_store_preview()
 
         last_poll = self.device_id.last_display_at
@@ -1252,24 +1160,25 @@ class TrmnlProfile(models.Model):
         """Render the preview image and persist it. Raises on configuration errors."""
         self.ensure_one()
 
-        model_name = self.odoo_action_id.res_model
+        # Migrate pre-refactor records that have odoo_action_id but no app_model_id.
+        self._backfill_model_id()
 
-        # Re-sync app_model_id if it was not populated (e.g. records pre-dating onchange).
         if not self.app_model_id:
-            synced_model = self.env["ir.model"].sudo().search(
-                [("model", "=", model_name)], limit=1
-            )
-            if synced_model:
-                self.app_model_id = synced_model
+            raise UserError(_("Select an Odoo Model before rendering a preview."))
+
+        model_name = self.app_model_id.model
 
         if model_name not in self.env:
             raise UserError(
                 _("Model '%s' is not available in this environment.") % model_name
             )
 
-        if self.display_field_ids:
-            field_names = self.display_field_ids.mapped("name")
-            field_labels = self.display_field_ids.mapped("field_description")
+        valid_display_fields = self.display_field_ids.filtered(
+            lambda f: f.model == model_name
+        )
+        if valid_display_fields:
+            field_names = valid_display_fields.mapped("name")
+            field_labels = valid_display_fields.mapped("field_description")
         else:
             field_names = ["display_name"]
             field_labels = [_("Name")]
@@ -1352,19 +1261,17 @@ class TrmnlProfile(models.Model):
         return f"profile_{self.id}_{ts}_{digest}"
 
     def _load_records(self, model_name, field_names):
-        """Search the target model applying filter_preset domain and sort_preset order.
+        """Search the target model with the full effective domain.
 
-        Sort resolution: sort_preset wins when it resolves a field; falls back
-        to display_order (manual). Falls back to no order on invalid order string.
-        The domain is always safe — _build_filter_domain never raises.
+        Domain: action domain AND filter preset AND custom filter_domain (via
+        _build_effective_domain). Sort: sort_preset wins; falls back to
+        display_order; falls back to no order on invalid SQL clause.
         """
         model_env = self.env[model_name].sudo()
-        limit  = self.display_limit or 20
-        domain = self._build_filter_domain(model_name)
-
+        limit = self.display_limit or 20
+        domain = self._build_effective_domain(model_name)
         preset_order = self._build_sort_order(model_name)
         order = preset_order if preset_order is not None else (self.display_order or False)
-
         try:
             return model_env.search(domain, limit=limit, order=order)
         except Exception:

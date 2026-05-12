@@ -131,12 +131,11 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
             _logger.info(
                 "TRMNL display: poll timing profile id=%s desired_refresh_rate=%ss "
-                "device_reported_refresh_rate=%s auto_refresh_enabled=%s interval_min=%s "
-                "preview_generated_at=%s next_refresh_at=%s now=%s",
+                "device_reported_refresh_rate=%s render_interval_min=%s "
+                "preview_generated_at=%s next_render_at=%s now=%s",
                 profile.id,
                 self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
                 self.refresh_rate,
-                profile.auto_refresh_enabled,
                 interval,
                 generated_at,
                 threshold,

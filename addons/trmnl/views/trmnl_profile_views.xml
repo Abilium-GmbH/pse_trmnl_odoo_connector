@@ -57,6 +57,22 @@
                     <group string="Odoo Source">
                         <field name="app_module_id"/>
                         <field
+                            name="project_display_mode"
+                            invisible="app_module_id.name != 'project'"
+                        />
+                        <field
+                            name="todo_display_mode"
+                            invisible="app_module_id.name != 'project_todo'"
+                        />
+                        <field
+                            name="crm_display_mode"
+                            invisible="app_module_id.name != 'crm'"
+                        />
+                        <field
+                            name="pos_display_mode"
+                            invisible="app_module_id.name != 'point_of_sale'"
+                        />
+                        <field
                             name="odoo_action_id"
                             invisible="app_model_id"
                             help="Auto-selected for known apps. Select manually for others."

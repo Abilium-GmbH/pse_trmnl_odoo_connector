@@ -6,7 +6,7 @@
     "author": "Abilium GmbH",
     "license": "Other OSI approved licence",
     "version": "1.0.1",
-    "post_init_hook": "odoo.addons.trmnl.hooks.post_init_hook",
+    "post_init_hook": "post_init_hook",
     "images": ["static/description/icon.png"],
     "depends": ["base",],
     "external_dependencies": {"python": ["Pillow", "requests"]},

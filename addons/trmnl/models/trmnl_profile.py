@@ -96,6 +96,15 @@ _MODEL_DISPLAY_PRESETS = {
     },
 }
 
+# Allowed field types per layout — drives display_field_ids picker filtering.
+# Calendar uses no display_field_ids (picker is hidden via view visibility).
+_LAYOUT_ALLOWED_TTYPES = {
+    "list":   frozenset({"char", "text", "selection", "many2one", "boolean", "date", "datetime", "integer", "float", "monetary"}),
+    "table":  frozenset({"char", "text", "selection", "many2one", "boolean", "date", "datetime", "integer", "float", "monetary"}),
+    "kanban": frozenset({"char", "text", "selection", "many2one", "boolean", "date", "datetime", "integer", "float", "monetary"}),
+    "kpi":    frozenset({"integer", "float", "monetary", "selection", "many2one", "boolean"}),
+}
+
 
 class TrmnlProfile(models.Model):
     _name = "trmnl.profile"
@@ -309,6 +318,16 @@ class TrmnlProfile(models.Model):
 
         self._apply_model_preset(model_name)
 
+    @api.onchange("trmnl_layout")
+    def _onchange_trmnl_layout(self):
+        """Drop display_field_ids that are not allowed by the newly selected layout."""
+        layout = self.trmnl_layout or "list"
+        allowed = _LAYOUT_ALLOWED_TTYPES.get(layout)
+        if allowed is not None and self.display_field_ids:
+            self.display_field_ids = self.display_field_ids.filtered(
+                lambda f: f.ttype in allowed
+            )
+
     def _apply_model_preset(self, model_name):
         """Prefill profile settings from _MODEL_DISPLAY_PRESETS for a known model.
 
@@ -325,6 +344,11 @@ class TrmnlProfile(models.Model):
             ("model", "=", model_name),
             ("name", "in", field_names),
         ])
+        # Silently drop fields whose type is not allowed by this preset's layout.
+        layout = preset.get("layout", "list")
+        allowed = _LAYOUT_ALLOWED_TTYPES.get(layout)
+        if allowed is not None:
+            valid_fields = valid_fields.filtered(lambda f: f.ttype in allowed)
         order_map = {n: i for i, n in enumerate(field_names)}
         self.display_field_ids = valid_fields.sorted(
             lambda f, om=order_map: om.get(f.name, 99)
@@ -383,13 +407,42 @@ class TrmnlProfile(models.Model):
             raise ValueError(_("Domain must evaluate to a list, got %s.") % type(result).__name__)
         return result
 
+    def _validate_custom_domain_fields(self, domain, model_name):
+        """Raise UserError if any domain leaf references a field absent from model_name.
+
+        This is the render-time semantic complement to _validate_domain_leaves()
+        (which is the save-time structural check). Structural validity is checked at
+        save time; model-field existence is only knowable at render time once we have
+        a concrete model_name.
+
+        Only the first segment of dotted paths is checked (e.g. 'partner_id' of
+        'partner_id.name'), since ORM traversal handles the rest.
+        """
+        if model_name not in self.env:
+            return
+        model_fields = self.env[model_name]._fields
+        _BOOL_OPS = frozenset(("&", "|", "!"))
+        for token in domain:
+            if token in _BOOL_OPS or not isinstance(token, (list, tuple)) or len(token) != 3:
+                continue
+            field_path = token[0]
+            if not isinstance(field_path, str):
+                continue
+            first_field = field_path.split(".")[0]
+            if first_field not in model_fields:
+                raise UserError(
+                    _("Custom Domain references unknown field '%s' on model '%s'. "
+                      "Please correct or clear the Custom Filter.")
+                    % (first_field, model_name)
+                )
+
     def _build_effective_domain(self, model_name):
         """Combine all active domain sources into a single ORM domain list.
 
         Sources applied with AND in this order:
         1. Action domain  — from odoo_action_id.domain; silently skipped on eval error.
         2. Filter preset  — from _build_filter_domain(); always silent.
-        3. Custom domain  — from filter_domain; raises UserError on eval error.
+        3. Custom domain  — from filter_domain; raises UserError on eval/field error.
 
         Used by both _load_records() and _build_trmnl_read_group_rows() so that
         list rendering and grouped rendering always see the same effective filter.
@@ -418,19 +471,54 @@ class TrmnlProfile(models.Model):
         if preset_domain:
             domains.append(preset_domain)
 
-        # 3. Custom filter_domain
+        # 3. Custom filter_domain — eval errors and unknown fields both raise UserError.
         raw_custom = (self.filter_domain or "").strip()
         if raw_custom and raw_custom != "[]":
             try:
                 custom_domain = self._eval_filter_domain(raw_custom)
                 if custom_domain:
+                    self._validate_custom_domain_fields(custom_domain, model_name)
                     domains.append(custom_domain)
+            except UserError:
+                raise
             except Exception as exc:
                 raise UserError(
                     _("Custom Domain is invalid and could not be applied: %s") % exc
                 ) from exc
 
         return expression.AND(domains) if domains else []
+
+    @staticmethod
+    def _validate_domain_leaves(domain):
+        """Raise ValueError if any leaf is not a valid 3-element (field, op, value) tuple.
+
+        expression.normalize_domain() fixes operator structure but does not
+        validate leaf arity in Odoo 19. This method fills that gap so that
+        inputs like [('a', 'b')] (2-tuple) are caught at save time rather than
+        producing a cryptic database error at render/search time.
+        """
+        _BOOL_OPS = frozenset(("&", "|", "!"))
+        for token in domain:
+            if token in _BOOL_OPS:
+                continue
+            if not isinstance(token, (list, tuple)):
+                raise ValueError(
+                    "Domain leaf must be a tuple, got %s: %r" % (type(token).__name__, token)
+                )
+            if len(token) != 3:
+                raise ValueError(
+                    "Domain leaf must have exactly 3 elements (field, operator, value), "
+                    "got %d: %r" % (len(token), tuple(token))
+                )
+            field_name, op, _value = token
+            if not isinstance(field_name, str) or not field_name:
+                raise ValueError(
+                    "Domain leaf field name must be a non-empty string, got: %r" % (field_name,)
+                )
+            if not isinstance(op, str) or not op:
+                raise ValueError(
+                    "Domain leaf operator must be a non-empty string, got: %r" % (op,)
+                )
 
     @api.constrains("filter_domain")
     def _check_filter_domain(self):
@@ -440,8 +528,8 @@ class TrmnlProfile(models.Model):
                 continue
             try:
                 domain = rec._eval_filter_domain(raw)
-                # Validate structure via Odoo's expression normalizer.
                 expression.normalize_domain(domain)
+                self._validate_domain_leaves(domain)
             except Exception as exc:
                 raise ValidationError(
                     _("Custom Domain is not a valid Odoo domain: %s") % exc
@@ -713,16 +801,8 @@ class TrmnlProfile(models.Model):
                 pass
         return events
 
-    @staticmethod
-    def _read_group_line_count(line: dict, group_field: str) -> int:
-        for key in (f"{group_field}_count", "__count", "id_count"):
-            val = line.get(key)
-            if isinstance(val, int):
-                return val
-        return 0
-
     def _build_trmnl_read_group_rows(self, model_name: str, group_field: str):
-        """Build (rows, headers) for a simple read_group summary table.
+        """Build (rows, headers) for a simple _read_group summary table.
 
         Uses _build_effective_domain so that action domain, filter preset, and
         custom filter_domain are all applied — consistent with _load_records.
@@ -730,62 +810,73 @@ class TrmnlProfile(models.Model):
         if model_name not in self.env or not group_field:
             return None
         Model = self.env[model_name].sudo()
-        if group_field not in Model._fields:
+        gb = group_field.split(":")[0]
+        if gb not in Model._fields:
             return None
         domain = self._build_effective_domain(model_name)
         limit = self.display_limit or 30
-        gb = group_field.split(":")[0]
-        fields_spec = ["id"]
-        if "expected_revenue" in Model._fields:
-            fields_spec.insert(0, "expected_revenue")
+        has_revenue = "expected_revenue" in Model._fields
+        aggregates = ["__count"]
+        if has_revenue:
+            aggregates.append("expected_revenue:sum")
         try:
-            lines = Model.read_group(domain, fields_spec, [gb], limit=limit, lazy=False)
+            groups = Model._read_group(domain, groupby=[gb], aggregates=aggregates, limit=limit)
         except Exception as exc:
-            _logger.debug("TRMNL read_group failed for %s: %s", model_name, exc)
+            _logger.debug("TRMNL _read_group failed for %s: %s", model_name, exc)
             return None
         rows = []
-        for line in lines:
-            label = line.get(gb)
-            if isinstance(label, tuple):
-                label = label[1] or str(label[0])
-            elif label is False:
+        for group in groups:
+            group_val = group[0]
+            count = group[1]
+            if hasattr(group_val, "display_name"):
+                label = group_val.display_name if group_val else _("Undefined")
+            elif group_val is False or group_val is None:
                 label = _("Undefined")
-            cnt = self._read_group_line_count(line, gb)
-            row = [str(label or ""), str(int(cnt))]
-            if "expected_revenue" in Model._fields:
-                rev = line.get("expected_revenue")
-                if rev is None:
-                    rev = 0.0
-                row.append(f"{float(rev):.2f}")
+            else:
+                field_def = Model._fields.get(gb)
+                if field_def and field_def.type == "selection":
+                    sel = field_def.selection
+                    if callable(sel):
+                        sel = sel(Model)
+                    label = dict(sel).get(group_val, str(group_val))
+                else:
+                    label = str(group_val)
+            row = [str(label or ""), str(int(count))]
+            if has_revenue:
+                row.append(f"{float(group[2] or 0.0):.2f}")
             rows.append(row)
         headers = [_("Group"), _("Count")]
-        if "expected_revenue" in Model._fields:
+        if has_revenue:
             headers.append(_("Expected revenue"))
         return rows, headers
 
     def _build_pos_order_dashboard_rows(self):
-        """Derive simple dashboard rows from ``pos.order`` read_group by state."""
+        """Derive simple dashboard rows from ``pos.order`` grouped by state."""
         if "pos.order" not in self.env:
             return [[_("Point of Sale is not installed.")]], [_("Message")]
         Order = self.env["pos.order"].sudo()
         domain = self._build_filter_domain("pos.order")
         try:
-            lines = Order.read_group(
-                domain, ["amount_total", "id"], ["state"], limit=30, lazy=False,
+            groups = Order._read_group(
+                domain, groupby=["state"], aggregates=["__count", "amount_total:sum"], limit=30
             )
         except Exception as exc:
-            _logger.debug("TRMNL POS dashboard read_group failed: %s", exc)
+            _logger.debug("TRMNL POS dashboard _read_group failed: %s", exc)
             return [[_("Could not aggregate orders")]], [_("Error")]
         rows = []
-        for line in lines:
-            label = line.get("state")
-            if isinstance(label, tuple):
-                label = label[1] or str(label[0])
-            elif label is False:
-                label = _("Unknown")
-            cnt = self._read_group_line_count(line, "state")
-            amt = line.get("amount_total") or 0.0
-            rows.append([str(label or ""), str(int(cnt)), f"{float(amt):.2f}"])
+        state_field = Order._fields.get("state")
+        for group in groups:
+            state_val = group[0]
+            count = group[1]
+            amt = group[2] or 0.0
+            if state_field and state_field.type == "selection":
+                sel = state_field.selection
+                if callable(sel):
+                    sel = sel(Order)
+                label = dict(sel).get(state_val, str(state_val)) if state_val else _("Unknown")
+            else:
+                label = str(state_val) if state_val else _("Unknown")
+            rows.append([str(label or ""), str(int(count)), f"{float(amt):.2f}"])
         return rows, [_("State"), _("Orders"), _("Amount total")]
 
     def _dispatch_renderer(self, model_name, field_names, field_labels, records) -> bytes:
@@ -985,8 +1076,13 @@ class TrmnlProfile(models.Model):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _is_publicly_reachable_base_url(url):
-        """Return True if url's host is not a localhost/internal/bridge address."""
+    def _is_device_reachable_base_url(url):
+        """Return True if url's host is reachable by a physical LAN device.
+
+        Rejects loopback (localhost / 127.x.x.x / ::1 / 0.0.0.0) and the
+        libvirt KVM virbr0 bridge (192.168.122.x).  Normal LAN ranges —
+        10.x.x.x, 192.168.x.x, 172.x.x.x — are accepted.
+        """
         try:
             host = urlparse(url).hostname or ""
             return bool(host) and not _INTERNAL_HOST_RE.match(host)
@@ -1019,51 +1115,17 @@ class TrmnlProfile(models.Model):
                 rec.url_warning = ""
                 continue
             web_url = params.get_param("web.base.url", "").strip()
-            if not rec._is_publicly_reachable_base_url(web_url):
+            if not rec._is_device_reachable_base_url(web_url):
                 rec.url_warning = (
-                    f"trmnl.public_base_url is not set and web.base.url ({web_url}) "
-                    f"is an internal address unreachable by physical devices. "
+                    f"web.base.url ({web_url}) is not reachable by physical devices "
+                    f"(localhost / loopback). "
                     f"Go to Settings → Technical → Parameters → System Parameters "
-                    f"and set trmnl.public_base_url to your LAN IP "
-                    f"(e.g. http://192.168.1.127:8069)."
+                    f"and set web.base.url to your LAN IP "
+                    f"(e.g. http://192.168.1.127:8069), "
+                    f"or add trmnl.public_base_url to override it."
                 )
             else:
                 rec.url_warning = ""
-
-    # ------------------------------------------------------------------
-    # refresh-rate actions
-    # ------------------------------------------------------------------
-
-    def action_set_fast_refresh(self):
-        self.ensure_one()
-        self.device_id.write({"desired_refresh_rate": 60})
-        return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "title": _("Fast Refresh Enabled"),
-                "message": _(
-                    "Device refresh rate set to 60 seconds. "
-                    "The device will apply this on its next poll."
-                ),
-                "type": "info",
-                "sticky": False,
-            },
-        }
-
-    def action_restore_refresh(self):
-        self.ensure_one()
-        self.device_id.write({"desired_refresh_rate": 1800})
-        return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "title": _("Refresh Restored"),
-                "message": _("Device refresh rate restored to 30 minutes."),
-                "type": "info",
-                "sticky": False,
-            },
-        }
 
     # ------------------------------------------------------------------
     # preview rendering
@@ -1209,12 +1271,14 @@ class TrmnlProfile(models.Model):
         """Return a device-reachable URL for this profile's preview PNG, or False.
 
         Resolution order:
-        1. trmnl.public_base_url  — admin-set, always trusted, no validation.
-        2. web.base.url           — used only when its host is not localhost /
-                                    a Docker bridge / the libvirt KVM bridge.
+        1. trmnl.public_base_url  — admin-set override, always trusted.
+        2. web.base.url           — used when its host is a LAN address
+                                    (any non-loopback, non-virbr0 host).
 
-        If neither yields a reachable URL a warning is logged and False is
-        returned so the caller can fall back gracefully.
+        For most local setups, setting web.base.url to the LAN IP is enough.
+        trmnl.public_base_url is only needed when web.base.url cannot be
+        changed (e.g. shared Odoo instance) or resolves to a container-internal
+        address that the physical device cannot reach.
         """
         if not self.preview_image:
             return False
@@ -1228,17 +1292,17 @@ class TrmnlProfile(models.Model):
             return url
 
         web_url = params.get_param("web.base.url", "").strip().rstrip("/")
-        if web_url and self._is_publicly_reachable_base_url(web_url):
+        if web_url and self._is_device_reachable_base_url(web_url):
             url = f"{web_url}/api/profile/image/{self.id}"
             _logger.info("TRMNL profile id=%s image_url (web.base.url): %s", self.id, url)
             return url
 
         _logger.warning(
-            "TRMNL profile id=%s: cannot generate a reachable image URL — "
-            "trmnl.public_base_url is not set and web.base.url=%r is a "
-            "localhost/internal address. "
-            "Set trmnl.public_base_url to your LAN IP in System Parameters "
-            "(e.g. http://192.168.1.127:8069).",
+            "TRMNL profile id=%s: cannot generate a device-reachable image URL — "
+            "web.base.url=%r is a loopback/unusable address and "
+            "trmnl.public_base_url is not set. "
+            "Set web.base.url to your LAN IP (e.g. http://192.168.1.127:8069) "
+            "or add trmnl.public_base_url to override it.",
             self.id, web_url,
         )
         return False
@@ -1266,16 +1330,44 @@ class TrmnlProfile(models.Model):
         Domain: action domain AND filter preset AND custom filter_domain (via
         _build_effective_domain). Sort: sort_preset wins; falls back to
         display_order; falls back to no order on invalid SQL clause.
+
+        UserError from _build_effective_domain (invalid custom filter_domain) is
+        always re-raised. ORM/database errors during search are also converted to
+        UserError when a custom filter_domain is active, so the user gets a clear
+        message rather than a silent fallback to all records.
         """
         model_env = self.env[model_name].sudo()
         limit = self.display_limit or 20
+
+        # _build_effective_domain raises UserError for invalid custom filter_domain;
+        # that exception is intentionally not caught here.
         domain = self._build_effective_domain(model_name)
+
         preset_order = self._build_sort_order(model_name)
         order = preset_order if preset_order is not None else (self.display_order or False)
+
+        # First attempt: with sort order.
         try:
             return model_env.search(domain, limit=limit, order=order)
+        except UserError:
+            raise
         except Exception:
+            pass
+
+        # Second attempt: without sort order (catches bad ORDER BY clauses).
+        try:
             return model_env.search(domain, limit=limit)
+        except UserError:
+            raise
+        except Exception as exc:
+            # If a custom filter_domain is configured and search still fails,
+            # surface the error to the user rather than silently ignoring it.
+            raw_custom = (self.filter_domain or "").strip()
+            if raw_custom and raw_custom != "[]":
+                raise UserError(
+                    _("Custom Domain could not be applied: %s\nDomain: %s") % (exc, raw_custom)
+                ) from exc
+            raise
 
     def _extract_field_value(self, record, field_name):
         """Return a safe display string for one field value on any Odoo record."""

@@ -19,19 +19,22 @@ TRMNL_POLICY_PARAM = "trmnl.display_unknown_device_policy"
 # When set to 1/true/yes/on, TRMNL HTTP controllers log extra request/branch detail.
 TRMNL_API_DEBUG_PARAM = "trmnl.api_debug"
 
-# Hosts/IPs that are unreachable from a physical device on the LAN: loopback,
-# the libvirt/KVM virbr0 bridge (192.168.122.x), and Docker bridge ranges
-# (172.16–172.31).  Used by both the display and profile modules to reject
-# internal addresses when generating device-facing image URLs.
+# Hosts/IPs that are not reachable by a physical device on the LAN: loopback
+# addresses and the libvirt/KVM virbr0 bridge (192.168.122.x).
+#
+# Normal LAN ranges — 10.x.x.x, 192.168.x.x, 172.x.x.x — are intentionally
+# NOT blocked.  A configured LAN IP is a valid device target regardless of
+# whether it falls inside RFC-1918 space.  Note: Docker bridge IPs
+# (commonly 172.17.0.x) overlap with legitimate corporate LAN ranges and
+# cannot be excluded reliably by pattern alone; set trmnl.public_base_url
+# explicitly when web.base.url resolves to a container-internal address.
 _INTERNAL_HOST_RE = re.compile(
     r"^("
     r"localhost"
+    r"|0\.0\.0\.0"
     r"|127(?:\.\d+){3}"
     r"|::1"
     r"|192\.168\.122\.\d+"
-    r"|172\.1[6-9]\.\d+\.\d+"
-    r"|172\.2\d\.\d+\.\d+"
-    r"|172\.3[01]\.\d+\.\d+"
     r")$",
     re.IGNORECASE,
 )

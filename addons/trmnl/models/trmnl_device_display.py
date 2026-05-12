@@ -248,16 +248,36 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
     @api.model
     def _maybe_auto_set_public_base_url(self, candidate_url):
-        """Auto-set trmnl.public_base_url from the device's Host header if not configured."""
+        """Auto-set trmnl.public_base_url from the device's Host header when needed.
+
+        Does nothing if trmnl.public_base_url is already set, or if
+        web.base.url is already a device-reachable LAN address — in that
+        case web.base.url is sufficient and no override is needed.
+        """
         params = self.env["ir.config_parameter"].sudo()
         if params.get_param("trmnl.public_base_url"):
             return
+
+        web_url = params.get_param("web.base.url", "").strip()
+        if web_url:
+            try:
+                web_host = _urlparse(web_url).hostname or ""
+                if web_host and not _INTERNAL_HOST_RE.match(web_host):
+                    _logger.debug(
+                        "TRMNL skip auto-set: web.base.url=%r is already device-reachable",
+                        web_url,
+                    )
+                    return
+            except Exception:
+                pass
+
         try:
             host = _urlparse(candidate_url).hostname or ""
             if host and not _INTERNAL_HOST_RE.match(host):
                 params.set_param("trmnl.public_base_url", candidate_url.rstrip("/"))
                 _logger.info(
-                    "TRMNL auto-set trmnl.public_base_url=%r from device Host header",
+                    "TRMNL auto-set trmnl.public_base_url=%r from device Host header "
+                    "(web.base.url is not device-reachable)",
                     candidate_url,
                 )
         except Exception as exc:

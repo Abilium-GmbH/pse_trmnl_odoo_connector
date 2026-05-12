@@ -210,3 +210,155 @@ class TestModelFirstProfile(TransactionCase):
         })
         profile._render_and_store_preview()
         self.assertTrue(profile.preview_image)
+
+
+@tagged("-at_install", "post_install")
+class TestLayoutAwareFieldPicker(TransactionCase):
+    """display_field_ids is filtered by layout — type blacklist and preset validation."""
+
+    def _device(self):
+        return self.env["trmnl.device"].sudo().create({
+            "mac_address": "AA:BB:CC:DD:EE:88",
+            "approval_state": "accepted",
+            "registration_source": "setup",
+        })
+
+    def _ir_model(self, model_name):
+        return self.env["ir.model"].sudo().search([("model", "=", model_name)], limit=1)
+
+    def _profile(self, layout="list", **extra):
+        ir_model = self._ir_model("res.partner")
+        vals = {
+            "name": f"Layout picker test ({layout})",
+            "device_id": self._device().id,
+            "app_model_id": ir_model.id,
+            "trmnl_layout": layout,
+            "display_limit": 5,
+            "filter_preset": "none",
+        }
+        vals.update(extra)
+        return self.env["trmnl.profile"].sudo().create(vals)
+
+    # ------------------------------------------------------------------
+    # Layout allowed-type constants
+    # ------------------------------------------------------------------
+
+    def test_layout_allowed_ttypes_constant_exists(self):
+        """_LAYOUT_ALLOWED_TTYPES covers list, table, kanban, kpi layouts."""
+        from odoo.addons.trmnl.models.trmnl_profile import _LAYOUT_ALLOWED_TTYPES
+        for layout in ("list", "table", "kanban", "kpi"):
+            self.assertIn(layout, _LAYOUT_ALLOWED_TTYPES,
+                          f"Layout {layout!r} must be in _LAYOUT_ALLOWED_TTYPES")
+
+    def test_list_allows_char_and_excludes_nothing_scalar(self):
+        """list/table/kanban layouts allow broad scalar types including char and date."""
+        from odoo.addons.trmnl.models.trmnl_profile import _LAYOUT_ALLOWED_TTYPES
+        list_allowed = _LAYOUT_ALLOWED_TTYPES["list"]
+        for t in ("char", "integer", "float", "date", "datetime", "boolean"):
+            self.assertIn(t, list_allowed, f"{t!r} must be allowed for list layout")
+
+    def test_kpi_restricts_to_numeric_types(self):
+        """kpi layout only allows integer, float, monetary, selection, many2one, boolean."""
+        from odoo.addons.trmnl.models.trmnl_profile import _LAYOUT_ALLOWED_TTYPES
+        kpi_allowed = _LAYOUT_ALLOWED_TTYPES["kpi"]
+        for t in ("char", "text", "date", "datetime"):
+            self.assertNotIn(t, kpi_allowed, f"{t!r} must NOT be allowed for kpi layout")
+        for t in ("integer", "float", "monetary", "boolean"):
+            self.assertIn(t, kpi_allowed, f"{t!r} must be allowed for kpi layout")
+
+    # ------------------------------------------------------------------
+    # Onchange drops stale fields when layout changes
+    # ------------------------------------------------------------------
+
+    def test_onchange_layout_to_kpi_drops_char_fields(self):
+        """Switching to kpi layout removes char/text/date fields from display_field_ids."""
+        partner_model = self._ir_model("res.partner")
+        # Find a char field and an integer field on res.partner.
+        char_field = self.env["ir.model.fields"].sudo().search([
+            ("model", "=", "res.partner"),
+            ("ttype", "=", "char"),
+            ("name", "not in", ["display_name"]),
+        ], limit=1)
+        int_field = self.env["ir.model.fields"].sudo().search([
+            ("model", "=", "res.partner"),
+            ("ttype", "in", ["integer", "float", "monetary"]),
+        ], limit=1)
+        if not char_field or not int_field:
+            self.skipTest("Required ir.model.fields entries not found")
+
+        profile = self._profile(layout="list")
+        profile.write({"display_field_ids": [(6, 0, [char_field.id, int_field.id])]})
+        self.assertIn(char_field.id, profile.display_field_ids.ids)
+
+        # Simulate onchange to kpi.
+        profile.trmnl_layout = "kpi"
+        profile._onchange_trmnl_layout()
+
+        self.assertNotIn(char_field.id, profile.display_field_ids.ids,
+                         "char field should be dropped when switching to kpi layout")
+        self.assertIn(int_field.id, profile.display_field_ids.ids,
+                      "integer/float field should survive kpi layout switch")
+
+    def test_onchange_layout_to_list_keeps_all_base_allowed_types(self):
+        """Switching from kpi to list does not drop additional fields (onchange is not additive)."""
+        profile = self._profile(layout="kpi")
+        # Switching to list: no fields were set, so nothing to drop.
+        profile.trmnl_layout = "list"
+        profile._onchange_trmnl_layout()
+        # Should not crash and display_field_ids remains empty.
+        self.assertFalse(profile.display_field_ids)
+
+    # ------------------------------------------------------------------
+    # Preset respects layout-allowed types
+    # ------------------------------------------------------------------
+
+    def test_preset_fields_respect_layout_allowed_types(self):
+        """_apply_model_preset silently drops fields not allowed by the preset's layout."""
+        if "crm.lead" not in self.env:
+            self.skipTest("crm.lead not available")
+        ir_model = self._ir_model("crm.lead")
+        if not ir_model:
+            self.skipTest("ir.model record for crm.lead not found")
+
+        profile = self.env["trmnl.profile"].sudo().create({
+            "name": "CRM layout preset test",
+            "device_id": self._device().id,
+            "app_model_id": ir_model.id,
+            "trmnl_layout": "list",
+            "display_limit": 10,
+            "filter_preset": "none",
+        })
+        # crm.lead preset layout is "list"; all preset fields should be list-compatible.
+        from odoo.addons.trmnl.models.trmnl_profile import _LAYOUT_ALLOWED_TTYPES
+        allowed = _LAYOUT_ALLOWED_TTYPES.get("list", set())
+        for field_rec in profile.display_field_ids:
+            self.assertIn(
+                field_rec.ttype, allowed,
+                f"Field {field_rec.name!r} (ttype={field_rec.ttype!r}) is not allowed for list layout",
+            )
+
+    # ------------------------------------------------------------------
+    # Calendar: display_field_ids not populated by preset
+    # ------------------------------------------------------------------
+
+    def test_calendar_preset_does_not_set_display_field_ids(self):
+        """calendar.event preset uses calendar layout — display_field_ids picker is irrelevant."""
+        cal_model = self._ir_model("calendar.event")
+        if not cal_model:
+            self.skipTest("calendar.event not available")
+        profile = self.env["trmnl.profile"].sudo().create({
+            "name": "Calendar layout picker test",
+            "device_id": self._device().id,
+            "app_model_id": cal_model.id,
+            "trmnl_layout": "list",
+            "display_limit": 10,
+            "filter_preset": "none",
+        })
+        profile.app_model_id = cal_model
+        profile._onchange_app_model_id()
+        self.assertEqual(profile.trmnl_layout, "calendar",
+                         "calendar.event preset must set layout to calendar")
+        # Calendar layout has no allowed types in _LAYOUT_ALLOWED_TTYPES
+        # (or the picker is hidden). Either way, rendering still works.
+        profile._render_and_store_preview()
+        self.assertTrue(profile.preview_image)

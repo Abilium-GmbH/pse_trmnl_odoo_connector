@@ -77,9 +77,14 @@ class TestProfileFilterDomain(TransactionCase):
             self._profile(filter_domain="not valid python")
 
     def test_invalid_domain_structure_raises_validation_error(self):
-        # Evaluates to a list but is not a valid Odoo domain tuple structure.
+        # 2-tuple leaf is structurally invalid: leaves must be (field, op, value).
         with self.assertRaises(ValidationError):
-            self._profile(filter_domain="[('a', 'b')]")  # tuple needs 3 elements
+            self._profile(filter_domain="[('a', 'b')]")
+
+    def test_invalid_domain_leaf_non_string_field_raises_validation_error(self):
+        # Field name must be a non-empty string.
+        with self.assertRaises(ValidationError):
+            self._profile(filter_domain="[(1, '=', 'x')]")
 
     def test_empty_domain_saves_cleanly(self):
         profile = self._profile(filter_domain="[]")
@@ -168,12 +173,18 @@ class TestProfileFilterDomain(TransactionCase):
         self.assertTrue(profile.preview_image)
 
     def test_render_preview_invalid_domain_raises_user_error(self):
-        """If filter_domain somehow contains an invalid value at render time, UserError is raised."""
+        """filter_domain with a non-existent field name raises UserError at render time.
+
+        The domain is structurally valid (3-tuple, string field/op) so it passes
+        save-time validation.  Render-time field-existence checking in
+        _validate_custom_domain_fields() catches it and raises UserError.
+        """
         profile = self._profile()
-        # Bypass constrains by writing directly to the field after creation.
-        profile.write({"filter_domain": "not_a_domain"})
-        with self.assertRaises((UserError, Exception)):
-            profile._render_and_store_preview()
+        profile.write({
+            "filter_domain": "[('definitely_not_a_real_field', '=', 'x')]",
+        })
+        with self.assertRaises(UserError):
+            profile.action_render_preview()
 
     # ------------------------------------------------------------------
     # calendar loaders respect filter_domain

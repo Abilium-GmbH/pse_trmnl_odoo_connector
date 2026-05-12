@@ -29,6 +29,7 @@
                         type="object"
                         class="btn-primary"
                         invisible="not app_model_id"
+                        help="Renders a new preview image and stores it in Odoo. The TRMNL device will download it automatically on its next poll."
                     />
                     <!-- URL warning near the render action so it is always visible -->
                     <field
@@ -37,16 +38,6 @@
                         invisible="not url_warning"
                         nolabel="1"
                         style="color: #b45309; background: #fef3c7; padding: 4px 10px; border-radius: 4px; font-size: 12px;"
-                    />
-                    <button
-                        name="action_set_fast_refresh"
-                        string="Set Fast Refresh (60s)"
-                        type="object"
-                    />
-                    <button
-                        name="action_restore_refresh"
-                        string="Restore 30 min Refresh"
-                        type="object"
                     />
                 </header>
 
@@ -104,7 +95,7 @@
                             ]"
                             widget="many2many_tags"
                             nolabel="1"
-                            help="Choose which fields to display. Column order matches the order fields are added."
+                            help="Choose which fields to display. Column order matches selection order. Changing the Layout may remove incompatible fields."
                         />
                     </group>
 
@@ -182,10 +173,13 @@
                     </group>
 
                     <!-- ── Device Delivery Status ────────────────────── -->
-                    <group string="Device Delivery Status">
-                        <field name="device_last_polled_at" readonly="1"/>
-                        <field name="device_next_expected_poll_at" readonly="1"/>
-                        <field name="device_refresh_rate" readonly="1" string="Refresh Rate (s)"/>
+                    <group
+                        string="Device Delivery Status"
+                        help="TRMNL devices pull updates. Rendering a preview creates a new image in Odoo. The device will download it on its next poll."
+                    >
+                        <field name="device_last_polled_at" readonly="1" string="Device Last Polled"/>
+                        <field name="device_next_expected_poll_at" readonly="1" string="Next Expected Poll"/>
+                        <field name="device_refresh_rate" readonly="1" string="Poll Interval (s)"/>
                         <field
                             name="display_image_url"
                             readonly="1"

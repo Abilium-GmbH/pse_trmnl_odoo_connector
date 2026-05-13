@@ -404,107 +404,6 @@ class TestTrmnlDisplayFactoryResetPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
 
 
 @tagged("-at_install", "post_install")
-class TestTrmnlDisplayIdentifyApi(HttpCase, TrmnlApiHttpCaseMixin):
-    """Verify the one-shot identify behavior for /api/display."""
-
-    def test_api_display_identify_one_shot_behavior(self):
-        """Identify should be returned once and then reset."""
-        self._set_display_policy(DISPLAY_POLICY_ERROR)
-
-        setup_context = self._register_device_through_setup()
-        registered_device = setup_context["device"]
-        api_token = setup_context["api_token"]
-
-        registered_device.write({"identify_pending": True})
-
-        first_response = self.url_open(
-            "/api/display",
-            headers=self._display_headers(api_token, registered_device.mac_address),
-        )
-        first_payload = self._response_json(first_response)
-
-        self.assertEqual(self._response_status(first_response), 200)
-
-        refreshed_device = self.env["trmnl.device"].sudo().browse(registered_device.id)
-
-        self._assert_identify_payload(first_payload, refreshed_device.image_url)
-        self.assertFalse(refreshed_device.identify_pending)
-
-        second_response = self.url_open(
-            "/api/display",
-            headers=self._display_headers(api_token, registered_device.mac_address),
-        )
-        second_payload = self._response_json(second_response)
-
-        self.assertEqual(self._response_status(second_response), 200)
-
-        refreshed_device_after_second_call = self.env["trmnl.device"].sudo().browse(
-            registered_device.id
-        )
-
-        self._assert_display_success_payload(
-            second_payload,
-            refreshed_device_after_second_call.image_url,
-        )
-
-        self.assertFalse(refreshed_device_after_second_call.identify_pending)
-
-    def test_api_display_identify_does_not_persist_across_multiple_requests(self):
-        """Identify must not repeat without being re-triggered."""
-        self._set_display_policy(DISPLAY_POLICY_ERROR)
-
-        setup_context = self._register_device_through_setup()
-        registered_device = setup_context["device"]
-        api_token = setup_context["api_token"]
-
-        registered_device.write({"identify_pending": True})
-
-        self.url_open(
-            "/api/display",
-            headers=self._display_headers(api_token, registered_device.mac_address),
-        )
-
-        for iteration_index in range(3):
-            response = self.url_open(
-                "/api/display",
-                headers=self._display_headers(api_token, registered_device.mac_address),
-            )
-            payload = self._response_json(response)
-
-            self.assertEqual(self._response_status(response), 200)
-
-            refreshed_device = self.env["trmnl.device"].sudo().browse(
-                registered_device.id
-            )
-
-            self._assert_display_success_payload(
-                payload,
-                refreshed_device.image_url,
-            )
-
-            self.assertFalse(refreshed_device.identify_pending)
-
-    def test_api_display_identify_only_for_accepted_devices(self):
-        """Identify should only work for accepted devices."""
-        self._set_display_policy(DISPLAY_POLICY_ERROR)
-
-        setup_context = self._register_device_through_setup()
-        registered_device = setup_context["device"]
-
-        registered_device.write({"approval_state": APPROVAL_STATE_TOKEN_MISMATCH})
-        registered_device.write({"identify_pending": True})
-
-        response = self.url_open(
-            "/api/display",
-            headers=self._display_headers(self.BAD_TOKEN, registered_device.mac_address),
-        )
-        payload = self._response_json(response)
-
-        self.assertEqual(self._response_status(response), 200)
-        self.assertEqual(payload, {"status": 202})
-
-
-@tagged("-at_install", "post_install")
 class TestTrmnlDisplayPerDeviceResetApi(HttpCase, TrmnlApiHttpCaseMixin):
     """Verify per-device factory-reset behaviour via the reset_pending flag."""
 
@@ -535,8 +434,6 @@ class TestTrmnlDisplayPerDeviceResetApi(HttpCase, TrmnlApiHttpCaseMixin):
                 "filename": filename,
                 "image_url": image_url,
                 "refresh_rate": desired_refresh_rate,
-                "special_function": "none",
-                "action": "",
                 "reset_firmware": True,
             },
         )

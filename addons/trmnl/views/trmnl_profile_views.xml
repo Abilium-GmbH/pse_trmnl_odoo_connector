@@ -10,7 +10,7 @@
                 <field name="name"/>
                 <field name="device_id"/>
                 <field name="app_model_id" string="Odoo Model" optional="show"/>
-                <field name="trmnl_layout" optional="show"/>
+                <field name="trmnl_layout" string="View Type" optional="show"/>
                 <field name="auto_refresh_interval_minutes" string="Render Interval (min)" optional="hide"/>
                 <field name="active" optional="hide"/>
             </list>
@@ -47,108 +47,60 @@
                     <group string="Identity">
                         <field name="name"/>
                         <field name="device_id"/>
-                        <field name="sequence"/>
                         <field name="active" widget="boolean_toggle"/>
+                        <field name="sequence" invisible="1"/>
                     </group>
 
                     <!-- ── Data Source ───────────────────────────────── -->
                     <group string="Data Source">
-                        <!-- Hidden helper: supplies the model's technical name
-                             to the domain widget and the action domain filter. -->
                         <field name="app_model_name" invisible="1"/>
+                        <field name="available_view_types" invisible="1"/>
 
-                        <!-- Primary: Odoo Model — source of truth -->
                         <field
                             name="app_model_id"
                             string="Odoo Model"
-                            help="Select any installed Odoo model. Known models get sensible defaults automatically."
+                            help="Select any installed Odoo model."
                         />
-
-                        <!-- Optional: narrow to a specific view / action -->
-                        <field
-                            name="odoo_action_id"
-                            string="Odoo View / Action"
-                            invisible="not app_model_id"
-                            domain="[('res_model', '=', app_model_name)]"
-                            help="Optional. Pre-fills display settings from a specific Odoo view action and adds its domain as an extra filter."
-                        />
-
-                        <!-- Layout -->
                         <field
                             name="trmnl_layout"
-                            string="Layout"
+                            string="View Type"
                             invisible="not app_model_id"
                         />
                     </group>
 
-                    <!-- ── Display Content (list / table / kanban) ───── -->
-                    <group
-                        string="Display Content"
-                        invisible="not app_model_id or trmnl_layout == 'calendar'"
-                    >
+                    <!-- ── Content ───────────────────────────────────── -->
+                    <group string="Content" invisible="not app_model_id">
                         <field
                             name="display_field_ids"
-                            string="Display Fields"
+                            string="Fields to Display"
                             domain="[
                                 ('model_id', '=', app_model_id),
                                 ('ttype', 'not in', ['binary', 'html', 'one2many', 'many2many', 'serialized', 'reference'])
                             ]"
                             widget="many2many_tags"
                             nolabel="1"
-                            help="Choose which fields to display. Column order matches selection order. Changing the Layout may remove incompatible fields."
+                            help="Choose which fields to show. Column order follows selection order."
                         />
                     </group>
 
-                    <!-- ── Filters &amp; Sort ─────────────────────────── -->
-                    <group
-                        string="Filters &amp; Sort"
-                        invisible="not app_model_id"
-                    >
-                        <!-- Quick filter shortcut -->
+                    <!-- ── Filters &amp; Sorting ──────────────────────── -->
+                    <group string="Filters &amp; Sorting" invisible="not app_model_id">
                         <field name="filter_preset" string="Quick Filter"/>
-
-                        <!-- Interactive domain builder -->
                         <field
                             name="filter_domain"
-                            string="Custom Filter"
+                            string="Domain Filter"
                             widget="domain"
                             options='{"model": "app_model_name"}'
                             help='Extra filter applied on top of Quick Filter using AND.&#10;Example: [("user_id", "=", uid), ("stage_id.name", "!=", "Done")]&#10;Supports: uid, context_today(), True, False.'
                         />
-
-                        <!-- Sort -->
-                        <field
-                            name="sort_preset"
-                            string="Sort By"
-                            invisible="trmnl_layout == 'calendar'"
-                        />
-                        <field
-                            name="display_limit"
-                            string="Record Limit"
-                        />
+                        <field name="include_archived" string="Include Archived"/>
                         <field
                             name="display_order"
-                            string="Custom Sort Order"
-                            invisible="sort_preset != 'default' or trmnl_layout == 'calendar'"
+                            string="Sort Order"
                             placeholder="e.g. date_deadline desc, name asc"
-                            help="Raw ORDER BY clause. Only used when Sort By is set to Default."
+                            help="Raw ORDER BY clause passed to the Odoo search."
                         />
-                    </group>
-
-                    <!-- ── Calendar Settings ─────────────────────────── -->
-                    <group string="Calendar Settings" invisible="trmnl_layout != 'calendar'">
-                        <field name="calendar_view_mode" string="Calendar View"/>
-                        <field
-                            name="calendar_week_mode"
-                            string="Week Mode"
-                            invisible="calendar_view_mode != 'week'"
-                        />
-                        <field name="calendar_reference_mode" string="Reference"/>
-                        <field
-                            name="calendar_reference_date"
-                            string="Reference Date"
-                            invisible="calendar_reference_mode != 'custom'"
-                        />
+                        <field name="display_limit" string="Max Records"/>
                     </group>
 
                     <!-- ── Preview ───────────────────────────────────── -->
@@ -163,23 +115,14 @@
                         />
                     </group>
 
-                    <!-- ── Render Interval ───────────────────────────── -->
-                    <group string="Render Interval" invisible="not app_model_id">
-                        <field
-                            name="auto_refresh_interval_minutes"
-                            string="Render Interval (min)"
-                            help="How often Odoo re-renders the preview during device polls. The device poll frequency is set by Refresh Rate on the device."
-                        />
-                    </group>
-
                     <!-- ── Device Delivery Status ────────────────────── -->
                     <group
                         string="Device Delivery Status"
-                        help="TRMNL devices pull updates. Rendering a preview creates a new image in Odoo. The device will download it on its next poll."
+                        help="Device refresh rate is managed on the linked Device record under Devices → Refresh Rate."
                     >
                         <field name="device_last_polled_at" readonly="1" string="Device Last Polled"/>
                         <field name="device_next_expected_poll_at" readonly="1" string="Next Expected Poll"/>
-                        <field name="device_refresh_rate" readonly="1" string="Poll Interval (s)"/>
+                        <field name="device_refresh_rate" readonly="1" string="Device Refresh Rate"/>
                         <field
                             name="display_image_url"
                             readonly="1"

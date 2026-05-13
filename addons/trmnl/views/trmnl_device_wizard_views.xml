@@ -13,7 +13,8 @@
                         <field name="approval_state" readonly="1"/>
                     </group>
                     <p class="text-muted">
-                        Accept this device by adopting the last token it presented during a display request.
+                        Accept this device and keep using the API token it presented during the display request.<br/>
+                        Note: To renew the API token, factory-reset the device and reconnect it.
                     </p>
                 </sheet>
                 <footer>

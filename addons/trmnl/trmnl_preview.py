@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import io
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from . import trmnl_display_canvas as _canvas
 
@@ -31,51 +31,15 @@ _ROW_H = 32
 _FONT_HEADER = 15
 _FONT_CELL = 13
 
-_FONT_CANDIDATES = (
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-)
-_FONT_HEADER_CANDIDATES = (
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-)
 
-
-def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
-    paths = _FONT_HEADER_CANDIDATES if bold else _FONT_CANDIDATES
-    for path in paths:
-        try:
-            return ImageFont.truetype(path, size)
-        except (IOError, OSError):
-            pass
-    for path in _FONT_CANDIDATES:
-        try:
-            return ImageFont.truetype(path, size)
-        except (IOError, OSError):
-            pass
-    try:
-        return ImageFont.load_default(size=size)
-    except TypeError:
-        return ImageFont.load_default()
-
-
-def _text_w(draw: ImageDraw.ImageDraw, text: str, font) -> int:
-    try:
-        return int(draw.textlength(text, font=font))
-    except AttributeError:
-        return draw.textsize(text, font=font)[0]
-
-
-def _trunc_to_width(draw: ImageDraw.ImageDraw, text: str, font, max_px: int) -> str:
+def _trunc(draw: ImageDraw.ImageDraw, text: str, font, max_px: int) -> str:
     text = str(text)
-    if _text_w(draw, text, font) <= max_px:
+    if _canvas.text_width(draw, text, font) <= max_px:
         return text
     ell = "…"
-    if _text_w(draw, ell, font) > max_px:
+    if _canvas.text_width(draw, ell, font) > max_px:
         return ""
-    while text and _text_w(draw, text + ell, font) > max_px:
+    while text and _canvas.text_width(draw, text + ell, font) > max_px:
         text = text[:-1]
     return text + ell if text else ell
 
@@ -92,8 +56,8 @@ def render_list_preview(rows: list[list[str]], field_labels: list[str]) -> bytes
     img = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), _BG)
     draw = ImageDraw.Draw(img)
 
-    font_header = _load_font(_FONT_HEADER, bold=True)
-    font_cell = _load_font(_FONT_CELL)
+    font_header = _canvas.load_font(_FONT_HEADER, bold=True)
+    font_cell = _canvas.load_font(_FONT_CELL)
 
     n_cols = max(len(field_labels), 1)
     inner_w = DISPLAY_WIDTH - 2 * _MARGIN_X
@@ -109,7 +73,7 @@ def render_list_preview(rows: list[list[str]], field_labels: list[str]) -> bytes
 
     for i, raw_label in enumerate(field_labels):
         x = _MARGIN_X + i * col_w + _CELL_PAD_X
-        label = _trunc_to_width(draw, str(raw_label), font_header, col_w - 2 * _CELL_PAD_X)
+        label = _trunc(draw, str(raw_label), font_header, col_w - 2 * _CELL_PAD_X)
         bbox = draw.textbbox((0, 0), label, font=font_header)
         th = bbox[3] - bbox[1]
         y = (_HEADER_H - th) // 2 - bbox[1]
@@ -141,7 +105,7 @@ def render_list_preview(rows: list[list[str]], field_labels: list[str]) -> bytes
         for col_idx, cell in enumerate(row):
             x = _MARGIN_X + col_idx * col_w + _CELL_PAD_X
             max_cell = col_w - 2 * _CELL_PAD_X
-            t = _trunc_to_width(draw, cell, font_cell, max_cell)
+            t = _trunc(draw, cell, font_cell, max_cell)
             bbox = draw.textbbox((0, 0), t, font=font_cell)
             th = bbox[3] - bbox[1]
             y_text = y_top + (_ROW_H - th) // 2 - bbox[1]

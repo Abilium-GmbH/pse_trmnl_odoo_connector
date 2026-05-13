@@ -20,10 +20,10 @@ Device downloads PNG and displays it
 ```
 
 1. The device registers itself via `/api/setup` → a Device record is created in Odoo
-2. The admin creates a **Profile** linking the device to an Odoo app (Calendar, Tasks, CRM, etc.)
-3. The admin clicks **Render Preview** → Odoo queries the app's data and generates a PNG
+2. The admin creates a **Profile** linking the device to an Odoo model (Calendar, Tasks, CRM, etc.)
+3. The admin clicks **Render Preview** → Odoo queries the model's data and generates a PNG
 4. The device polls `/api/display` → receives the image URL → downloads and displays the PNG
-5. On every subsequent poll, if nothing has changed, the device uses its cached image
+5. On every subsequent poll, Odoo re-renders if the configured render interval has elapsed
 
 ## Repository Structure
 
@@ -36,11 +36,12 @@ Device downloads PNG and displays it
 │       ├── views/                # Odoo backend UI (XML)
 │       ├── security/             # Access control
 │       ├── tests/                # Test suite
+│       ├── trmnl_display_canvas.py       # Shared canvas constants, font helpers, footer renderer
 │       ├── trmnl_preview.py              # List/table renderer (pure Python, PIL)
 │       ├── trmnl_calendar_preview.py     # Calendar month renderer
 │       └── trmnl_calendar_week_preview.py # Calendar week renderer
 ├── docs/
-│   └── development.md            # Developer guide
+│   └── development.md            # Developer guide (Make commands, API testing)
 ├── compose.yaml
 ├── Dockerfile
 ├── LICENSE
@@ -95,7 +96,7 @@ Watches `addons/trmnl/` and upgrades the module automatically when files change.
 
 Your Odoo instance must be reachable from the device's WiFi network. If you are running Odoo locally on Docker, `localhost` or `127.0.0.1` will not work — the device cannot reach those addresses over WiFi.
 
-**Odoo auto-detects the correct URL** on the first device poll using the `Host` header. If auto-detection does not work (e.g. the detected IP is a VM bridge), set it manually:
+**Odoo auto-detects the correct URL** on the first device poll using the `Host` header. If auto-detection does not work (e.g. the detected IP is a VM bridge address), set it manually:
 
 - Go to **Settings → Technical → Parameters → System Parameters**
 - Create: `trmnl.public_base_url` = `http://192.168.1.x:8069` (your actual LAN IP)
@@ -114,27 +115,41 @@ If the device does not appear, check that the Odoo URL is reachable from the dev
 
 1. Go to **TRMNL → Profiles → New**
 2. Enter a name and select the device
-3. Select an **Odoo App** (e.g. Calendar, Project, CRM)
-4. The data source and layout are pre-configured automatically for known apps
-5. Adjust display fields, filter, and sort if needed
+3. Select an **Odoo Model** (e.g. `calendar.event`, `project.task`, `crm.lead`)
+4. Choose a **View Type** (List, Kanban, or Calendar — Calendar is only relevant for `calendar.event`)
+5. Select which fields to display, optionally configure filters and sort order
 6. Click **Render Preview**
 
 A preview image appears in the form. The **Device Delivery Status** section shows when the device last polled and when the next poll is expected.
 
 ### Step 4 — Wait for the device to poll
 
-The device polls Odoo every N seconds (default: 1800s / 30 min). It will pick up the new image on its next poll. To force an immediate refresh, power-cycle the device or use **Set Fast Refresh (60s)** in the profile header and wait for the next poll.
+The device polls Odoo every N seconds (configured by **Refresh Rate** on the Device record, default 1800s / 30 min). It picks up the new image on its next poll.
 
 ---
 
 ## Supported Layouts
 
-| Layout | Odoo App | Notes |
-|---|---|---|
-| List | Any | Default for most apps |
-| Table | Any | Same renderer as list, tabular display |
-| Calendar (month) | Calendar | Auto-selected for the Calendar app |
-| Calendar (week) | Calendar | Work week or full week |
+| Layout | Best for | Notes |
+|--------|----------|-------|
+| **List** | Any model | Tabular display; shows selected fields as columns |
+| **Kanban** | Any model | Same list renderer, grouped presentation |
+| **Calendar (month)** | `calendar.event` | Monthly grid with event listings per day |
+| **Calendar (week)** | `calendar.event` | Work week (Mon–Fri) or full week (Mon–Sun), hourly grid |
+
+---
+
+## Filtering and Data
+
+Each Profile has three independent filter layers applied with AND:
+
+| Setting | Purpose |
+|---------|---------|
+| **Quick Filter** | Preset shortcuts: All, Assigned to Me, Today, This Week, This Month, Overdue |
+| **Domain Filter** | Free-form Odoo domain, e.g. `[('priority', '=', '1')]`. Supports `uid`, `context_today()` |
+| **Sort Order** | Raw `ORDER BY` clause, e.g. `date_deadline asc, name asc` |
+
+**Render Interval** controls how often Odoo re-renders the image during device polls. Zero defaults to 10 minutes. The device's own refresh rate is set separately on the Device record.
 
 ---
 
@@ -143,7 +158,7 @@ The device polls Odoo every N seconds (default: 1800s / 30 min). It will pick up
 Configure under **TRMNL → Display Policy**:
 
 | Policy | Behaviour |
-|---|---|
+|--------|-----------|
 | **Error** (default) | Unknown devices are recorded as stubs for manual review. Admin can accept them from the device list. |
 | **Auto Accept** | Any device that polls is automatically accepted and served. Convenient for first-time setup. |
 | **Factory Reset** | Unknown or mismatched devices receive a reset signal. |
@@ -153,7 +168,7 @@ Configure under **TRMNL → Display Policy**:
 ## Make Commands
 
 | Command | Description |
-|---|---|
+|---------|-------------|
 | `make` / `make start` | Start Odoo and install the module |
 | `make watch` | Start + auto-upgrade on file changes |
 | `make update` | Force module upgrade and restart |

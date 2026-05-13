@@ -93,7 +93,6 @@
                             options='{"model": "app_model_name"}'
                             help='Extra filter applied on top of Quick Filter using AND.&#10;Example: [("user_id", "=", uid), ("stage_id.name", "!=", "Done")]&#10;Supports: uid, context_today(), True, False.'
                         />
-                        <field name="include_archived" string="Include Archived"/>
                         <field
                             name="display_order"
                             string="Sort Order"

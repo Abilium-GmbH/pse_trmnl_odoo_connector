@@ -1,10 +1,53 @@
-"""Shared TRMNL e-ink canvas dimensions and content vs footer layout.
+"""Shared TRMNL e-ink canvas dimensions, palette, font helpers, and footer layout.
 
 Layout renderers (list, calendar month/week) produce an image of size
 ``(DISPLAY_WIDTH, CONTENT_HEIGHT)``. The profile composites that onto a full
 ``800×480`` frame and draws the poll footer in the reserved bottom band.
 """
 from __future__ import annotations
+
+from PIL import ImageDraw, ImageFont
+
+# System font paths tried in order when loading TrueType fonts.
+_FONT_REGULAR = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+)
+_FONT_BOLD = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+)
+
+
+def load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+    """Load a system TrueType font; falls back to regular weight then PIL default."""
+    for path in (_FONT_BOLD if bold else _FONT_REGULAR):
+        try:
+            return ImageFont.truetype(path, size)
+        except (IOError, OSError):
+            pass
+    if bold:
+        for path in _FONT_REGULAR:
+            try:
+                return ImageFont.truetype(path, size)
+            except (IOError, OSError):
+                pass
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def text_width(draw: ImageDraw.ImageDraw, text: str, font) -> int:
+    """Return the pixel width of *text* rendered with *font*."""
+    try:
+        return int(draw.textlength(text, font=font))
+    except AttributeError:
+        return draw.textsize(text, font=font)[0]
 
 DISPLAY_WIDTH = 800
 DISPLAY_HEIGHT = 480

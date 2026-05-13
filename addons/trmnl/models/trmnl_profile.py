@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
-from odoo.osv import expression
+from odoo.fields import Domain
 from odoo.tools.safe_eval import safe_eval
 
 from .trmnl_device import _INTERNAL_HOST_RE
@@ -272,16 +272,15 @@ class TrmnlProfile(models.Model):
                     _("Custom Domain is invalid and could not be applied: %s") % exc
                 ) from exc
 
-        return expression.AND(domains) if domains else []
+        return list(Domain.AND(domains)) if domains else []
 
     @staticmethod
     def _validate_domain_leaves(domain):
         """Raise ValueError if any leaf is not a valid 3-element (field, op, value) tuple.
 
-        expression.normalize_domain() fixes operator structure but does not
-        validate leaf arity in Odoo 19. This method fills that gap so that
-        inputs like [('a', 'b')] (2-tuple) are caught at save time rather than
-        producing a cryptic database error at render/search time.
+        Domain.AND() in Odoo 19 validates structure but this method also catches
+        inputs like [('a', 'b')] (2-tuple) at save time rather than producing a
+        cryptic database error at render/search time.
         """
         _BOOL_OPS = frozenset(("&", "|", "!"))
         for token in domain:
@@ -314,7 +313,7 @@ class TrmnlProfile(models.Model):
                 continue
             try:
                 domain = rec._eval_filter_domain(raw)
-                expression.normalize_domain(domain)
+                Domain.AND([domain])
                 self._validate_domain_leaves(domain)
             except Exception as exc:
                 raise ValidationError(
@@ -453,7 +452,7 @@ class TrmnlProfile(models.Model):
             try:
                 custom_domain = self._eval_filter_domain(raw_custom)
                 if custom_domain:
-                    domain = expression.AND([domain, custom_domain])
+                    domain = list(Domain.AND([domain, custom_domain]))
             except Exception as exc:
                 raise UserError(
                     _("Custom Domain is invalid and could not be applied: %s") % exc
@@ -482,7 +481,7 @@ class TrmnlProfile(models.Model):
             try:
                 custom_domain = self._eval_filter_domain(raw_custom)
                 if custom_domain:
-                    domain = expression.AND([domain, custom_domain])
+                    domain = list(Domain.AND([domain, custom_domain]))
             except Exception as exc:
                 raise UserError(
                     _("Custom Domain is invalid and could not be applied: %s") % exc
@@ -558,11 +557,14 @@ class TrmnlProfile(models.Model):
         return device.mac_address or "TRMNL"
 
     def _finalize_display_image(self, png_bytes):
-        """Paste content-sized PNG onto 800×480 and draw the poll footer strip.
+        """Paste content-sized PNG onto the device frame and draw the poll footer strip.
 
         Layout renderers produce ``(DISPLAY_WIDTH, CONTENT_HEIGHT)`` bytes. This
-        method composites them into a full TRMNL frame with a separator line and
+        method composites them into a full device frame with a separator line and
         optional centered poll metadata in the footer band.
+
+        Uses device telemetry ``display_width``/``display_height`` when available,
+        falling back to the canvas constants (800×480).
         """
         self.ensure_one()
         from odoo.addons.trmnl.trmnl_display_canvas import (
@@ -575,8 +577,12 @@ class TrmnlProfile(models.Model):
             draw_poll_footer_strip,
         )
 
+        dev = self.device_id
+        device_w = (dev.display_width if dev and dev.display_width > 0 else None) or DISPLAY_WIDTH
+        device_h = (dev.display_height if dev and dev.display_height > 0 else None) or DISPLAY_HEIGHT
+
         try:
-            from PIL import Image, ImageDraw, ImageFont
+            from PIL import Image, ImageDraw
         except ImportError:
             return png_bytes
 
@@ -605,7 +611,7 @@ class TrmnlProfile(models.Model):
             )
             return png_bytes
 
-        out = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 255)
+        out = Image.new("L", (device_w, device_h), 255)
         out.paste(content, (0, 0))
         draw = ImageDraw.Draw(out)
 
@@ -613,32 +619,16 @@ class TrmnlProfile(models.Model):
         label = None
         font = None
         if poll_at:
-            for path in (
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-            ):
-                try:
-                    font = ImageFont.truetype(path, 11)
-                    break
-                except (OSError, IOError):
-                    continue
-            if font is None:
-                font = ImageFont.load_default()
-
+            from odoo.addons.trmnl.trmnl_display_canvas import (
+                load_font as _lf,
+                text_width as _tw,
+            )
+            font = _lf(11)
             label = self._format_poll_timestamp(self._get_footer_device_label(), poll_at)
-            margin_h = 8
-            max_text_w = DISPLAY_WIDTH - 2 * margin_h
-
-            def _text_w(txt):
-                try:
-                    return int(draw.textlength(txt, font=font))
-                except AttributeError:
-                    return draw.textsize(txt, font=font)[0]
-
-            while len(label) > 8 and _text_w(label + "…") > max_text_w:
+            max_text_w = device_w - 16
+            while len(label) > 8 and _tw(draw, label + "…", font) > max_text_w:
                 label = label[:-1]
-            if _text_w(label) > max_text_w:
+            if _tw(draw, label, font) > max_text_w:
                 label = (label[: max(4, len(label) - 4)] + "…") if label else ""
 
         try:
@@ -654,16 +644,16 @@ class TrmnlProfile(models.Model):
                 exc,
                 exc_info=True,
             )
-            out2 = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 255)
+            out2 = Image.new("L", (device_w, device_h), 255)
             out2.paste(content, (0, 0))
             d2 = ImageDraw.Draw(out2)
             d2.line(
-                [(0, SEPARATOR_Y), (DISPLAY_WIDTH - 1, SEPARATOR_Y)],
+                [(0, SEPARATOR_Y), (device_w - 1, SEPARATOR_Y)],
                 fill=FOOTER_SEPARATOR_GRAY,
                 width=1,
             )
             d2.rectangle(
-                [0, SEPARATOR_Y + 1, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1],
+                [0, SEPARATOR_Y + 1, device_w - 1, device_h - 1],
                 fill=FOOTER_BAND_FILL,
             )
             buf2 = io.BytesIO()

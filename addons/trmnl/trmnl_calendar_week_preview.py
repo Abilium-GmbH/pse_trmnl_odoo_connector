@@ -10,10 +10,7 @@ from __future__ import annotations
 import io
 from datetime import date, datetime, timedelta
 
-try:
-    from PIL import Image, ImageDraw, ImageFont
-except ImportError as exc:
-    raise ImportError("Pillow is required: pip install Pillow") from exc
+from PIL import Image, ImageDraw
 
 from . import trmnl_display_canvas as _canvas
 
@@ -47,21 +44,6 @@ TODAY_HDR_FILL = 240
 DAY_ABBR = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
-def _load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
-    suffix = "-Bold" if bold else ""
-    candidates = [
-        f"/usr/share/fonts/truetype/dejavu/DejaVuSans{suffix}.ttf",
-        f"/usr/share/fonts/truetype/liberation/LiberationSans{suffix}.ttf",
-        f"/usr/share/fonts/truetype/freefont/FreeSans{'Bold' if bold else ''}.ttf",
-    ]
-    for path in candidates:
-        try:
-            return ImageFont.truetype(path, size)
-        except (IOError, OSError):
-            continue
-    return ImageFont.load_default()
-
-
 _FONTS: tuple | None = None
 
 
@@ -69,25 +51,18 @@ def _get_fonts() -> tuple:
     global _FONTS
     if _FONTS is None:
         _FONTS = (
-            _load_font(16, bold=True),
-            _load_font(12),
-            _load_font(9),
-            _load_font(10),
+            _canvas.load_font(16, bold=True),
+            _canvas.load_font(12),
+            _canvas.load_font(9),
+            _canvas.load_font(10),
         )
     return _FONTS
 
 
-def _text_w(draw: ImageDraw.ImageDraw, text: str, font) -> int:
-    try:
-        return int(draw.textlength(text, font=font))
-    except AttributeError:
-        return draw.textsize(text, font=font)[0]
-
-
 def _trunc(draw: ImageDraw.ImageDraw, text: str, font, max_px: int) -> str:
-    if _text_w(draw, text, font) <= max_px:
+    if _canvas.text_width(draw, text, font) <= max_px:
         return text
-    while text and _text_w(draw, text + "…", font) > max_px:
+    while text and _canvas.text_width(draw, text + "…", font) > max_px:
         text = text[:-1]
     return (text + "…") if text else ""
 
@@ -124,7 +99,7 @@ def render_calendar_week_preview(
 
     draw.rectangle([0, 0, WIDTH - 1, WEEK_HDR_H - 1], fill=TITLE_BAND)
     title = f"Week {iso_week}  ·  {week_start.strftime('%B %Y')}"
-    tw = _text_w(draw, title, f_title)
+    tw = _canvas.text_width(draw,title, f_title)
     tb = draw.textbbox((0, 0), title, font=f_title)
     th = tb[3] - tb[1]
     draw.text(
@@ -144,7 +119,7 @@ def render_calendar_week_preview(
 
         is_today = d == today
         label = f"{DAY_ABBR[col]}  {d.day}"
-        lw = _text_w(draw, label, f_day)
+        lw = _canvas.text_width(draw,label, f_day)
         db = draw.textbbox((0, 0), label, font=f_day)
         dh = db[3] - db[1]
         text_x = cx + (cw - lw) // 2
@@ -170,7 +145,7 @@ def render_calendar_week_preview(
         actual = HOUR_START + h
         y = _y_for_time(actual)
         label = f"{actual:02d}:00"
-        lw = _text_w(draw, label, f_time)
+        lw = _canvas.text_width(draw,label, f_time)
         tb = draw.textbbox((0, 0), label, font=f_time)
         draw.text(
             (TIME_COL_W - lw - 5, y + 2 - tb[1]),

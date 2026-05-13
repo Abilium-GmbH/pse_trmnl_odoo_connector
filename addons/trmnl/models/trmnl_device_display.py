@@ -115,7 +115,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 _logger.info("TRMNL display: no active profile for %s — using device fallback", device_ref)
                 return self.image_url or "", self.filename or ""
 
-            _logger.info(
+            _logger.debug(
                 "TRMNL display: active profile id=%s name=%r sequence=%s has_preview=%s | %s",
                 profile.id,
                 profile.name,
@@ -124,72 +124,31 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 device_ref,
             )
 
-            now = fields.Datetime.now()
-            generated_at = profile.preview_generated_at
-            interval = profile.auto_refresh_interval_minutes or 10
-            threshold = (generated_at + __import__("datetime").timedelta(minutes=interval)) if generated_at else None
-
-            _logger.info(
-                "TRMNL display: poll timing profile id=%s desired_refresh_rate=%ss "
-                "device_reported_refresh_rate=%s render_interval_min=%s "
-                "preview_generated_at=%s next_render_at=%s now=%s",
-                profile.id,
-                self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
-                self.refresh_rate,
-                interval,
-                generated_at,
-                threshold,
-                now,
-            )
-
             old_filename = profile._get_display_filename()
             auto_refresh_due = profile._is_auto_refresh_due()
             will_render = not profile.preview_image or auto_refresh_due
 
-            _logger.info(
+            _logger.debug(
                 "TRMNL display: refresh decision profile id=%s auto_refresh_due=%s "
-                "has_preview_binary=%s will_render=%s old_filename=%r",
+                "will_render=%s",
                 profile.id,
                 auto_refresh_due,
-                bool(profile.preview_image),
                 will_render,
-                old_filename,
             )
 
             if will_render:
-                _logger.info("TRMNL display: render START profile id=%s", profile.id)
-                if self._is_trmnl_api_debug_enabled():
-                    _logger.info(
-                        "TRMNL API DEBUG display: _render_and_store_preview start profile_id=%s device_id=%s",
-                        profile.id,
-                        self.id,
-                    )
+                _logger.info("TRMNL display: rendering profile id=%s", profile.id)
                 profile._render_and_store_preview()
                 profile = profile.browse(profile.id)
-                if self._is_trmnl_api_debug_enabled():
-                    _logger.info(
-                        "TRMNL API DEBUG display: _render_and_store_preview done profile_id=%s "
-                        "preview_generated_at=%s",
-                        profile.id,
-                        profile.preview_generated_at,
-                    )
                 _logger.info(
-                    "TRMNL display: render DONE profile id=%s preview_generated_at=%s",
+                    "TRMNL display: render done profile id=%s generated_at=%s",
                     profile.id,
                     profile.preview_generated_at,
                 )
 
             image_url = profile._get_display_image_url()
             filename = profile._get_display_filename()
-            _logger.info(
-                "TRMNL display: filenames profile id=%s old=%r new=%r changed=%s",
-                profile.id,
-                old_filename,
-                filename,
-                old_filename != filename,
-            )
-
-            _logger.info(
+            _logger.debug(
                 "TRMNL display: resolved profile id=%s image_url=%r filename=%r",
                 profile.id,
                 image_url,
@@ -203,6 +162,8 @@ class TrmnlDeviceDisplayMixin(models.Model):
                     image_url,
                     filename,
                 )
+                if self.image_url != image_url or self.filename != filename:
+                    self.sudo().write({"image_url": image_url, "filename": filename})
                 return image_url, filename
 
             _logger.warning(

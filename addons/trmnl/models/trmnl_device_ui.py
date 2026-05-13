@@ -59,12 +59,6 @@ class TrmnlDeviceUiExtension(models.Model):
             "is set to 'error', making manual acceptance meaningful."
         ),
     )
-    identify_button_visible = fields.Boolean(
-        string="Identify Button Visible",
-        compute="_compute_identify_button_visible",
-        store=False,
-        help="Visible only for accepted devices.",
-    )
 
     @api.model
     def _next_sequence_value(self):
@@ -176,9 +170,3 @@ class TrmnlDeviceUiExtension(models.Model):
         return self._open_wizard_for_device(
             "trmnl.device.reset.wizard", _("Reset Device")
         )
-
-    def action_identify(self):
-        """Trigger identify command on next device poll."""
-        self.ensure_one()
-        self.write({"identify_pending": True})
-        return {"type": "ir.actions.client", "tag": "reload"}

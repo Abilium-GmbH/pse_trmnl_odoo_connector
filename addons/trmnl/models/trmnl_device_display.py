@@ -68,19 +68,11 @@ class TrmnlDeviceDisplayMixin(models.Model):
     def build_display_response(self):
         """Build the normal display payload for an accepted device."""
         self.ensure_one()
-
-        identify_triggered = self._consume_identify_flag()
-
-        special_function = "identify" if identify_triggered else "none"
-        display_action = "identify" if identify_triggered else ""
-
         return {
             "status": 0,
             "filename": self.filename or "",
             "image_url": self.image_url or "",
             "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
-            "special_function": special_function,
-            "action": display_action,
         }
 
     def build_reset_response(self):
@@ -97,8 +89,6 @@ class TrmnlDeviceDisplayMixin(models.Model):
             "filename": self.filename or "",
             "image_url": self.image_url or "",
             "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
-            "special_function": "none",
-            "action": "",
             "reset_firmware": True,
         }
 

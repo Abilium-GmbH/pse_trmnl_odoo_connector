@@ -20,7 +20,15 @@ MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
 # invalidates all existing stored hashes without a migration.
 API_TOKEN_PBKDF2_ITERATIONS = 600_000
 API_TOKEN_BYTES = 32
-DEFAULT_REFRESH_RATE = 1800
+
+SECONDS_PER_MINUTE: int = 60
+
+# Refresh rate bounds.
+# Both bounds are expressed in seconds; the UI always displays minutes.
+REFRESH_RATE_MIN_SECONDS: int = 1 * SECONDS_PER_MINUTE  # 1 minute
+REFRESH_RATE_MAX_SECONDS: int = 30 * SECONDS_PER_MINUTE # 30 minutes
+DEFAULT_REFRESH_RATE: int = 1 * SECONDS_PER_MINUTE      # 1 minute
+
 DEFAULT_DISPLAY_ERROR_STATUS = 202
 DISPLAY_POLICY_ERROR = "error"
 DISPLAY_POLICY_AUTO_ACCEPT = "auto_accept"
@@ -47,19 +55,6 @@ APPROVAL_STATE_SELECTION = [
     (APPROVAL_STATE_UNKNOWN_DEVICE, "Unknown Device"),
 ]
 
-REFRESH_RATE_UNIT_SECONDS: dict[str, int] = {
-    "minutes": 60,
-    "hours": 3_600,
-    "days": 86_400,
-    "weeks": 604_800,       # 7-day week
-    "months": 2_592_000,    # 30-day month
-    "years": 31_536_000,    # 365-day year
-}
-
-# 1 minute lower bound; 10 years upper bound
-REFRESH_RATE_MIN_SECONDS: int = 60
-REFRESH_RATE_MAX_SECONDS: int = 10 * REFRESH_RATE_UNIT_SECONDS["years"]
-
 
 class TrmnlDevice(models.Model):
     """Represent a TRMNL e-ink display and its server-side state.
@@ -79,6 +74,14 @@ class TrmnlDevice(models.Model):
                      created automatically so the admin can act on it.  The
                      friendly_id is absent for such devices because it is only
                      assigned by the server during /api/setup.
+
+    Refresh rate
+    ------------
+    ``desired_refresh_rate`` is stored in seconds internally.  The UI always
+    works in minutes (the only supported unit) via the
+    ``desired_refresh_rate_minutes`` compute/inverse pair.  Valid range:
+    1 minute (``REFRESH_RATE_MIN_SECONDS``) to 30 minutes
+    (``REFRESH_RATE_MAX_SECONDS``).
     """
 
     _name = "trmnl.device"
@@ -237,35 +240,23 @@ class TrmnlDevice(models.Model):
         required=True,
         copy=True,
         help=(
-            "Refresh interval in seconds that the server sends to the device on "
-            "the next /api/display response. Must be between "
-            f"{REFRESH_RATE_MIN_SECONDS} s (1 min) and "
-            f"{REFRESH_RATE_MAX_SECONDS} s (10 years)."
+            "Refresh interval in seconds sent to the device on the next "
+            "/api/display response. Must be between "
+            f"{REFRESH_RATE_MIN_SECONDS} s ({REFRESH_RATE_MIN_SECONDS // 60} min) and "
+            f"{REFRESH_RATE_MAX_SECONDS} s ({REFRESH_RATE_MAX_SECONDS // 60} min)."
         ),
     )
 
-    desired_refresh_rate_value = fields.Integer(
-        string="Refresh Rate",
-        compute="_compute_desired_refresh_rate_display",
-        inverse="_inverse_desired_refresh_rate_display",
+    desired_refresh_rate_minutes = fields.Integer(
+        string="Refresh Rate (min)",
+        compute="_compute_desired_refresh_rate_minutes",
+        inverse="_inverse_desired_refresh_rate_minutes",
         store=False,
-        help="Refresh rate expressed in the selected unit.",
-    )
-
-    desired_refresh_rate_unit = fields.Selection(
-        string="Unit",
-        selection=[
-            ("minutes", "Minutes"),
-            ("hours", "Hours"),
-            ("days", "Days"),
-            ("weeks", "Weeks"),
-            ("months", "Months"),
-            ("years", "Years"),
-        ],
-        compute="_compute_desired_refresh_rate_display",
-        inverse="_inverse_desired_refresh_rate_display",
-        store=False,
-        help="Unit used to express the desired refresh rate in the UI.",
+        help=(
+            "Refresh rate expressed in minutes. "
+            f"Valid range: {REFRESH_RATE_MIN_SECONDS // 60}–"
+            f"{REFRESH_RATE_MAX_SECONDS // 60} minutes."
+        ),
     )
 
     # ------------------------------------------------------------------
@@ -357,15 +348,17 @@ class TrmnlDevice(models.Model):
 
     @api.constrains("desired_refresh_rate")
     def _check_desired_refresh_rate_bounds(self):
-        """Enforce the 1-minute lower and 10-year upper bounds."""
+        """Enforce the 1-minute lower and 30-minute upper bounds."""
         for device in self:
             if device.desired_refresh_rate < REFRESH_RATE_MIN_SECONDS:
                 raise ValidationError(
-                    f"Refresh rate must be at least {REFRESH_RATE_MIN_SECONDS} seconds (1 minute)."
+                    f"Refresh rate must be at least {REFRESH_RATE_MIN_SECONDS} seconds "
+                    f"({REFRESH_RATE_MIN_SECONDS // 60} minute)."
                 )
             if device.desired_refresh_rate > REFRESH_RATE_MAX_SECONDS:
                 raise ValidationError(
-                    f"Refresh rate must not exceed {REFRESH_RATE_MAX_SECONDS} seconds (10 years)."
+                    f"Refresh rate must not exceed {REFRESH_RATE_MAX_SECONDS} seconds "
+                    f"({REFRESH_RATE_MAX_SECONDS // 60} minutes)."
                 )
 
     # ------------------------------------------------------------------
@@ -385,47 +378,29 @@ class TrmnlDevice(models.Model):
             device.rssi_quality = device._rssi_to_quality(device.rssi_dbm)
 
     @api.depends("desired_refresh_rate")
-    def _compute_desired_refresh_rate_display(self):
-        """Decompose ``desired_refresh_rate`` (seconds) into a value/unit pair.
+    def _compute_desired_refresh_rate_minutes(self):
+        """Convert ``desired_refresh_rate`` seconds to whole minutes for the UI.
 
-        The largest unit that divides evenly into the stored seconds is chosen
-        so that the UI shows the most human-readable representation, e.g.
-        3600 seconds → 1 hour, 7200 seconds → 2 hours, 300 seconds → 5 minutes.
-
-        Months are defined as 30 days (2 592 000 seconds) and years as 365 days
-        (31 536 000 seconds). Because a month is shorter than a year, the ordered
-        probe list checks years before months so that exact multiples of a
-        year are not misclassified as months etc.
+        The stored value is always an exact multiple of 60 within the allowed
+        range, so integer division is exact.  If the stored value is somehow
+        out of range it is clamped to the nearest valid minute count so that
+        the form field remains editable.
         """
-        ordered_units = tuple(
-            sorted(
-                REFRESH_RATE_UNIT_SECONDS,
-                key=REFRESH_RATE_UNIT_SECONDS.get,
-                reverse=True,
-            )
-        )
+        min_minutes = REFRESH_RATE_MIN_SECONDS // SECONDS_PER_MINUTE
+        max_minutes = REFRESH_RATE_MAX_SECONDS // SECONDS_PER_MINUTE
+
         for device in self:
             raw_seconds = device.desired_refresh_rate or DEFAULT_REFRESH_RATE
-            chosen_unit = "minutes"
-            chosen_value = max(1, raw_seconds // REFRESH_RATE_UNIT_SECONDS["minutes"])
+            minutes = max(min_minutes, min(max_minutes, raw_seconds // SECONDS_PER_MINUTE))
+            device.desired_refresh_rate_minutes = minutes
 
-            for unit in ordered_units:
-                unit_seconds = REFRESH_RATE_UNIT_SECONDS[unit]
-                if raw_seconds >= unit_seconds and raw_seconds % unit_seconds == 0:
-                    chosen_unit = unit
-                    chosen_value = raw_seconds // unit_seconds
-                    break
-
-            device.desired_refresh_rate_value = chosen_value
-            device.desired_refresh_rate_unit = chosen_unit
-
-    def _inverse_desired_refresh_rate_display(self):
-        """Convert the UI value/unit pair back into ``desired_refresh_rate`` seconds."""
+    def _inverse_desired_refresh_rate_minutes(self):
+        """Convert the UI minutes value back into ``desired_refresh_rate`` seconds."""
         for device in self:
-            unit = device.desired_refresh_rate_unit or "minutes"
-            value = device.desired_refresh_rate_value or 1
-            unit_seconds = REFRESH_RATE_UNIT_SECONDS.get(unit, REFRESH_RATE_UNIT_SECONDS["minutes"])
-            device.desired_refresh_rate = value * unit_seconds
+            minutes = device.desired_refresh_rate_minutes or (
+                REFRESH_RATE_MIN_SECONDS // SECONDS_PER_MINUTE
+            )
+            device.desired_refresh_rate = minutes * SECONDS_PER_MINUTE
 
     # ------------------------------------------------------------------
     # helpers

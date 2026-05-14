@@ -94,14 +94,6 @@ class TrmnlDeviceUiExtension(models.Model):
                 policy_is_error and device.approval_state != APPROVAL_STATE_ACCEPTED
             )
 
-    @api.depends("approval_state")
-    def _compute_identify_button_visible(self):
-        """Show Identify button only for accepted devices."""
-        for device in self:
-            device.identify_button_visible = (
-                device.approval_state == APPROVAL_STATE_ACCEPTED
-            )
-
     @api.model_create_multi
     def create(self, values_list):
         """Assign a stable sequence when one is not provided."""

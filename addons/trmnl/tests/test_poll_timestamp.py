@@ -231,7 +231,7 @@ class TestPollAtUpdatedOnDisplayPoll(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertFalse(device.last_poll_at)
 
         with patch(
-            "odoo.addons.trmnl.models.trmnl_profile.TrmnlProfile._render_and_store_preview"
+            "odoo.addons.trmnl.models.trmnl_profile_render.TrmnlProfileRenderMixin._render_and_store_preview"
         ):
             self.url_open(
                 "/api/display",
@@ -252,7 +252,7 @@ class TestPollAtUpdatedOnDisplayPoll(HttpCase, TrmnlApiHttpCaseMixin):
 
         with patch("odoo.fields.Datetime.now", return_value=fixed_first), \
              patch(
-                 "odoo.addons.trmnl.models.trmnl_profile.TrmnlProfile._render_and_store_preview"
+                 "odoo.addons.trmnl.models.trmnl_profile_render.TrmnlProfileRenderMixin._render_and_store_preview"
              ):
             self.url_open(
                 "/api/display",
@@ -264,7 +264,7 @@ class TestPollAtUpdatedOnDisplayPoll(HttpCase, TrmnlApiHttpCaseMixin):
 
         with patch("odoo.fields.Datetime.now", return_value=fixed_second), \
              patch(
-                 "odoo.addons.trmnl.models.trmnl_profile.TrmnlProfile._render_and_store_preview"
+                 "odoo.addons.trmnl.models.trmnl_profile_render.TrmnlProfileRenderMixin._render_and_store_preview"
              ):
             self.url_open(
                 "/api/display",

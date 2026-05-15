@@ -1,8 +1,15 @@
 """Shared TRMNL e-ink canvas dimensions, palette, font helpers, and footer layout.
 
+``DISPLAY_WIDTH`` (800) and ``DISPLAY_HEIGHT`` (480) are the default fallback
+dimensions for standard TRMNL devices. The actual device dimensions are reported
+by the firmware in the ``Width`` / ``Height`` request headers and stored on the
+``trmnl.device`` record. All rendering functions accept ``width`` / ``content_height``
+keyword arguments so they scale to the reported dimensions; these constants are
+only used when the device has not yet reported its resolution.
+
 Layout renderers (list, calendar month/week) produce an image of size
-``(DISPLAY_WIDTH, CONTENT_HEIGHT)``. The profile composites that onto a full
-``800×480`` frame and draws the poll footer in the reserved bottom band.
+``(width, content_height)``. The profile composites that onto a full device
+frame and draws the poll footer in the reserved bottom band.
 """
 from __future__ import annotations
 
@@ -81,28 +88,42 @@ EINK_HEADER_TEXT = 255
 EINK_FOOTER_TEXT = 28
 
 
-def draw_poll_footer_strip(draw, *, label: str | None, font) -> None:
+def draw_poll_footer_strip(
+    draw,
+    *,
+    label: str | None,
+    font,
+    width: int | None = None,
+    display_height: int | None = None,
+) -> None:
     """Draw the separator, footer background, and optional centered poll label.
 
     ``label`` / ``font`` may be None when there is nothing to show; the reserved
     band is still painted for a consistent frame.
+
+    ``width`` / ``display_height`` default to the module constants (800 / 480).
+    Pass the device's reported dimensions to render at the correct resolution.
     """
+    w = width or DISPLAY_WIDTH
+    h = display_height or DISPLAY_HEIGHT
+    separator_y = h - FOOTER_BAND_HEIGHT
+    footer_body_top = separator_y + 1
+
     draw.line(
-        [(0, SEPARATOR_Y), (DISPLAY_WIDTH - 1, SEPARATOR_Y)],
+        [(0, separator_y), (w - 1, separator_y)],
         fill=FOOTER_SEPARATOR_GRAY,
         width=1,
     )
     draw.rectangle(
-        [0, FOOTER_BODY_TOP, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1],
+        [0, footer_body_top, w - 1, h - 1],
         fill=FOOTER_BAND_FILL,
     )
     if not label or font is None:
         return
 
-    cx = DISPLAY_WIDTH // 2
-    band_top = FOOTER_BODY_TOP
-    band_bot = DISPLAY_HEIGHT - 1 - FOOTER_BOTTOM_INSET
-    cy = (band_top + band_bot) // 2
+    cx = w // 2
+    band_bot = h - 1 - FOOTER_BOTTOM_INSET
+    cy = (footer_body_top + band_bot) // 2
 
     try:
         try:
@@ -111,8 +132,8 @@ def draw_poll_footer_strip(draw, *, label: str | None, font) -> None:
             bbox = draw.textbbox((0, 0), label, font=font)
             tw = bbox[2] - bbox[0]
             th = bbox[3] - bbox[1]
-            x = max(0, (DISPLAY_WIDTH - tw) // 2)
-            y = max(band_top, cy - th // 2 - bbox[1])
+            x = max(0, (w - tw) // 2)
+            y = max(footer_body_top, cy - th // 2 - bbox[1])
             draw.text((x, y), label, fill=EINK_FOOTER_TEXT, font=font)
     except Exception:
         # Separator + fill already drawn; omit footer text rather than failing the request.

@@ -1,13 +1,19 @@
+"""TRMNL profile — Odoo model: fields, domain building, and data access.
+
+Rendering orchestration (render timing, calendar data loading, renderer
+dispatch, footer compositing, PNG persistence) lives in the companion mixin
+``trmnl_profile_render.TrmnlProfileRenderMixin`` (``_inherit = "trmnl.profile"``).
+
+See ``trmnl_profile_render.py`` for the two-layer architecture overview.
+"""
 from __future__ import annotations
 
 import base64
 import hashlib
-import io
 import logging
 from calendar import monthrange
-from datetime import date, timedelta, timezone
+from datetime import date, timedelta
 from urllib.parse import urlparse
-from zoneinfo import ZoneInfo
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -17,6 +23,8 @@ from odoo.tools.safe_eval import safe_eval
 from .trmnl_device import _INTERNAL_HOST_RE
 
 _logger = logging.getLogger(__name__)
+
+_DOMAIN_BOOL_OPS = frozenset(("&", "|", "!"))
 
 # Priority-ordered list of date/datetime fields used by filter_preset.
 # create_date is the guaranteed fallback — it exists on every Odoo model.
@@ -65,11 +73,7 @@ class TrmnlProfile(models.Model):
     )
 
     trmnl_layout = fields.Selection(
-        [
-            ("list", "List"),
-            ("kanban", "Kanban"),
-            ("calendar", "Calendar"),
-        ],
+        selection="_get_layout_selection_options",
         string="View Type",
         default="list",
         required=True,
@@ -127,7 +131,7 @@ class TrmnlProfile(models.Model):
     ], string="Week Mode", default="work_week", required=True)
 
     calendar_reference_mode = fields.Selection([
-        ("today",  "Current Month"),
+        ("today",  "Current"),
         ("custom", "Custom Date"),
     ], string="Reference", default="today", required=True)
 
@@ -171,6 +175,11 @@ class TrmnlProfile(models.Model):
         compute="_compute_url_warning",
         readonly=True,
     )
+    layout_warning = fields.Char(
+        string="Layout Warning",
+        compute="_compute_layout_warning",
+        store=False,
+    )
 
     # ------------------------------------------------------------------
     # onchange
@@ -178,8 +187,13 @@ class TrmnlProfile(models.Model):
 
     @api.onchange("app_model_id")
     def _onchange_app_model_id(self):
-        """Model changed: reset display fields."""
+        """Model changed: reset display fields and pick best default layout."""
         self.display_field_ids = False
+        available = self._get_available_view_types()
+        if "calendar" in available:
+            self.trmnl_layout = "calendar"
+        elif available:
+            self.trmnl_layout = available[0]
 
     @api.onchange("trmnl_layout")
     def _onchange_trmnl_layout(self):
@@ -190,6 +204,10 @@ class TrmnlProfile(models.Model):
             self.display_field_ids = self.display_field_ids.filtered(
                 lambda f: f.ttype in allowed
             )
+
+    # ------------------------------------------------------------------
+    # domain / filter helpers
+    # ------------------------------------------------------------------
 
     def _eval_filter_domain(self, domain_str):
         """Evaluate a domain string using safe_eval with a restricted Odoo context.
@@ -228,9 +246,8 @@ class TrmnlProfile(models.Model):
         if model_name not in self.env:
             return
         model_fields = self.env[model_name]._fields
-        _BOOL_OPS = frozenset(("&", "|", "!"))
         for token in domain:
-            if token in _BOOL_OPS or not isinstance(token, (list, tuple)) or len(token) != 3:
+            if token in _DOMAIN_BOOL_OPS or not isinstance(token, (list, tuple)) or len(token) != 3:
                 continue
             field_path = token[0]
             if not isinstance(field_path, str):
@@ -282,9 +299,8 @@ class TrmnlProfile(models.Model):
         inputs like [('a', 'b')] (2-tuple) at save time rather than producing a
         cryptic database error at render/search time.
         """
-        _BOOL_OPS = frozenset(("&", "|", "!"))
         for token in domain:
-            if token in _BOOL_OPS:
+            if isinstance(token, str) and token in _DOMAIN_BOOL_OPS:
                 continue
             if not isinstance(token, (list, tuple)):
                 raise ValueError(
@@ -319,6 +335,21 @@ class TrmnlProfile(models.Model):
                 raise ValidationError(
                     _("Custom Domain is not a valid Odoo domain: %s") % exc
                 ) from exc
+
+    @api.constrains("trmnl_layout", "app_model_id")
+    def _check_layout_valid_for_model(self):
+        for rec in self:
+            if not rec.app_model_id or not rec.trmnl_layout:
+                continue
+            available = rec._get_available_view_types()
+            if available and rec.trmnl_layout not in available:
+                label_map = {"list": "List", "kanban": "Kanban", "calendar": "Calendar"}
+                label = label_map.get(rec.trmnl_layout, rec.trmnl_layout)
+                raise ValidationError(
+                    _("View Type '%s' is not available for the selected model '%s'. "
+                      "Available types: %s.")
+                    % (label, rec.app_model_id.name, ", ".join(available))
+                )
 
     def _build_filter_domain(self, model_name):
         """Return an ORM domain list for the active filter_preset.
@@ -364,302 +395,6 @@ class TrmnlProfile(models.Model):
 
         return []
 
-
-    # ------------------------------------------------------------------
-    # renderer dispatch
-    # ------------------------------------------------------------------
-
-    def _prepare_calendar_data(self, records) -> list[dict]:
-        """Extract plain event dicts from calendar.event ORM records.
-
-        All ORM access is isolated here so the renderer stays import-free.
-        Times are in the server timezone (UTC); no conversion for now.
-        """
-        events = []
-        for rec in records:
-            try:
-                start = rec.start
-                if not start:
-                    continue
-                start_date = start.date() if hasattr(start, "date") and callable(start.date) else start
-                time_str = start.strftime("%H:%M") if hasattr(start, "hour") else ""
-                events.append({
-                    "title":    rec.display_name or "",
-                    "start":    start_date,
-                    "time_str": time_str,
-                })
-            except Exception:
-                pass
-        return events
-
-    def _prepare_calendar_week_data(self, records) -> list[dict]:
-        """Extract timed event dicts from calendar.event ORM records for week view.
-
-        All-day events are excluded. Missing stop defaults to start + 1 hour.
-        Times are in server timezone (UTC); no conversion applied.
-        """
-        events = []
-        for rec in records:
-            try:
-                start = rec.start
-                if not start:
-                    continue
-                if getattr(rec, "allday", False):
-                    continue
-                stop = rec.stop or (start + timedelta(hours=1))
-                events.append({
-                    "title":          rec.display_name or "",
-                    "start_datetime": start,
-                    "end_datetime":   stop,
-                })
-            except Exception:
-                pass
-        return events
-
-    def _resolve_calendar_date(self) -> tuple[int, int]:
-        """Return (year, month) for month view based on reference settings."""
-        if self.calendar_reference_mode == "custom" and self.calendar_reference_date:
-            ref = self.calendar_reference_date
-            return ref.year, ref.month
-        today = date.today()
-        return today.year, today.month
-
-    def _resolve_calendar_week_start(self) -> date:
-        """Return the Monday of the target week based on reference settings."""
-        if self.calendar_reference_mode == "custom" and self.calendar_reference_date:
-            ref = self.calendar_reference_date
-            return ref - timedelta(days=ref.weekday())
-        today = date.today()
-        return today - timedelta(days=today.weekday())
-
-    def _load_calendar_records(self, year: int, month: int):
-        """Load calendar.event records for the displayed month.
-
-        Bypasses filter_preset date ranges (the month window overrides them)
-        but still respects my_records so personal calendars work correctly.
-        Applies filter_domain on top.
-        """
-        _, last_day = monthrange(year, month)
-        month_start = date(year, month, 1)
-        month_end   = date(year, month, last_day)
-        domain = [("start", ">=", month_start), ("start", "<=", month_end)]
-
-        if self.filter_preset == "my_records":
-            domain.append(("user_id", "=", self.env.uid))
-
-        raw_custom = (self.filter_domain or "").strip()
-        if raw_custom and raw_custom != "[]":
-            try:
-                custom_domain = self._eval_filter_domain(raw_custom)
-                if custom_domain:
-                    domain = list(Domain.AND([domain, custom_domain]))
-            except Exception as exc:
-                raise UserError(
-                    _("Custom Domain is invalid and could not be applied: %s") % exc
-                ) from exc
-
-        limit = self.display_limit or 200
-        env = self.env["calendar.event"].sudo()
-        if self.include_archived:
-            env = env.with_context(active_test=False)
-        return env.search(domain, limit=limit, order="start asc")
-
-    def _load_calendar_week_records(self, week_start: date):
-        """Load calendar.event records for the full Mon–Sun week window.
-
-        Always loads the full 7 days regardless of week_mode so the renderer
-        can decide which columns to draw. Respects my_records filter and
-        applies filter_domain on top.
-        """
-        week_end = week_start + timedelta(days=6)
-        domain = [("start", ">=", week_start), ("start", "<=", week_end)]
-        if self.filter_preset == "my_records":
-            domain.append(("user_id", "=", self.env.uid))
-
-        raw_custom = (self.filter_domain or "").strip()
-        if raw_custom and raw_custom != "[]":
-            try:
-                custom_domain = self._eval_filter_domain(raw_custom)
-                if custom_domain:
-                    domain = list(Domain.AND([domain, custom_domain]))
-            except Exception as exc:
-                raise UserError(
-                    _("Custom Domain is invalid and could not be applied: %s") % exc
-                ) from exc
-
-        limit = self.display_limit or 200
-        env = self.env["calendar.event"].sudo()
-        if self.include_archived:
-            env = env.with_context(active_test=False)
-        return env.search(domain, limit=limit, order="start asc")
-
-    def _dispatch_renderer(self, model_name, field_names, field_labels, records) -> bytes:
-        """Route to the correct renderer; fall back to generic list on any failure."""
-        if self.trmnl_layout == "calendar" and model_name == "calendar.event":
-            try:
-                if self.calendar_view_mode == "week":
-                    week_start = self._resolve_calendar_week_start()
-                    week_events = self._prepare_calendar_week_data(
-                        self._load_calendar_week_records(week_start)
-                    )
-                    from odoo.addons.trmnl.trmnl_calendar_week_preview import (
-                        render_calendar_week_preview,
-                    )
-                    return render_calendar_week_preview(
-                        week_events, week_start, self.calendar_week_mode
-                    )
-                else:
-                    year, month = self._resolve_calendar_date()
-                    events = self._prepare_calendar_data(
-                        self._load_calendar_records(year, month)
-                    )
-                    from odoo.addons.trmnl.trmnl_calendar_preview import render_calendar_preview
-                    return render_calendar_preview(events, year, month)
-            except UserError:
-                raise
-            except Exception as exc:
-                _logger.warning(
-                    "TRMNL calendar renderer failed for profile id=%s — falling back to list: %s",
-                    self.id, exc, exc_info=True,
-                )
-
-        rows = [
-            [self._extract_field_value(rec, fname) for fname in field_names]
-            for rec in records
-        ]
-        from odoo.addons.trmnl.trmnl_preview import render_list_preview
-        return render_list_preview(rows, field_labels)
-
-    # ------------------------------------------------------------------
-    # display footer (reserved bottom strip on 800×480)
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _format_poll_timestamp(device_label, poll_at):
-        """Return the footer label string in Europe/Zurich local time."""
-        zurich = ZoneInfo("Europe/Zurich")
-        local_dt = poll_at.replace(tzinfo=timezone.utc).astimezone(zurich)
-        return f"{device_label} · Last poll: {local_dt.strftime('%Y-%m-%d %H:%M')}"
-
-    def _get_footer_device_label(self):
-        """Human-readable device label for the footer.
-
-        Priority: admin ``device_name`` (device "name" in the UI), then
-        ``friendly_id``, then ``mac_address``.
-        """
-        self.ensure_one()
-        device = self.device_id
-        name = (device.device_name or "").strip()
-        if name:
-            return name
-        if device.friendly_id:
-            return device.friendly_id
-        return device.mac_address or "TRMNL"
-
-    def _finalize_display_image(self, png_bytes):
-        """Paste content-sized PNG onto the device frame and draw the poll footer strip.
-
-        Layout renderers produce ``(DISPLAY_WIDTH, CONTENT_HEIGHT)`` bytes. This
-        method composites them into a full device frame with a separator line and
-        optional centered poll metadata in the footer band.
-
-        Uses device telemetry ``display_width``/``display_height`` when available,
-        falling back to the canvas constants (800×480).
-        """
-        self.ensure_one()
-        from odoo.addons.trmnl.trmnl_display_canvas import (
-            CONTENT_HEIGHT,
-            DISPLAY_HEIGHT,
-            DISPLAY_WIDTH,
-            FOOTER_BAND_FILL,
-            FOOTER_SEPARATOR_GRAY,
-            SEPARATOR_Y,
-            draw_poll_footer_strip,
-        )
-
-        dev = self.device_id
-        device_w = (dev.display_width if dev and dev.display_width > 0 else None) or DISPLAY_WIDTH
-        device_h = (dev.display_height if dev and dev.display_height > 0 else None) or DISPLAY_HEIGHT
-
-        try:
-            from PIL import Image, ImageDraw
-        except ImportError:
-            return png_bytes
-
-        try:
-            content = Image.open(io.BytesIO(png_bytes)).convert("L")
-        except Exception:
-            _logger.debug(
-                "TRMNL profile id=%s: invalid content PNG for finalize", self.id, exc_info=True
-            )
-            return png_bytes
-
-        cw, ch = content.size
-        if cw != DISPLAY_WIDTH:
-            _logger.debug(
-                "TRMNL profile id=%s: unexpected content width %s (expected %s)",
-                self.id, cw, DISPLAY_WIDTH,
-            )
-            return png_bytes
-        if ch == DISPLAY_HEIGHT:
-            content = content.crop((0, 0, DISPLAY_WIDTH, CONTENT_HEIGHT))
-            ch = CONTENT_HEIGHT
-        elif ch != CONTENT_HEIGHT:
-            _logger.debug(
-                "TRMNL profile id=%s: unexpected content height %s (expected %s)",
-                self.id, ch, CONTENT_HEIGHT,
-            )
-            return png_bytes
-
-        out = Image.new("L", (device_w, device_h), 255)
-        out.paste(content, (0, 0))
-        draw = ImageDraw.Draw(out)
-
-        poll_at = self.device_id.last_poll_at
-        label = None
-        font = None
-        if poll_at:
-            from odoo.addons.trmnl.trmnl_display_canvas import (
-                load_font as _lf,
-                text_width as _tw,
-            )
-            font = _lf(11)
-            label = self._format_poll_timestamp(self._get_footer_device_label(), poll_at)
-            max_text_w = device_w - 16
-            while len(label) > 8 and _tw(draw, label + "…", font) > max_text_w:
-                label = label[:-1]
-            if _tw(draw, label, font) > max_text_w:
-                label = (label[: max(4, len(label) - 4)] + "…") if label else ""
-
-        try:
-            draw_poll_footer_strip(draw, label=label, font=font)
-            buf = io.BytesIO()
-            out.save(buf, format="PNG")
-            return buf.getvalue()
-        except Exception as exc:
-            _logger.warning(
-                "TRMNL profile id=%s: finalize footer/save failed (%s) — "
-                "returning full frame with content + empty footer band",
-                self.id,
-                exc,
-                exc_info=True,
-            )
-            out2 = Image.new("L", (device_w, device_h), 255)
-            out2.paste(content, (0, 0))
-            d2 = ImageDraw.Draw(out2)
-            d2.line(
-                [(0, SEPARATOR_Y), (device_w - 1, SEPARATOR_Y)],
-                fill=FOOTER_SEPARATOR_GRAY,
-                width=1,
-            )
-            d2.rectangle(
-                [0, SEPARATOR_Y + 1, device_w - 1, device_h - 1],
-                fill=FOOTER_BAND_FILL,
-            )
-            buf2 = io.BytesIO()
-            out2.save(buf2, format="PNG")
-            return buf2.getvalue()
-
     # ------------------------------------------------------------------
     # available view types
     # ------------------------------------------------------------------
@@ -669,7 +404,7 @@ class TrmnlProfile(models.Model):
 
         Queries ir.ui.view for views of the model and maps Odoo technical type
         names to profile view type values via _ODOO_VIEW_TYPE_MAP.
-        Always includes 'list' as a fallback since every model supports list.
+        Returns only types that actually exist in ir.ui.view for the model.
         """
         self.ensure_one()
         if not self.app_model_id:
@@ -684,13 +419,44 @@ class TrmnlProfile(models.Model):
             mapped = _ODOO_VIEW_TYPE_MAP.get(v["type"])
             if mapped and mapped in SUPPORTED_VIEW_TYPES:
                 found.add(mapped)
-        found.add("list")
         return sorted(found, key=lambda t: SUPPORTED_VIEW_TYPES.index(t))
 
     @api.depends("app_model_id")
     def _compute_available_view_types(self):
         for rec in self:
             rec.available_view_types = ",".join(rec._get_available_view_types())
+
+    def _get_layout_selection_options(self):
+        """Return trmnl_layout selection options filtered by the model's available view types.
+
+        Odoo calls this on every empty recordset (fields_get, convert_to_cache),
+        where app_model_id is always False — returning all three options keeps all
+        stored values valid and prevents ORM rejection of existing records.
+        Per-record filtering only affects the form dropdown when a model is selected.
+        """
+        all_labels = {"list": "List", "kanban": "Kanban", "calendar": "Calendar"}
+        if not self.app_model_id:
+            return list(all_labels.items())
+        available = self._get_available_view_types()
+        options = [(t, all_labels[t]) for t in available if t in all_labels]
+        return options if options else list(all_labels.items())
+
+    @api.depends("trmnl_layout", "app_model_id")
+    def _compute_layout_warning(self):
+        for rec in self:
+            if not rec.app_model_id or not rec.trmnl_layout:
+                rec.layout_warning = ""
+                continue
+            available = rec._get_available_view_types()
+            if rec.trmnl_layout not in available:
+                label_map = {"list": "List", "kanban": "Kanban", "calendar": "Calendar"}
+                label = label_map.get(rec.trmnl_layout, rec.trmnl_layout)
+                rec.layout_warning = (
+                    f"View Type '{label}' is not available for the selected model. "
+                    f"Please choose one of: {', '.join(available)}."
+                )
+            else:
+                rec.layout_warning = ""
 
     # ------------------------------------------------------------------
     # computed delivery-status fields
@@ -738,109 +504,19 @@ class TrmnlProfile(models.Model):
             web_url = params.get_param("web.base.url", "").strip()
             if not rec._is_device_reachable_base_url(web_url):
                 rec.url_warning = (
-                    f"web.base.url ({web_url}) is not reachable by physical devices "
-                    f"(localhost / loopback). "
-                    f"Go to Settings → Technical → Parameters → System Parameters "
-                    f"and set web.base.url to your LAN IP "
-                    f"(e.g. http://192.168.1.127:8069), "
-                    f"or add trmnl.public_base_url to override it."
+                    f"Image URL cannot be generated: web.base.url ({web_url}) is a "
+                    f"loopback/internal address that physical devices cannot reach. "
+                    f"This resolves automatically when the device polls for the first time. "
+                    f"If the device has already polled and the warning persists, set "
+                    f"trmnl.public_base_url in Settings → Technical → Parameters → "
+                    f"System Parameters (e.g. http://192.168.1.127:8069)."
                 )
             else:
                 rec.url_warning = ""
 
     # ------------------------------------------------------------------
-    # preview rendering
+    # image URL and data access helpers
     # ------------------------------------------------------------------
-
-    def _is_auto_refresh_due(self):
-        """Return True if the profile preview should be re-rendered now.
-
-        True when no preview has ever been generated (preview_generated_at is unset).
-        Otherwise True when the time elapsed since the last render exceeds the interval.
-        A zero or negative interval is treated as 10 minutes.
-        """
-        self.ensure_one()
-        if not self.preview_generated_at:
-            return True
-        interval = self.auto_refresh_interval_minutes
-        if not interval or interval <= 0:
-            interval = 10
-        threshold = self.preview_generated_at + timedelta(minutes=interval)
-        now = fields.Datetime.now()
-        due = now >= threshold
-        _logger.debug(
-            "TRMNL render-interval: profile id=%s generated_at=%s interval=%smin "
-            "threshold=%s now=%s due=%s",
-            self.id, self.preview_generated_at, interval, threshold, now, due,
-        )
-        return due
-
-    def action_render_preview(self):
-        self.ensure_one()
-        if not self.app_model_id:
-            raise UserError(_("Select an Odoo Model before rendering a preview."))
-        self._render_and_store_preview()
-
-        last_poll = self.device_id.last_display_at
-        rate = self.device_id.desired_refresh_rate or 1800
-
-        if last_poll:
-            next_poll = last_poll + timedelta(seconds=rate)
-            msg = (
-                f"Preview updated. "
-                f"Last poll: {last_poll.strftime('%Y-%m-%d %H:%M')} UTC · "
-                f"Next expected poll: {next_poll.strftime('%Y-%m-%d %H:%M')} UTC."
-            )
-        else:
-            msg = _(
-                "Preview updated. "
-                "The device has not polled yet — power-cycle it to trigger the first poll."
-            )
-
-        return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "title": _("Preview Updated"),
-                "message": msg,
-                "type": "success",
-                "sticky": True,
-                "next": {"type": "ir.actions.client", "tag": "reload"},
-            },
-        }
-
-    def _render_and_store_preview(self):
-        """Render the preview image and persist it. Raises on configuration errors."""
-        self.ensure_one()
-
-        if not self.app_model_id:
-            raise UserError(_("Select an Odoo Model before rendering a preview."))
-
-        model_name = self.app_model_id.model
-
-        if model_name not in self.env:
-            raise UserError(
-                _("Model '%s' is not available in this environment.") % model_name
-            )
-
-        valid_display_fields = self.display_field_ids.filtered(
-            lambda f: f.model == model_name
-        )
-        if valid_display_fields:
-            field_names = valid_display_fields.mapped("name")
-            field_labels = valid_display_fields.mapped("field_description")
-        else:
-            field_names = ["display_name"]
-            field_labels = [_("Name")]
-
-        records = self._load_records(model_name, field_names)
-        png_bytes = self._dispatch_renderer(model_name, field_names, field_labels, records)
-        png_bytes = self._finalize_display_image(png_bytes)
-
-        self.write({
-            "preview_image": base64.b64encode(png_bytes),
-            "preview_generated_at": fields.Datetime.now(),
-        })
 
     def _get_display_image_url(self):
         """Return a device-reachable URL for this profile's preview PNG, or False.
@@ -863,13 +539,13 @@ class TrmnlProfile(models.Model):
         public_url = params.get_param("trmnl.public_base_url", "").strip().rstrip("/")
         if public_url:
             url = f"{public_url}/api/profile/image/{self.id}"
-            _logger.info("TRMNL profile id=%s image_url (trmnl.public_base_url): %s", self.id, url)
+            _logger.debug("TRMNL profile id=%s image_url (trmnl.public_base_url): %s", self.id, url)
             return url
 
         web_url = params.get_param("web.base.url", "").strip().rstrip("/")
         if web_url and self._is_device_reachable_base_url(web_url):
             url = f"{web_url}/api/profile/image/{self.id}"
-            _logger.info("TRMNL profile id=%s image_url (web.base.url): %s", self.id, url)
+            _logger.debug("TRMNL profile id=%s image_url (web.base.url): %s", self.id, url)
             return url
 
         _logger.warning(

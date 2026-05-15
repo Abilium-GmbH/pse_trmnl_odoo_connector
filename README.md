@@ -33,6 +33,8 @@ Device downloads PNG and displays it
 │   └── trmnl/
 │       ├── controllers/          # HTTP endpoints (/api/setup, /api/display, /api/log, /api/profile/image)
 │       ├── models/               # Business logic (device lifecycle, auth, rendering pipeline)
+│       │   ├── trmnl_profile.py         # Profile model: fields, domain building, data access helpers
+│       │   └── trmnl_profile_render.py  # Rendering orchestration mixin (inherits trmnl.profile)
 │       ├── views/                # Odoo backend UI (XML)
 │       ├── security/             # Access control
 │       ├── tests/                # Test suite
@@ -49,6 +51,20 @@ Device downloads PNG and displays it
 ├── README.md
 └── requirements.txt
 ```
+
+### Rendering architecture
+
+The rendering pipeline is split into two clearly separated layers:
+
+**Layer 1 — Odoo model layer** (`models/trmnl_profile.py`, `models/trmnl_profile_render.py`)
+
+All Odoo concerns are handled here. `TrmnlProfile` defines fields, domain building, and generic data access helpers (`_load_records`, `_extract_field_value`). `TrmnlProfileRenderMixin` extends `trmnl.profile` via `_inherit` — making it a full Odoo model — and owns the rendering pipeline: auto-refresh timing, calendar ORM queries, ORM-record → plain-dict conversion, renderer dispatch, footer compositing, and PNG persistence via `write()`.
+
+**Layer 2 — Pure Python drawing utilities** (`trmnl_preview.py`, `trmnl_calendar_preview.py`, `trmnl_calendar_week_preview.py`, `trmnl_display_canvas.py`)
+
+These are stateless functions. They accept plain Python data structures (lists of strings for list/kanban; dicts for calendar) and return PNG bytes. They have no Odoo ORM imports and no side-effects beyond producing image bytes. This keeps PIL rendering logic independently testable without a running Odoo instance.
+
+The boundary is explicit: `TrmnlProfileRenderMixin._dispatch_renderer()` is the single crossing point. It converts ORM records into plain Python values, then calls a Layer 2 function. No ORM records ever cross into Layer 2.
 
 ## Prerequisites
 
@@ -94,12 +110,14 @@ Watches `addons/trmnl/` and upgrades the module automatically when files change.
 
 ### Network requirement
 
-Your Odoo instance must be reachable from the device's WiFi network. If you are running Odoo locally on Docker, `localhost` or `127.0.0.1` will not work — the device cannot reach those addresses over WiFi.
+The Docker Compose setup binds Odoo to `0.0.0.0:8069`, so it is reachable from both `localhost` (browser on the same machine) and the LAN IP (physical TRMNL device on the same network).
 
-**Odoo auto-detects the correct URL** on the first device poll using the `Host` header. If auto-detection does not work (e.g. the detected IP is a VM bridge address), set it manually:
+**No manual URL configuration is needed in the typical setup.** When the device polls Odoo for the first time, the server reads the `Host` header and automatically stores the correct URL for serving images back to the device.
+
+If auto-detection does not work (for example, if Odoo sits behind a reverse proxy, or the detected address is a VM bridge IP rather than the host's LAN IP), override it manually:
 
 - Go to **Settings → Technical → Parameters → System Parameters**
-- Create: `trmnl.public_base_url` = `http://192.168.1.x:8069` (your actual LAN IP)
+- Set `trmnl.public_base_url` = `http://192.168.1.x:8069` (your actual LAN IP)
 
 ### Step 1 — Point the device at Odoo
 
@@ -133,9 +151,13 @@ The device polls Odoo every N seconds (configured by **Refresh Rate** on the Dev
 | Layout | Best for | Notes |
 |--------|----------|-------|
 | **List** | Any model | Tabular display; shows selected fields as columns |
-| **Kanban** | Any model | Same list renderer, grouped presentation |
+| **Kanban** | Any model | Uses the same list renderer; no separate kanban layout exists |
 | **Calendar (month)** | `calendar.event` | Monthly grid with event listings per day |
 | **Calendar (week)** | `calendar.event` | Work week (Mon–Fri) or full week (Mon–Sun), hourly grid |
+
+> **Note:** The Kanban option produces the same output as List. It is kept in the UI so that profiles created with layout type "kanban" continue to render without error.
+
+> **Note:** The preview image shown in the form and the image served to the device are the same PNG binary. Differences in appearance on an e-ink display (e.g. alternating row shading) are due to the display's contrast characteristics — the image itself is identical.
 
 ---
 

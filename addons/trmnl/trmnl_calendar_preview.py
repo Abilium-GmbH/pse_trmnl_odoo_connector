@@ -1,9 +1,12 @@
 """Pure-Pillow month-view calendar renderer for TRMNL e-ink.
 
-Renders into the profile content strip (800×CONTENT_HEIGHT). The server
-composites a footer to produce the final 800×480 device image.
+No Odoo ORM imports. Receives plain Python data, returns PNG bytes. The Odoo
+profile model handles all data loading and passes pre-processed event dicts here.
 
-No Odoo ORM imports. Receives plain Python data, returns PNG bytes.
+Defaults to 800×CONTENT_HEIGHT (standard TRMNL device). Pass ``width`` and
+``content_height`` to ``render_calendar_preview`` to render at the device's
+actual reported resolution; the server composites the result into a full frame
+with a footer strip.
 """
 from __future__ import annotations
 
@@ -72,12 +75,12 @@ def _trunc(draw: ImageDraw.ImageDraw, text: str, font, max_px: int) -> str:
     return (text + "…") if text else ""
 
 
-def _col_x(col: int) -> int:
-    return col * COL_W
+def _col_x(col: int, col_w: int) -> int:
+    return col * col_w
 
 
-def _col_right(col: int) -> int:
-    return WIDTH if col == COLS - 1 else (col + 1) * COL_W
+def _col_right(col: int, col_w: int, width: int) -> int:
+    return width if col == COLS - 1 else (col + 1) * col_w
 
 
 def _fill_out_of_month_cell(img: Image.Image, x0: int, y0: int, x1: int, y1: int) -> None:
@@ -101,11 +104,22 @@ def render_calendar_preview(
     events: list[dict],
     year: int,
     month: int,
+    *,
+    width: int | None = None,
+    content_height: int | None = None,
 ) -> bytes:
-    """Render a month-view calendar as an 800×CONTENT_HEIGHT grayscale PNG."""
+    """Render a month-view calendar as a grayscale PNG.
+
+    Defaults to 800×CONTENT_HEIGHT. Pass *width* and *content_height* from the
+    linked device record to render at the device's actual resolution.
+    """
     f_title, f_dow, f_daynum, f_event = _get_fonts()
 
-    img = Image.new("L", (WIDTH, HEIGHT), WHITE)
+    w = width or WIDTH
+    h = content_height or HEIGHT
+    col_w = w // COLS
+
+    img = Image.new("L", (w, h), WHITE)
     draw = ImageDraw.Draw(img)
 
     today = date.today()
@@ -122,18 +136,18 @@ def render_calendar_preview(
     tb = draw.textbbox((0, 0), title_text, font=f_title)
     th = tb[3] - tb[1]
     draw.text(
-        ((WIDTH - tw) // 2, (HEADER_H - th) // 2 - tb[1]),
+        ((w - tw) // 2, (HEADER_H - th) // 2 - tb[1]),
         title_text,
         fill=BLACK,
         font=f_title,
     )
-    draw.line([(0, HEADER_H - 1), (WIDTH - 1, HEADER_H - 1)], fill=TITLE_RULE, width=1)
+    draw.line([(0, HEADER_H - 1), (w - 1, HEADER_H - 1)], fill=TITLE_RULE, width=1)
 
     # DOW band (metadata hierarchy — lighter than main grid)
-    draw.rectangle([0, HEADER_H, WIDTH - 1, GRID_TOP - 1], fill=DOW_BAND)
+    draw.rectangle([0, HEADER_H, w - 1, GRID_TOP - 1], fill=DOW_BAND)
     for col, label in enumerate(DAY_NAMES):
-        cx = _col_x(col)
-        cw = _col_right(col) - cx
+        cx = _col_x(col, col_w)
+        cw = _col_right(col, col_w, w) - cx
         lw = _canvas.text_width(draw,label, f_dow)
         db = draw.textbbox((0, 0), label, font=f_dow)
         dh = db[3] - db[1]
@@ -148,15 +162,15 @@ def render_calendar_preview(
     while weeks and not any(weeks[-1]):
         weeks.pop()
     n_rows = len(weeks)
-    row_h = (HEIGHT - GRID_TOP) // n_rows
+    row_h = (h - GRID_TOP) // n_rows
 
     cell_pad_x = 6
     day_num_top_pad = 3
 
     for row_i, week in enumerate(weeks):
         for col_i, day_num in enumerate(week):
-            cx = _col_x(col_i)
-            cright = _col_right(col_i)
+            cx = _col_x(col_i, col_w)
+            cright = _col_right(col_i, col_w, w)
             cw = cright - cx
             cy = GRID_TOP + row_i * row_h
 
@@ -215,9 +229,9 @@ def render_calendar_preview(
 
     for r in range(n_rows + 1):
         y = GRID_TOP + r * row_h
-        draw.line([(0, y), (WIDTH - 1, y)], fill=GRAY_GRID, width=1)
+        draw.line([(0, y), (w - 1, y)], fill=GRAY_GRID, width=1)
     for c in range(1, COLS):
-        x = _col_x(c)
+        x = _col_x(c, col_w)
         draw.line([(x, GRID_TOP), (x, GRID_TOP + n_rows * row_h)], fill=GRAY_GRID, width=1)
 
     buf = io.BytesIO()

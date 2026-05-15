@@ -171,7 +171,7 @@ class TestAutoRefreshOnDisplayPoll(HttpCase, TrmnlApiHttpCaseMixin):
         })
 
         with patch(
-            "odoo.addons.trmnl.models.trmnl_profile.TrmnlProfile._render_and_store_preview"
+            "odoo.addons.trmnl.models.trmnl_profile_render.TrmnlProfileRenderMixin._render_and_store_preview"
         ) as mock_render:
             self.url_open(
                 "/api/display",
@@ -193,7 +193,7 @@ class TestAutoRefreshOnDisplayPoll(HttpCase, TrmnlApiHttpCaseMixin):
 
         with patch("odoo.fields.Datetime.now", return_value=now), \
              patch(
-                 "odoo.addons.trmnl.models.trmnl_profile.TrmnlProfile._render_and_store_preview"
+                 "odoo.addons.trmnl.models.trmnl_profile_render.TrmnlProfileRenderMixin._render_and_store_preview"
              ) as mock_render:
             self.url_open(
                 "/api/display",
@@ -215,7 +215,7 @@ class TestAutoRefreshOnDisplayPoll(HttpCase, TrmnlApiHttpCaseMixin):
 
         with patch("odoo.fields.Datetime.now", return_value=now), \
              patch(
-                 "odoo.addons.trmnl.models.trmnl_profile.TrmnlProfile._render_and_store_preview"
+                 "odoo.addons.trmnl.models.trmnl_profile_render.TrmnlProfileRenderMixin._render_and_store_preview"
              ) as mock_render:
             self.url_open(
                 "/api/display",

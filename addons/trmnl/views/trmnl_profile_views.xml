@@ -64,7 +64,31 @@
                         <field
                             name="trmnl_layout"
                             string="View Type"
+                            widget="trmnl_layout_select"
                             invisible="not app_model_id"
+                        />
+                        <field
+                            name="layout_warning"
+                            invisible="not layout_warning"
+                            widget="char"
+                            readonly="1"
+                            class="text-warning"
+                        />
+                    </group>
+
+                    <!-- ── Calendar Settings ────────────────────────── -->
+                    <group string="Calendar Settings" invisible="trmnl_layout != 'calendar'">
+                        <field name="calendar_view_mode" string="Calendar View"/>
+                        <field
+                            name="calendar_week_mode"
+                            string="Week Mode"
+                            invisible="calendar_view_mode != 'week'"
+                        />
+                        <field name="calendar_reference_mode" string="Reference"/>
+                        <field
+                            name="calendar_reference_date"
+                            string="Reference Date"
+                            invisible="calendar_reference_mode != 'custom'"
                         />
                     </group>
 

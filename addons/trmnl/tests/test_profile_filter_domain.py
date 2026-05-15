@@ -86,6 +86,12 @@ class TestProfileFilterDomain(TransactionCase):
         with self.assertRaises(ValidationError):
             self._profile(filter_domain="[(1, '=', 'x')]")
 
+    def test_domain_with_list_value_saves_cleanly(self):
+        # ('field', 'in', [1, 2]) is valid — list-valued leaf must not raise
+        # "unhashable type: 'list'" when the validator checks bool-operator membership.
+        profile = self._profile(filter_domain="[('id', 'in', [1, 2])]")
+        self.assertTrue(profile.filter_domain)
+
     def test_empty_domain_saves_cleanly(self):
         profile = self._profile(filter_domain="[]")
         self.assertEqual(profile.filter_domain, "[]")

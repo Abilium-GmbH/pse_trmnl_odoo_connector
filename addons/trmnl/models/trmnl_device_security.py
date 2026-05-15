@@ -126,13 +126,6 @@ class TrmnlDeviceSecurityMixin(models.Model):
             "last_presented_token_salt": base64.b64encode(salt_bytes).decode("ascii"),
         }
 
-    def _store_presented_token(self, raw_token):
-        """Persist a raw presented token (hashed) on the current record."""
-        self.ensure_one()
-        presented_values = self._hash_presented_token(raw_token)
-        self.with_context(trmnl_allow_identity_update=True).write(presented_values)
-        return self
-
     def _verify_presented_token(self, raw_token):
         """Verify a token against the stored last-presented token hash material."""
         self.ensure_one()

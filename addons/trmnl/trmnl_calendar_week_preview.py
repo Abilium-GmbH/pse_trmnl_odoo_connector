@@ -1,9 +1,12 @@
 """Pure-Pillow week-view calendar renderer for TRMNL e-ink.
 
-Renders into the profile content strip (800×CONTENT_HEIGHT). The server
-composites a footer to produce the final 800×480 device image.
+No Odoo ORM imports. Receives plain Python data, returns PNG bytes. The Odoo
+profile model handles all data loading and passes pre-processed event dicts here.
 
-No Odoo ORM imports. Receives plain Python data, returns PNG bytes.
+Defaults to 800×CONTENT_HEIGHT (standard TRMNL device). Pass ``width`` and
+``content_height`` to ``render_calendar_week_preview`` to render at the device's
+actual reported resolution; the server composites the result into a full frame
+with a footer strip.
 """
 from __future__ import annotations
 
@@ -71,50 +74,62 @@ def _col_x(col: int, col_w: int) -> int:
     return TIME_COL_W + col * col_w
 
 
-def _col_right(col: int, col_w: int, num_days: int) -> int:
-    return WIDTH if col == num_days - 1 else TIME_COL_W + (col + 1) * col_w
+def _col_right(col: int, col_w: int, num_days: int, width: int) -> int:
+    return width if col == num_days - 1 else TIME_COL_W + (col + 1) * col_w
 
 
-def _y_for_time(hour: int, minute: int = 0) -> int:
+def _y_for_time(hour: int, minute: int, grid_top: int, hour_h_f: float) -> int:
     frac = max(0.0, min(float(HOURS), (hour - HOUR_START) + minute / 60.0))
-    return GRID_TOP + int(frac * HOUR_H_F)
+    return grid_top + int(frac * hour_h_f)
 
 
 def render_calendar_week_preview(
     events: list[dict],
     week_start: date,
     week_mode: str,
+    *,
+    width: int | None = None,
+    content_height: int | None = None,
 ) -> bytes:
-    """Render a week-view calendar as an 800×CONTENT_HEIGHT grayscale PNG."""
+    """Render a week-view calendar as a grayscale PNG.
+
+    Defaults to 800×CONTENT_HEIGHT. Pass *width* and *content_height* from the
+    linked device record to render at the device's actual resolution.
+    """
     f_title, f_day, f_time, f_event = _get_fonts()
 
-    num_days = 5 if week_mode == "work_week" else 7
-    col_w = (WIDTH - TIME_COL_W) // num_days
+    w = width or WIDTH
+    h = content_height or HEIGHT
+    grid_h = h - GRID_TOP
+    hour_h_f = grid_h / HOURS
 
-    img = Image.new("L", (WIDTH, HEIGHT), WHITE)
+    num_days = 5 if week_mode == "work_week" else 7
+    col_w = (w - TIME_COL_W) // num_days
+
+    img = Image.new("L", (w, h), WHITE)
     draw = ImageDraw.Draw(img)
 
     today = date.today()
     _, iso_week, _ = week_start.isocalendar()
 
-    draw.rectangle([0, 0, WIDTH - 1, WEEK_HDR_H - 1], fill=TITLE_BAND)
+    draw.rectangle([0, 0, w - 1, WEEK_HDR_H - 1], fill=TITLE_BAND)
     title = f"Week {iso_week}  ·  {week_start.strftime('%B %Y')}"
     tw = _canvas.text_width(draw,title, f_title)
     tb = draw.textbbox((0, 0), title, font=f_title)
     th = tb[3] - tb[1]
     draw.text(
-        ((WIDTH - tw) // 2, (WEEK_HDR_H - th) // 2 - tb[1]),
+        ((w - tw) // 2, (WEEK_HDR_H - th) // 2 - tb[1]),
         title,
         fill=BLACK,
         font=f_title,
     )
-    draw.line([(0, WEEK_HDR_H - 1), (WIDTH - 1, WEEK_HDR_H - 1)], fill=TITLE_RULE, width=1)
+    draw.line([(0, WEEK_HDR_H - 1), (w - 1, WEEK_HDR_H - 1)], fill=TITLE_RULE, width=1)
 
     hdr_y = WEEK_HDR_H
     for col in range(num_days):
         d = week_start + timedelta(days=col)
         cx = _col_x(col, col_w)
-        cr = _col_right(col, col_w, num_days)
+        cr = _col_right(col, col_w, num_days, w)
         cw = cr - cx
 
         is_today = d == today
@@ -134,16 +149,16 @@ def render_calendar_week_preview(
             )
         draw.text((text_x, text_y), label, fill=BLACK, font=f_day)
 
-    for h in range(HOURS):
-        actual = HOUR_START + h
+    for hour_i in range(HOURS):
+        actual = HOUR_START + hour_i
         if actual % 2 == 0:
-            y = _y_for_time(actual)
-            y_next = _y_for_time(actual + 1)
-            draw.rectangle([TIME_COL_W, y, WIDTH - 1, y_next - 1], fill=GRAY_BAND)
+            y = _y_for_time(actual, 0, GRID_TOP, hour_h_f)
+            y_next = _y_for_time(actual + 1, 0, GRID_TOP, hour_h_f)
+            draw.rectangle([TIME_COL_W, y, w - 1, y_next - 1], fill=GRAY_BAND)
 
-    for h in range(HOURS + 1):
-        actual = HOUR_START + h
-        y = _y_for_time(actual)
+    for hour_i in range(HOURS + 1):
+        actual = HOUR_START + hour_i
+        y = _y_for_time(actual, 0, GRID_TOP, hour_h_f)
         label = f"{actual:02d}:00"
         lw = _canvas.text_width(draw,label, f_time)
         tb = draw.textbbox((0, 0), label, font=f_time)
@@ -153,13 +168,13 @@ def render_calendar_week_preview(
             fill=GRAY_MUTED,
             font=f_time,
         )
-        draw.line([(TIME_COL_W, y), (WIDTH - 1, y)], fill=GRAY_GRID, width=1)
+        draw.line([(TIME_COL_W, y), (w - 1, y)], fill=GRAY_GRID, width=1)
 
     for col in range(num_days + 1):
-        x = _col_x(col, col_w) if col < num_days else WIDTH - 1
-        draw.line([(x, GRID_TOP), (x, GRID_TOP + GRID_H)], fill=GRAY_GRID, width=1)
+        x = _col_x(col, col_w) if col < num_days else w - 1
+        draw.line([(x, GRID_TOP), (x, GRID_TOP + grid_h)], fill=GRAY_GRID, width=1)
 
-    draw.line([(TIME_COL_W, HEADER_H), (TIME_COL_W, HEIGHT - 1)], fill=GRAY_GRID, width=1)
+    draw.line([(TIME_COL_W, HEADER_H), (TIME_COL_W, h - 1)], fill=GRAY_GRID, width=1)
 
     ev_pad = 3
     ev_min_h = 14
@@ -180,12 +195,12 @@ def render_calendar_week_preview(
             continue
 
         cx = _col_x(col_idx, col_w) + ev_pad
-        cr = _col_right(col_idx, col_w, num_days) - ev_pad
+        cr = _col_right(col_idx, col_w, num_days, w) - ev_pad
 
-        y_top = _y_for_time(start_dt.hour, start_dt.minute)
-        y_bot = _y_for_time(end_dt.hour, end_dt.minute)
+        y_top = _y_for_time(start_dt.hour, start_dt.minute, GRID_TOP, hour_h_f)
+        y_bot = _y_for_time(end_dt.hour, end_dt.minute, GRID_TOP, hour_h_f)
         y_top = max(y_top, GRID_TOP)
-        y_bot = min(y_bot, GRID_TOP + GRID_H)
+        y_bot = min(y_bot, GRID_TOP + grid_h)
         y_bot = max(y_bot, y_top + ev_min_h)
 
         draw.rectangle(

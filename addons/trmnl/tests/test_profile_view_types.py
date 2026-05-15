@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
+from odoo.exceptions import UserError, ValidationError
 from odoo.tests import TransactionCase, tagged
 
 
@@ -36,7 +39,7 @@ class TestAvailableViewTypes(TransactionCase):
         })
 
     def test_list_always_included(self):
-        """list is always available regardless of model."""
+        """list is available for res.partner, which has a tree view."""
         profile = self._make_profile(self._partner_model)
         self.assertIn("list", profile._get_available_view_types())
 
@@ -75,7 +78,108 @@ class TestAvailableViewTypes(TransactionCase):
         self.assertIn("list", profile.available_view_types)
 
     def test_trmnl_layout_selection_values(self):
-        """trmnl_layout only offers list, kanban, calendar."""
-        field = self.env["trmnl.profile"]._fields["trmnl_layout"]
-        selection_keys = [k for k, _ in field.selection]
+        """trmnl_layout offers list, kanban, calendar when no model is set."""
+        # The selection is a method name; call it on the empty recordset to get options.
+        profile_class = self.env["trmnl.profile"].sudo()
+        options = profile_class._get_layout_selection_options()
+        selection_keys = [k for k, _ in options]
         self.assertEqual(sorted(selection_keys), sorted(["list", "kanban", "calendar"]))
+
+
+@tagged("-at_install", "post_install")
+class TestDynamicLayoutSelection(TransactionCase):
+    """Dynamic trmnl_layout: options, constrains, onchange, and render-time guard."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._device = cls.env["trmnl.device"].sudo().create({
+            "mac_address": "AA:BB:CC:DD:EE:33",
+            "approval_state": "accepted",
+            "registration_source": "setup",
+        })
+        cls._partner_model = cls.env["ir.model"].sudo().search(
+            [("model", "=", "res.partner")], limit=1
+        )
+        cls._calendar_model = cls.env["ir.model"].sudo().search(
+            [("model", "=", "calendar.event")], limit=1
+        )
+
+    def test_calendar_model_exposes_calendar_option(self):
+        """_get_layout_selection_options includes calendar for calendar.event."""
+        if not self._calendar_model:
+            self.skipTest("calendar.event not installed")
+        profile = self.env["trmnl.profile"].sudo().new({
+            "name": "cal options test",
+            "device_id": self._device.id,
+            "app_model_id": self._calendar_model.id,
+            "trmnl_layout": "list",
+        })
+        keys = [k for k, _ in profile._get_layout_selection_options()]
+        self.assertIn("calendar", keys)
+
+    def test_kanban_model_exposes_kanban_option(self):
+        """_get_layout_selection_options includes kanban for a model with a kanban view."""
+        kanban_view = self.env["ir.ui.view"].sudo().search(
+            [("model", "=", "res.partner"), ("type", "=", "kanban")], limit=1
+        )
+        if not kanban_view:
+            self.skipTest("res.partner has no kanban view in this installation")
+        profile = self.env["trmnl.profile"].sudo().new({
+            "name": "kanban options test",
+            "device_id": self._device.id,
+            "app_model_id": self._partner_model.id,
+            "trmnl_layout": "list",
+        })
+        keys = [k for k, _ in profile._get_layout_selection_options()]
+        self.assertIn("kanban", keys)
+
+    def test_non_calendar_model_rejects_calendar_layout_on_save(self):
+        """Saving calendar layout for a model without calendar views raises ValidationError."""
+        has_calendar = self.env["ir.ui.view"].sudo().search_count(
+            [("model", "=", "res.partner"), ("type", "=", "calendar")]
+        )
+        if has_calendar:
+            self.skipTest("res.partner has a calendar view in this installation")
+        with self.assertRaises(ValidationError):
+            self.env["trmnl.profile"].sudo().create({
+                "name": "bad layout",
+                "device_id": self._device.id,
+                "app_model_id": self._partner_model.id,
+                "trmnl_layout": "calendar",
+                "display_limit": 1,
+                "filter_preset": "none",
+            })
+
+    def test_onchange_model_resets_calendar_layout_for_non_calendar_model(self):
+        """_onchange_app_model_id resets layout when the model has no calendar view."""
+        has_calendar = self.env["ir.ui.view"].sudo().search_count(
+            [("model", "=", "res.partner"), ("type", "=", "calendar")]
+        )
+        if has_calendar:
+            self.skipTest("res.partner has a calendar view in this installation")
+        profile = self.env["trmnl.profile"].sudo().new({
+            "name": "onchange test",
+            "device_id": self._device.id,
+            "trmnl_layout": "calendar",
+            "display_limit": 1,
+            "filter_preset": "none",
+        })
+        profile.app_model_id = self._partner_model
+        profile._onchange_app_model_id()
+        self.assertNotEqual(profile.trmnl_layout, "calendar")
+
+    def test_render_raises_user_error_for_invalid_layout(self):
+        """_render_and_store_preview raises UserError if layout is unavailable for the model."""
+        profile = self.env["trmnl.profile"].sudo().create({
+            "name": "render guard test",
+            "device_id": self._device.id,
+            "app_model_id": self._partner_model.id,
+            "trmnl_layout": "list",
+            "display_limit": 1,
+            "filter_preset": "none",
+        })
+        patch_path = "odoo.addons.trmnl.models.trmnl_profile.TrmnlProfile._get_available_view_types"
+        with patch(patch_path, return_value=["kanban"]):
+            with self.assertRaises(UserError):
+                profile._render_and_store_preview()

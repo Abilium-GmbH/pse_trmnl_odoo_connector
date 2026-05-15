@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, ValidationError
 
-# TRMNL-Displays send a 6-octet, uppercase hex, colon-separated string accoring to the
+# TRMNL-Displays send a 6-octet, uppercase hex, colon-separated string according to the
 # firmware, e.g.: A4:CF:12:7E:3B:01
 MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
 

@@ -1,7 +1,12 @@
 """Generic list/table preview renderer for TRMNL e-ink displays.
 
-Pure Python — no Odoo imports. Receives already-extracted string data
-and returns PNG bytes. Keeps PIL logic entirely outside the ORM layer.
+No Odoo ORM imports. Receives already-extracted string rows and returns PNG
+bytes. The Odoo profile model handles all data loading; this module only handles
+PIL rendering.
+
+Defaults to 800×CONTENT_HEIGHT (standard TRMNL device). Pass ``width`` and
+``content_height`` to ``render_list_preview`` to render at the device's actual
+reported resolution.
 """
 from __future__ import annotations
 
@@ -44,29 +49,41 @@ def _trunc(draw: ImageDraw.ImageDraw, text: str, font, max_px: int) -> str:
     return text + ell if text else ell
 
 
-def render_list_preview(rows: list[list[str]], field_labels: list[str]) -> bytes:
-    """Render a list of string rows as a grayscale 800×CONTENT_HEIGHT PNG.
+def render_list_preview(
+    rows: list[list[str]],
+    field_labels: list[str],
+    *,
+    width: int | None = None,
+    content_height: int | None = None,
+) -> bytes:
+    """Render a list of string rows as a grayscale PNG.
 
-    The profile composites this into a full 800×480 frame with a footer strip.
+    Defaults to 800×CONTENT_HEIGHT. Pass *width* and *content_height* from the
+    linked device record to render at the device's actual resolution.
 
     :param rows: table data — each inner list is one row of cell strings.
     :param field_labels: column headers — same length as each row.
+    :param width: canvas width in pixels (default: DISPLAY_WIDTH).
+    :param content_height: canvas height in pixels (default: DISPLAY_HEIGHT / CONTENT_HEIGHT).
     :return: PNG file content as raw bytes.
     """
-    img = Image.new("L", (DISPLAY_WIDTH, DISPLAY_HEIGHT), _BG)
+    w = width or DISPLAY_WIDTH
+    h = content_height or DISPLAY_HEIGHT
+
+    img = Image.new("L", (w, h), _BG)
     draw = ImageDraw.Draw(img)
 
     font_header = _canvas.load_font(_FONT_HEADER, bold=True)
     font_cell = _canvas.load_font(_FONT_CELL)
 
     n_cols = max(len(field_labels), 1)
-    inner_w = DISPLAY_WIDTH - 2 * _MARGIN_X
+    inner_w = w - 2 * _MARGIN_X
     col_w = inner_w // n_cols
 
     # Header bar + subtle bottom edge (separates title from data)
-    draw.rectangle([0, 0, DISPLAY_WIDTH, _HEADER_H], fill=_HEADER_BG)
+    draw.rectangle([0, 0, w, _HEADER_H], fill=_HEADER_BG)
     draw.line(
-        [(0, _HEADER_H - 1), (DISPLAY_WIDTH - 1, _HEADER_H - 1)],
+        [(0, _HEADER_H - 1), (w - 1, _HEADER_H - 1)],
         fill=_HEADER_RULE,
         width=1,
     )
@@ -83,21 +100,21 @@ def render_list_preview(rows: list[list[str]], field_labels: list[str]) -> bytes
     for i in range(1, n_cols):
         x = _MARGIN_X + i * col_w
         draw.line(
-            [(x, _HEADER_H), (x, DISPLAY_HEIGHT - 2)],
+            [(x, _HEADER_H), (x, h - 2)],
             fill=_COL_RULE,
             width=1,
         )
 
-    max_rows = (DISPLAY_HEIGHT - _HEADER_H) // _ROW_H
+    max_rows = (h - _HEADER_H) // _ROW_H
     for row_idx, row in enumerate(rows[:max_rows]):
         y_top = _HEADER_H + row_idx * _ROW_H
         if row_idx % 2 == 1:
-            draw.rectangle([0, y_top, DISPLAY_WIDTH, y_top + _ROW_H], fill=_STRIPE)
+            draw.rectangle([0, y_top, w, y_top + _ROW_H], fill=_STRIPE)
 
         # Light row baseline (e-ink friendly rhythm)
         if row_idx > 0:
             draw.line(
-                [(0, y_top), (DISPLAY_WIDTH - 1, y_top)],
+                [(0, y_top), (w - 1, y_top)],
                 fill=_HEADER_RULE,
                 width=1,
             )
@@ -112,7 +129,7 @@ def render_list_preview(rows: list[list[str]], field_labels: list[str]) -> bytes
             draw.text((x, y_text), t, fill=_FG, font=font_cell)
 
     draw.rectangle(
-        [0, 0, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1],
+        [0, 0, w - 1, h - 1],
         outline=_OUTLINE,
         width=1,
     )

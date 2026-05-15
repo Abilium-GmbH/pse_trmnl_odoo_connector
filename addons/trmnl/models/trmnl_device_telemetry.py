@@ -56,14 +56,14 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         if display_height is not False:
             values["display_height"] = display_height
 
-        self.with_context(trmnl_allow_identity_update=True).write(values)
+        self.write(values)
         return self
 
     def _record_display_served(self):
         """Update counters and timestamps for a successful display response."""
         self.ensure_one()
         now_value = fields.Datetime.now()
-        self.with_context(trmnl_allow_identity_update=True).write(
+        self.write(
             {
                 "last_display_at": now_value,
                 "last_poll_at": now_value,
@@ -87,7 +87,7 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         else:
             update_values["display_denied_count"] = (self.display_denied_count or 0) + 1
 
-        self.with_context(trmnl_allow_identity_update=True).write(update_values)
+        self.write(update_values)
         return self
 
     # ------------------------------------------------------------------
@@ -171,7 +171,7 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         if created_count:
             update_values["log_entry_count"] = (device.log_entry_count or 0) + created_count
 
-        device.with_context(trmnl_allow_identity_update=True).write(update_values)
+        device.write(update_values)
 
     @api.model
     def ingest_logs_from_payload(self, headers, payload):
@@ -197,22 +197,28 @@ class TrmnlDeviceTelemetryMixin(models.Model):
             return 0, "empty"
 
         log_model = self.env["trmnl.device.log"].sudo()
-        created_count = 0
 
-        for raw_entry in raw_entries:
-            log_values = self._prepare_log_values(device, raw_entry)
-            if not log_values:
-                continue
+        all_values = [
+            self._prepare_log_values(device, raw_entry)
+            for raw_entry in raw_entries
+        ]
+        valid_values = [v for v in all_values if v]
 
-            existing_log = log_model.search(
-                [("device_id", "=", device.id), ("log_id", "=", log_values["log_id"])],
-                limit=1,
-            )
-            if existing_log:
-                continue
+        if not valid_values:
+            self._update_log_activity(device)
+            return 0, "empty"
 
-            log_model.create(log_values)
-            created_count += 1
+        candidate_log_ids = [v["log_id"] for v in valid_values]
+        existing_log_ids = set(
+            log_model.search(
+                [("device_id", "=", device.id), ("log_id", "in", candidate_log_ids)]
+            ).mapped("log_id")
+        )
+        new_values = [v for v in valid_values if v["log_id"] not in existing_log_ids]
+
+        if new_values:
+            log_model.create(new_values)
+        created_count = len(new_values)
 
         self._update_log_activity(device, created_count)
         return created_count, "stored" if created_count else "ignored"

@@ -530,7 +530,11 @@ class TrmnlProfileRenderMixin(models.Model):
         device_h = (dev.display_height if dev and dev.display_height > 0 else None) or _DEFAULT_H
         content_h = device_h - _FOOTER_H
 
-        records = self._load_records(model_name, field_names)
+        # Calendar layouts load their own records inside _dispatch_renderer.
+        if self.trmnl_layout == "calendar":
+            records = self.env[model_name].sudo().browse()
+        else:
+            records = self._load_records(model_name, field_names)
         png_bytes = self._dispatch_renderer(
             model_name, field_names, field_labels, records,
             width=device_w, content_height=content_h,

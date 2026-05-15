@@ -84,6 +84,16 @@ class TrmnlProfile(models.Model):
         store=False,
     )
 
+    user_id = fields.Many2one(
+        "res.users",
+        string="User",
+        help=(
+            "Records for this profile are fetched as this user. "
+            "Affects the 'Assigned to Me' filter and the uid variable in custom domains. "
+            "Leave empty to use the active user at render time."
+        ),
+    )
+
     display_field_ids = fields.Many2many(
         "ir.model.fields",
         "trmnl_profile_ir_model_fields_rel",
@@ -218,9 +228,10 @@ class TrmnlProfile(models.Model):
         """
         if not domain_str or domain_str.strip() in ("", "[]"):
             return []
+        profile_user = self.user_id or self.env.user
         eval_ctx = {
-            "uid": self.env.uid,
-            "user": self.env.user,
+            "uid": profile_user.id,
+            "user": profile_user,
             "context_today": lambda: fields.Date.today(),
             "current_date": str(fields.Date.today()),
             "True": True,
@@ -280,6 +291,7 @@ class TrmnlProfile(models.Model):
             try:
                 custom_domain = self._eval_filter_domain(raw_custom)
                 if custom_domain:
+                    custom_domain = self._normalize_domain_m2o_values(custom_domain)
                     self._validate_custom_domain_fields(custom_domain, model_name)
                     domains.append(custom_domain)
             except UserError:
@@ -290,6 +302,33 @@ class TrmnlProfile(models.Model):
                 ) from exc
 
         return list(Domain.AND(domains)) if domains else []
+
+    @staticmethod
+    def _normalize_domain_m2o_values(domain):
+        """Replace [id, "display_name"] many2one pairs in domain values with plain id.
+
+        Odoo's domain widget serialises many2one equality values as a 2-element
+        list [id, label].  That representation is accepted by our validator but
+        rejected by the ORM's search() which expects a bare integer.  Walk every
+        leaf and flatten any such pair so the domain is ORM-safe.
+        """
+        normalized = []
+        for token in domain:
+            if isinstance(token, str) and token in _DOMAIN_BOOL_OPS:
+                normalized.append(token)
+            elif isinstance(token, (list, tuple)) and len(token) == 3:
+                field_path, op, value = token
+                if (
+                    isinstance(value, (list, tuple))
+                    and len(value) == 2
+                    and isinstance(value[0], int)
+                    and isinstance(value[1], str)
+                ):
+                    value = value[0]
+                normalized.append((field_path, op, value))
+            else:
+                normalized.append(token)
+        return normalized
 
     @staticmethod
     def _validate_domain_leaves(domain):
@@ -371,7 +410,8 @@ class TrmnlProfile(models.Model):
         if self.filter_preset == "my_records":
             if "user_id" not in existing:
                 return []
-            return [("user_id", "=", self.env.uid)]
+            target_uid = self.user_id.id if self.user_id else self.env.uid
+            return [("user_id", "=", target_uid)]
 
         date_field = next((f for f in _FILTER_DATE_FIELDS if f in existing), None)
         if not date_field:

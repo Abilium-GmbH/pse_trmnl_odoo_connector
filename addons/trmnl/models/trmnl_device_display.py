@@ -139,7 +139,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
             if will_render:
                 _logger.info("TRMNL display: rendering profile id=%s", profile.id)
                 profile._render_and_store_preview()
-                profile = profile.browse(profile.id)
+                profile.invalidate_recordset()
                 _logger.info(
                     "TRMNL display: render done profile id=%s generated_at=%s",
                     profile.id,

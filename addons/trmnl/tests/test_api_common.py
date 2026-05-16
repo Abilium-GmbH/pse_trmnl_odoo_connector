@@ -232,8 +232,6 @@ class TrmnlApiHttpCaseMixin:
             "image_url",
             "filename",
             "refresh_rate",
-            "special_function",
-            "action"
         }
         self.assertEqual(set(display_payload.keys()), expected_keys)
         self.assertEqual(
@@ -243,31 +241,5 @@ class TrmnlApiHttpCaseMixin:
                 "image_url": image_url,
                 "filename": self.EXPECTED_FILENAME,
                 "refresh_rate": self.DEVICE_REFRESH_RATE,
-                "special_function": "none",
-                "action": "",
-            },
-        )
-
-    def _assert_identify_payload(self, display_payload, image_url):
-        """Assert the identify response payload for /api/display."""
-        expected_keys = {
-            "status",
-            "image_url",
-            "filename",
-            "refresh_rate",
-            "special_function",
-            "action",
-        }
-        self.assertEqual(set(display_payload.keys()), expected_keys)
-
-        self.assertEqual(
-            display_payload,
-            {
-                "status": 0,
-                "image_url": image_url,
-                "filename": self.EXPECTED_FILENAME,
-                "refresh_rate": self.DEVICE_REFRESH_RATE,
-                "special_function": "identify",
-                "action": "identify",
             },
         )

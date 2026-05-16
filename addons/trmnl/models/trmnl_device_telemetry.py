@@ -41,7 +41,6 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         rssi_dbm = self._parse_to_int(headers.get("RSSI"))
         display_width = self._parse_to_int(headers.get("Width"))
         display_height = self._parse_to_int(headers.get("Height"))
-        special_function = self._parse_to_string(headers.get("special_function"))
 
         values = {"last_seen_at": fields.Datetime.now()}
 
@@ -57,8 +56,6 @@ class TrmnlDeviceTelemetryMixin(models.Model):
             values["display_width"] = display_width
         if display_height is not False:
             values["display_height"] = display_height
-        if special_function is not False:
-            values["special_function"] = special_function
 
         self.with_context(trmnl_allow_identity_update=True).write(values)
         return self

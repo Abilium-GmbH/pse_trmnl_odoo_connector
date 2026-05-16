@@ -94,14 +94,6 @@
                     icon="fa-cog"
                     title="Open device"
                 />
-
-                <button
-                    name="action_identify"
-                    type="object"
-                    icon="fa-search"
-                    title="Identify device"
-                    invisible="not identify_button_visible"
-                />
             </list>
         </field>
     </record>
@@ -135,13 +127,6 @@
                         type="object"
                         class="btn-danger"
                     />
-                    <button
-                        name="action_identify"
-                        string="Identify"
-                        type="object"
-                        class="btn-primary"
-                        invisible="not identify_button_visible"
-                    />
                     <field
                         name="approval_state"
                         widget="statusbar"
@@ -164,7 +149,6 @@
                     </div>
 
                     <field name="accept_button_visible" invisible="1"/>
-                    <field name="identify_button_visible" invisible="1"/>
 
                     <group>
                         <group string="Configuration">

@@ -221,17 +221,6 @@ class TrmnlDevice(models.Model):
         help="URL returned to the display.",
     )
 
-    identify_pending = fields.Boolean(
-        string="Identify Pending",
-        default=False,
-        copy=False,
-        help=(
-            "One-shot flag set by the admin Identify action.  When True the "
-            "next /api/display response will carry special_function='identify' "
-            "and action='identify'.  The flag is cleared automatically after "
-            "the response is sent."
-        ),
-    )
     reset_pending = fields.Boolean(
         string="Reset Pending",
         default=False,
@@ -317,7 +306,6 @@ class TrmnlDevice(models.Model):
 
     display_width = fields.Integer(string="Display Width")
     display_height = fields.Integer(string="Display Height")
-    special_function = fields.Char(string="Special Function", default="none")
     wifi_status = fields.Char(string="Wi-Fi Status")
 
     # ------------------------------------------------------------------

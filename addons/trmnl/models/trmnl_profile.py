@@ -31,10 +31,10 @@ _DOMAIN_BOOL_OPS = frozenset(("&", "|", "!"))
 _FILTER_DATE_FIELDS = ["date_deadline", "date_order", "start", "date", "create_date"]
 
 # Maps Odoo technical view type names to supported profile view type values.
-_ODOO_VIEW_TYPE_MAP = {"tree": "list", "list": "list", "kanban": "kanban", "calendar": "calendar"}
+_ODOO_VIEW_TYPE_MAP = {"tree": "list", "list": "list", "kanban": "kanban", "calendar": "calendar", "graph": "graph"}
 
 # Supported view types for the trmnl_layout selection.
-SUPPORTED_VIEW_TYPES = ("list", "kanban", "calendar")
+SUPPORTED_VIEW_TYPES = ("list", "kanban", "calendar", "graph")
 
 # Allowed field types per layout — drives display_field_ids picker filtering.
 # Calendar uses no display_field_ids (picker is hidden via view visibility).
@@ -128,6 +128,35 @@ class TrmnlProfile(models.Model):
         string="Include Archived",
         default=False,
         help="When enabled, archived records (active=False) are included in results.",
+    )
+
+    # ── Graph fields ─────────────────────────────────────────────────────────
+    graph_groupby_field_id = fields.Many2one(
+        "ir.model.fields",
+        string="Group By",
+        domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['char', 'text', 'selection', 'many2one', 'date', 'datetime', 'boolean', 'integer'])]",
+        help="Field to group records by. Each distinct value becomes one bar.",
+    )
+    graph_measure_field_id = fields.Many2one(
+        "ir.model.fields",
+        string="Measure",
+        domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['integer', 'float', 'monetary'])]",
+        help="Numeric field to sum per group. Leave empty to count records.",
+    )
+    graph_sort_order = fields.Selection([
+        ("value_desc",  "Value — High to Low"),
+        ("value_asc",   "Value — Low to High"),
+        ("label_asc",   "Label — A to Z"),
+        ("label_desc",  "Label — Z to A"),
+    ], string="Sort", default="value_desc", required=True)
+    graph_max_groups = fields.Integer(
+        string="Max Bars",
+        default=10,
+        help="Maximum number of bars to display (capped at 20).",
+    )
+    graph_title = fields.Char(
+        string="Chart Title",
+        help="Optional chart title. Defaults to the Group By field name.",
     )
 
     calendar_view_mode = fields.Selection([
@@ -382,12 +411,22 @@ class TrmnlProfile(models.Model):
                 continue
             available = rec._get_available_view_types()
             if available and rec.trmnl_layout not in available:
-                label_map = {"list": "List", "kanban": "Kanban", "calendar": "Calendar"}
+                label_map = {"list": "List", "kanban": "Kanban", "calendar": "Calendar", "graph": "Graph"}
                 label = label_map.get(rec.trmnl_layout, rec.trmnl_layout)
                 raise ValidationError(
                     _("View Type '%s' is not available for the selected model '%s'. "
                       "Available types: %s.")
                     % (label, rec.app_model_id.name, ", ".join(available))
+                )
+
+    @api.constrains("trmnl_layout", "graph_groupby_field_id")
+    def _check_graph_config(self):
+        for rec in self:
+            if rec.trmnl_layout != "graph":
+                continue
+            if not rec.graph_groupby_field_id:
+                raise ValidationError(
+                    _("Graph View requires a 'Group By' field to be set.")
                 )
 
     def _build_filter_domain(self, model_name):
@@ -459,6 +498,8 @@ class TrmnlProfile(models.Model):
             mapped = _ODOO_VIEW_TYPE_MAP.get(v["type"])
             if mapped and mapped in SUPPORTED_VIEW_TYPES:
                 found.add(mapped)
+        # Graph is always available: read_group() works on any model.
+        found.add("graph")
         return sorted(found, key=lambda t: SUPPORTED_VIEW_TYPES.index(t))
 
     @api.depends("app_model_id")
@@ -474,7 +515,7 @@ class TrmnlProfile(models.Model):
         stored values valid and prevents ORM rejection of existing records.
         Per-record filtering only affects the form dropdown when a model is selected.
         """
-        all_labels = {"list": "List", "kanban": "Kanban", "calendar": "Calendar"}
+        all_labels = {"list": "List", "kanban": "Kanban", "calendar": "Calendar", "graph": "Graph"}
         if not self.app_model_id:
             return list(all_labels.items())
         available = self._get_available_view_types()
@@ -489,7 +530,7 @@ class TrmnlProfile(models.Model):
                 continue
             available = rec._get_available_view_types()
             if rec.trmnl_layout not in available:
-                label_map = {"list": "List", "kanban": "Kanban", "calendar": "Calendar"}
+                label_map = {"list": "List", "kanban": "Kanban", "calendar": "Calendar", "graph": "Graph"}
                 label = label_map.get(rec.trmnl_layout, rec.trmnl_layout)
                 rec.layout_warning = (
                     f"View Type '{label}' is not available for the selected model. "

@@ -98,6 +98,25 @@
                         />
                     </group>
 
+                    <!-- ── Graph Settings ────────────────────────────── -->
+                    <group string="Graph Settings" invisible="not app_model_id or trmnl_layout != 'graph'">
+                        <field
+                            name="graph_groupby_field_id"
+                            string="Group By"
+                            domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['char', 'text', 'selection', 'many2one', 'date', 'datetime', 'boolean', 'integer'])]"
+                            help="Field to group records by. Each distinct value becomes one bar."
+                        />
+                        <field
+                            name="graph_measure_field_id"
+                            string="Measure (blank = Count)"
+                            domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['integer', 'float', 'monetary'])]"
+                            help="Numeric field to sum per group. Leave empty to count records."
+                        />
+                        <field name="graph_sort_order" string="Sort"/>
+                        <field name="graph_max_groups" string="Max Bars"/>
+                        <field name="graph_title" string="Chart Title"/>
+                    </group>
+
                     <!-- ── Content ───────────────────────────────────── -->
                     <group string="Content" invisible="not app_model_id or trmnl_layout not in ('list', 'kanban')">
                         <field
@@ -128,8 +147,13 @@
                             string="Sort Order"
                             placeholder="e.g. date_deadline desc, name asc"
                             help="Raw ORDER BY clause passed to the Odoo search."
+                            invisible="trmnl_layout == 'graph'"
                         />
-                        <field name="display_limit" string="Max Records"/>
+                        <field
+                            name="display_limit"
+                            string="Max Records"
+                            invisible="trmnl_layout == 'graph'"
+                        />
                     </group>
 
                     <!-- ── Preview ───────────────────────────────────── -->

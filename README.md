@@ -41,7 +41,8 @@ Device downloads PNG and displays it
 │       ├── trmnl_display_canvas.py       # Shared canvas constants, font helpers, footer renderer
 │       ├── trmnl_preview.py              # List/table renderer (pure Python, PIL)
 │       ├── trmnl_calendar_preview.py     # Calendar month renderer
-│       └── trmnl_calendar_week_preview.py # Calendar week renderer
+│       ├── trmnl_calendar_week_preview.py # Calendar week renderer
+│       └── trmnl_graph_preview.py        # Graph (horizontal bar chart) renderer
 ├── docs/
 │   └── development.md            # Developer guide (Make commands, API testing)
 ├── compose.yaml
@@ -134,7 +135,7 @@ If the device does not appear, check that the Odoo URL is reachable from the dev
 1. Go to **TRMNL → Profiles → New**
 2. Enter a name and select the device
 3. Select an **Odoo Model** (e.g. `calendar.event`, `project.task`, `crm.lead`)
-4. Choose a **View Type** (List, Kanban, or Calendar — Calendar is only relevant for `calendar.event`)
+4. Choose a **View Type** (List, Kanban, Calendar, or Graph)
 5. Select which fields to display, optionally configure filters and sort order
 6. Click **Render Preview**
 
@@ -154,8 +155,23 @@ The device polls Odoo every N seconds (configured by **Refresh Rate** on the Dev
 | **Kanban** | Any model | Uses the same list renderer; no separate kanban layout exists |
 | **Calendar (month)** | `calendar.event` | Monthly grid with event listings per day |
 | **Calendar (week)** | `calendar.event` | Work week (Mon–Fri) or full week (Mon–Sun), hourly grid |
+| **Graph** | Any model | Horizontal bar chart grouping records by a chosen field |
 
 > **Note:** The Kanban option produces the same output as List. It is kept in the UI so that profiles created with layout type "kanban" continue to render without error.
+
+### Graph Layout
+
+The Graph layout renders a horizontal bar chart using Odoo's `read_group()` aggregation. It is available for any model.
+
+| Setting | Required | Purpose |
+|---------|----------|---------|
+| **Group By** | Yes | Field whose distinct values become bars (char, selection, many2one, date, etc.) |
+| **Measure** | No | Numeric field to sum per group. Leave blank to count records |
+| **Sort** | Yes | Value high→low, Value low→high, Label A→Z, Label Z→A |
+| **Max Bars** | Yes | Maximum bars to display (1–20; default 10) |
+| **Chart Title** | No | Custom title shown in the header band; defaults to the Group By field name |
+
+Quick Filters and Domain Filters apply before aggregation, so you can graph "this month's leads by stage" or "open tasks by assignee" with the same filter tools used for list profiles.
 
 > **Note:** The preview image shown in the form and the image served to the device are the same PNG binary. Differences in appearance on an e-ink display (e.g. alternating row shading) are due to the display's contrast characteristics — the image itself is identical.
 

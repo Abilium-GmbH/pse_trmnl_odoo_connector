@@ -9,3 +9,4 @@ from . import test_profile_filter_domain
 from . import test_poll_timestamp
 from . import test_image_url
 from . import test_profile_view_types
+from . import test_graph_data_loading

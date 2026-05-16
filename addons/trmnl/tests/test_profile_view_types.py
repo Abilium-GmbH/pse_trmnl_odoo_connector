@@ -43,6 +43,11 @@ class TestAvailableViewTypes(TransactionCase):
         profile = self._make_profile(self._partner_model)
         self.assertIn("list", profile._get_available_view_types())
 
+    def test_graph_always_included(self):
+        """graph is always available for any model (read_group works on all models)."""
+        profile = self._make_profile(self._partner_model)
+        self.assertIn("graph", profile._get_available_view_types())
+
     def test_no_model_returns_all_supported(self):
         """Without a model set, all SUPPORTED_VIEW_TYPES are returned."""
         from odoo.addons.trmnl.models.trmnl_profile import SUPPORTED_VIEW_TYPES
@@ -83,7 +88,7 @@ class TestAvailableViewTypes(TransactionCase):
         profile_class = self.env["trmnl.profile"].sudo()
         options = profile_class._get_layout_selection_options()
         selection_keys = [k for k, _ in options]
-        self.assertEqual(sorted(selection_keys), sorted(["list", "kanban", "calendar"]))
+        self.assertEqual(sorted(selection_keys), sorted(["list", "kanban", "calendar", "graph"]))
 
 
 @tagged("-at_install", "post_install")

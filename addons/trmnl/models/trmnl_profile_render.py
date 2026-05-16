@@ -245,6 +245,111 @@ class TrmnlProfileRenderMixin(models.Model):
         return env.search(domain, limit=limit, order="start asc")
 
     # ------------------------------------------------------------------
+    # graph data loading
+    # ------------------------------------------------------------------
+
+    def _graph_measure_label(self) -> str:
+        """Return a human-readable measure label for the graph renderer.
+
+        Returns the field description when a measure field is configured,
+        otherwise "Count".
+        """
+        if self.graph_measure_field_id:
+            return self.graph_measure_field_id.field_description or self.graph_measure_field_id.name
+        return "Count"
+
+    def _load_graph_data(self, model_name: str) -> list[dict]:
+        """Aggregate model records and return sorted bar data for the renderer.
+
+        Uses ORM ``read_group()`` to aggregate by ``graph_groupby_field_id``,
+        summing ``graph_measure_field_id`` (or counting records when no measure
+        is configured). Normalises many2one tuples and selection values to
+        display strings. Applies ``_build_effective_domain()`` so preset and
+        custom domain filters are respected.
+
+        Returns a list of ``{"label": str, "value": float}`` dicts, sorted
+        according to ``graph_sort_order`` and capped at ``graph_max_groups``.
+        """
+        self.ensure_one()
+
+        groupby_field = self.graph_groupby_field_id
+        if not groupby_field:
+            return []
+
+        gb_name = groupby_field.name
+        measure_field = self.graph_measure_field_id
+        m_name = measure_field.name if measure_field else None
+
+        domain = self._build_effective_domain(model_name)
+
+        fields_spec = [gb_name]
+        if m_name:
+            fields_spec.append(f"{m_name}:sum")
+
+        model_env = self.env[model_name].sudo()
+        if self.include_archived:
+            model_env = model_env.with_context(active_test=False)
+
+        try:
+            groups = model_env.read_group(
+                domain=domain,
+                fields=fields_spec,
+                groupby=[gb_name],
+                lazy=False,
+            )
+        except Exception as exc:
+            raise UserError(
+                _("Graph data could not be loaded: %s") % exc
+            ) from exc
+
+        # Resolve selection labels once for the groupby field.
+        selection_map: dict = {}
+        if groupby_field.ttype == "selection":
+            try:
+                fget = model_env.fields_get([gb_name])
+                sel = fget.get(gb_name, {}).get("selection", [])
+                selection_map = dict(sel)
+            except Exception:
+                pass
+
+        bars = []
+        for row in groups:
+            raw_val = row.get(gb_name)
+
+            # Normalise group key to a display string.
+            if raw_val is False or raw_val is None:
+                label = "(none)"
+            elif isinstance(raw_val, tuple):
+                # many2one: (id, display_name) or (value, label) for selection
+                label = str(raw_val[1]) if len(raw_val) > 1 else str(raw_val[0])
+            elif selection_map and raw_val in selection_map:
+                label = selection_map[raw_val]
+            else:
+                label = str(raw_val)
+
+            # Aggregate value: sum field or count.
+            if m_name:
+                value = float(row.get(m_name) or 0)
+            else:
+                value = float(row.get("__count") or 0)
+
+            bars.append({"label": label, "value": value})
+
+        # Sort
+        sort_order = self.graph_sort_order or "value_desc"
+        if sort_order == "value_desc":
+            bars.sort(key=lambda b: b["value"], reverse=True)
+        elif sort_order == "value_asc":
+            bars.sort(key=lambda b: b["value"])
+        elif sort_order == "label_asc":
+            bars.sort(key=lambda b: b["label"].lower())
+        elif sort_order == "label_desc":
+            bars.sort(key=lambda b: b["label"].lower(), reverse=True)
+
+        max_groups = min(self.graph_max_groups or 10, 20)
+        return bars[:max_groups]
+
+    # ------------------------------------------------------------------
     # renderer dispatch  (Odoo model layer → pure Python drawing layer)
     # ------------------------------------------------------------------
 
@@ -295,6 +400,28 @@ class TrmnlProfileRenderMixin(models.Model):
             except Exception as exc:
                 _logger.warning(
                     "TRMNL calendar renderer failed for profile id=%s — falling back to list: %s",
+                    self.id, exc, exc_info=True,
+                )
+
+        if self.trmnl_layout == "graph":
+            try:
+                bars = self._load_graph_data(model_name)
+                title = (self.graph_title or "").strip() or (
+                    self.graph_groupby_field_id.field_description
+                    if self.graph_groupby_field_id
+                    else "Graph"
+                )
+                measure_label = self._graph_measure_label()
+                from odoo.addons.trmnl.trmnl_graph_preview import render_graph_preview
+                return render_graph_preview(
+                    bars, title, measure_label,
+                    width=width, content_height=content_height,
+                )
+            except UserError:
+                raise
+            except Exception as exc:
+                _logger.warning(
+                    "TRMNL graph renderer failed for profile id=%s — falling back to list: %s",
                     self.id, exc, exc_info=True,
                 )
 
@@ -502,7 +629,7 @@ class TrmnlProfileRenderMixin(models.Model):
 
         available = self._get_available_view_types()
         if available and self.trmnl_layout not in available:
-            label_map = {"list": "List", "kanban": "Kanban", "calendar": "Calendar"}
+            label_map = {"list": "List", "kanban": "Kanban", "calendar": "Calendar", "graph": "Graph"}
             label = label_map.get(self.trmnl_layout, self.trmnl_layout)
             raise UserError(
                 _("View Type '%s' is not available for the selected model. "
@@ -530,8 +657,8 @@ class TrmnlProfileRenderMixin(models.Model):
         device_h = (dev.display_height if dev and dev.display_height > 0 else None) or _DEFAULT_H
         content_h = device_h - _FOOTER_H
 
-        # Calendar layouts load their own records inside _dispatch_renderer.
-        if self.trmnl_layout == "calendar":
+        # Calendar and graph layouts load data themselves inside _dispatch_renderer.
+        if self.trmnl_layout in ("calendar", "graph"):
             records = self.env[model_name].sudo().browse()
         else:
             records = self._load_records(model_name, field_names)

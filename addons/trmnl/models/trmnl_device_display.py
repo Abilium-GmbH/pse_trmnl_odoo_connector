@@ -62,15 +62,6 @@ class TrmnlDeviceDisplayMixin(models.Model):
             status = DEFAULT_DISPLAY_ERROR_STATUS
         return {"status": status}
 
-    def _consume_identify_flag(self):
-        """Consume the one-shot identify flag if set."""
-        self.ensure_one()
-
-        if self.identify_pending:
-            self.write({"identify_pending": False})
-            return True
-        return False
-
     def build_display_response(self):
         """Build the normal display payload for an accepted device."""
         self.ensure_one()

@@ -5,7 +5,8 @@
     "category": "Productivity / IoT",
     "author": "Abilium GmbH",
     "license": "Other OSI approved licence",
-    "version": "1.0.1",
+    "version": "1.0.2",
+    "application": True,
     "images": ["static/description/icon.png"],
     "depends": ["base", "web"],
     "external_dependencies": {"python": ["Pillow"]},
@@ -15,6 +16,7 @@
         ],
     },
     "data": [
+            "security/trmnl_groups.xml",
             "security/ir.model.access.csv",
             "views/trmnl_device_views.xml",
             "views/trmnl_device_wizard_views.xml",

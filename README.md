@@ -42,7 +42,7 @@ Device downloads PNG and displays it
 │       ├── trmnl_preview.py              # List/table renderer (pure Python, PIL)
 │       ├── trmnl_calendar_preview.py     # Calendar month renderer
 │       ├── trmnl_calendar_week_preview.py # Calendar week renderer
-│       └── trmnl_graph_preview.py        # Graph (horizontal bar chart) renderer
+│       └── trmnl_chart_preview.py        # Chart renderers: render_bar_chart, render_line_chart
 ├── docs/
 │   └── development.md            # Developer guide (Make commands, API testing)
 ├── compose.yaml
@@ -61,9 +61,9 @@ The rendering pipeline is split into two clearly separated layers:
 
 All Odoo concerns are handled here. `TrmnlProfile` defines fields, domain building, and generic data access helpers (`_load_records`, `_extract_field_value`). `TrmnlProfileRenderMixin` extends `trmnl.profile` via `_inherit` — making it a full Odoo model — and owns the rendering pipeline: auto-refresh timing, calendar ORM queries, ORM-record → plain-dict conversion, renderer dispatch, footer compositing, and PNG persistence via `write()`.
 
-**Layer 2 — Pure Python drawing utilities** (`trmnl_preview.py`, `trmnl_calendar_preview.py`, `trmnl_calendar_week_preview.py`, `trmnl_display_canvas.py`)
+**Layer 2 — Pure Python drawing utilities** (`trmnl_preview.py`, `trmnl_calendar_preview.py`, `trmnl_calendar_week_preview.py`, `trmnl_chart_preview.py`, `trmnl_display_canvas.py`)
 
-These are stateless functions. They accept plain Python data structures (lists of strings for list/kanban; dicts for calendar) and return PNG bytes. They have no Odoo ORM imports and no side-effects beyond producing image bytes. This keeps PIL rendering logic independently testable without a running Odoo instance.
+These are stateless functions. They accept plain Python data structures (string rows for list/kanban, event dicts for calendar, and value dicts for charts) and return PNG bytes. They have no Odoo ORM imports and no side-effects beyond producing image bytes. This keeps PIL rendering logic independently testable without a running Odoo instance.
 
 The boundary is explicit: `TrmnlProfileRenderMixin._dispatch_renderer()` is the single crossing point. It converts ORM records into plain Python values, then calls a Layer 2 function. No ORM records ever cross into Layer 2.
 
@@ -155,23 +155,40 @@ The device polls Odoo every N seconds (configured by **Refresh Rate** on the Dev
 | **Kanban** | Any model | Uses the same list renderer; no separate kanban layout exists |
 | **Calendar (month)** | `calendar.event` | Monthly grid with event listings per day |
 | **Calendar (week)** | `calendar.event` | Work week (Mon–Fri) or full week (Mon–Sun), hourly grid |
-| **Graph** | Any model | Horizontal bar chart grouping records by a chosen field |
+| **Graph** | Any model | Chart renderer family — select Bar or Line via **Graph Type** |
 
 > **Note:** The Kanban option produces the same output as List. It is kept in the UI so that profiles created with layout type "kanban" continue to render without error.
 
 ### Graph Layout
 
-The Graph layout renders a horizontal bar chart using Odoo's `read_group()` aggregation. It is available for any model.
+The Graph layout is a chart renderer family. After choosing **View Type = Graph**, select a **Graph Type**:
+
+| Graph Type | Best for |
+|------------|----------|
+| **Bar** | Grouping records by a categorical field (e.g. stage, country, assignee) |
+| **Line** | Trend over time (e.g. revenue by month, tasks created per week) |
+
+Both types use Odoo's `read_group()` aggregation and respect Quick Filters and Domain Filters. Chart Title and Measure are shared between all graph types.
+
+#### Bar chart settings
 
 | Setting | Required | Purpose |
 |---------|----------|---------|
 | **Group By** | Yes | Field whose distinct values become bars (char, selection, many2one, date, etc.) |
-| **Measure** | No | Numeric field to sum per group. Leave blank to count records |
+| **Measure** | No | Stored numeric field to sum per group. Leave blank to count records |
 | **Sort** | Yes | Value high→low, Value low→high, Label A→Z, Label Z→A |
 | **Max Bars** | Yes | Maximum bars to display (1–20; default 10) |
-| **Chart Title** | No | Custom title shown in the header band; defaults to the Group By field name |
 
-Quick Filters and Domain Filters apply before aggregation, so you can graph "this month's leads by stage" or "open tasks by assignee" with the same filter tools used for list profiles.
+#### Line chart settings
+
+| Setting | Required | Purpose |
+|---------|----------|---------|
+| **Date Field** | Yes | The `date` or `datetime` field used as the x-axis |
+| **Measure** | No | Stored numeric field to sum per time bucket. Leave blank to count records |
+| **Group By** | Yes | Time granularity: Day, Week, or Month (default Month) |
+| **Max Points** | Yes | Maximum x-axis points (1–52; default 12, takes the most-recent N) |
+
+The line renderer draws a dark header band, x/y axes, a 2 px data line, filled circular point markers, tick-labeled axes with abbreviated y-axis values (e.g. `1.2k`, `3M`), and faint horizontal gridlines. Missing time buckets are zero-filled. An empty result renders a valid "No data to display" image.
 
 > **Note:** The preview image shown in the form and the image served to the device are the same PNG binary. Differences in appearance on an e-ink display (e.g. alternating row shading) are due to the display's contrast characteristics — the image itself is identical.
 

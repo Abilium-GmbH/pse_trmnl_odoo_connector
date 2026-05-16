@@ -1,8 +1,8 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_trmnl_device_system,access.trmnl.device.system,model_trmnl_device,base.group_system,1,1,1,1
-access_trmnl_device_log_system,access.trmnl.device.log.system,model_trmnl_device_log,base.group_system,1,0,0,0
-access_trmnl_device_accept_wizard_system,access.trmnl.device.accept.wizard.system,model_trmnl_device_accept_wizard,base.group_system,1,1,1,1
-access_trmnl_display_policy_wizard_system,access.trmnl.display.policy.wizard.system,model_trmnl_display_policy_wizard,base.group_system,1,1,1,1
-access_trmnl_device_remove_wizard_system,access.trmnl.device.remove.wizard.system,model_trmnl_device_remove_wizard,base.group_system,1,1,1,1
-access_trmnl_device_reset_wizard_system,access.trmnl.device.reset.wizard.system,model_trmnl_device_reset_wizard,base.group_system,1,1,1,1
-access_trmnl_profile_system,access.trmnl.profile.system,model_trmnl_profile,base.group_system,1,1,1,1
+access_trmnl_device_manager,access.trmnl.device.manager,model_trmnl_device,trmnl.group_device_manager,1,1,1,1
+access_trmnl_device_log_manager,access.trmnl.device.log.manager,model_trmnl_device_log,trmnl.group_device_manager,1,0,0,0
+access_trmnl_device_accept_wizard_manager,access.trmnl.device.accept.wizard.manager,model_trmnl_device_accept_wizard,trmnl.group_device_manager,1,1,1,1
+access_trmnl_display_policy_wizard_manager,access.trmnl.display.policy.wizard.manager,model_trmnl_display_policy_wizard,trmnl.group_device_manager,1,1,1,1
+access_trmnl_device_remove_wizard_manager,access.trmnl.device.remove.wizard.manager,model_trmnl_device_remove_wizard,trmnl.group_device_manager,1,1,1,1
+access_trmnl_device_reset_wizard_manager,access.trmnl.device.reset.wizard.manager,model_trmnl_device_reset_wizard,trmnl.group_device_manager,1,1,1,1
+access_trmnl_profile_manager,access.trmnl.profile.manager,model_trmnl_profile,trmnl.group_device_manager,1,1,1,1

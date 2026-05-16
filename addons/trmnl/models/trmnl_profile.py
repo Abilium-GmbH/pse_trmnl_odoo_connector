@@ -34,6 +34,7 @@ _FILTER_DATE_FIELDS = ["date_deadline", "date_order", "start", "date", "create_d
 _ODOO_VIEW_TYPE_MAP = {"tree": "list", "list": "list", "kanban": "kanban", "calendar": "calendar", "graph": "graph"}
 
 # Supported view types for the trmnl_layout selection.
+# "graph" covers all chart subtypes (bar, line, …) via the graph_type field.
 SUPPORTED_VIEW_TYPES = ("list", "kanban", "calendar", "graph")
 
 # Allowed field types per layout — drives display_field_ids picker filtering.
@@ -130,7 +131,12 @@ class TrmnlProfile(models.Model):
         help="When enabled, archived records (active=False) are included in results.",
     )
 
-    # ── Graph fields ─────────────────────────────────────────────────────────
+    # ── Graph fields (shared by all graph subtypes) ───────────────────────────
+    graph_type = fields.Selection([
+        ("bar",  "Bar"),
+        ("line", "Line"),
+    ], string="Graph Type", default="bar", required=True)
+
     graph_groupby_field_id = fields.Many2one(
         "ir.model.fields",
         string="Group By",
@@ -140,7 +146,7 @@ class TrmnlProfile(models.Model):
     graph_measure_field_id = fields.Many2one(
         "ir.model.fields",
         string="Measure",
-        domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['integer', 'float', 'monetary'])]",
+        domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['integer', 'float', 'monetary']), ('store', '=', True)]",
         help="Numeric field to sum per group. Leave empty to count records.",
     )
     graph_sort_order = fields.Selection([
@@ -157,6 +163,30 @@ class TrmnlProfile(models.Model):
     graph_title = fields.Char(
         string="Chart Title",
         help="Optional chart title. Defaults to the Group By field name.",
+    )
+
+    # ── Line chart fields ─────────────────────────────────────────────────────
+    line_date_field_id = fields.Many2one(
+        "ir.model.fields",
+        string="Date Field",
+        domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['date', 'datetime'])]",
+        help="Date or datetime field used as the x-axis. Required for Line layout.",
+    )
+    line_measure_field_id = fields.Many2one(
+        "ir.model.fields",
+        string="Measure (blank = Count)",
+        domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['integer', 'float', 'monetary']), ('store', '=', True)]",
+        help="Numeric field to sum per time bucket. Leave empty to count records.",
+    )
+    line_date_groupby = fields.Selection([
+        ("day",   "Day"),
+        ("week",  "Week"),
+        ("month", "Month"),
+    ], string="Group By", default="month", required=True)
+    line_max_points = fields.Integer(
+        string="Max Points",
+        default=12,
+        help="Maximum number of data points on the x-axis (capped at 52).",
     )
 
     calendar_view_mode = fields.Selection([
@@ -419,15 +449,26 @@ class TrmnlProfile(models.Model):
                     % (label, rec.app_model_id.name, ", ".join(available))
                 )
 
-    @api.constrains("trmnl_layout", "graph_groupby_field_id")
+    @api.constrains("trmnl_layout", "graph_type", "graph_groupby_field_id", "line_date_field_id")
     def _check_graph_config(self):
         for rec in self:
             if rec.trmnl_layout != "graph":
                 continue
-            if not rec.graph_groupby_field_id:
-                raise ValidationError(
-                    _("Graph View requires a 'Group By' field to be set.")
-                )
+            if rec.graph_type == "bar":
+                if not rec.graph_groupby_field_id:
+                    raise ValidationError(
+                        _("Bar chart requires a 'Group By' field to be set.")
+                    )
+            elif rec.graph_type == "line":
+                if not rec.line_date_field_id:
+                    raise ValidationError(
+                        _("Line chart requires a 'Date Field' to be set.")
+                    )
+                if rec.line_date_field_id.ttype not in ("date", "datetime"):
+                    raise ValidationError(
+                        _("Line chart 'Date Field' must be a date or datetime field (got '%s').")
+                        % rec.line_date_field_id.ttype
+                    )
 
     def _build_filter_domain(self, model_name):
         """Return an ORM domain list for the active filter_preset.
@@ -501,6 +542,15 @@ class TrmnlProfile(models.Model):
         # Graph is always available: read_group() works on any model.
         found.add("graph")
         return sorted(found, key=lambda t: SUPPORTED_VIEW_TYPES.index(t))
+
+    def _model_has_date_field(self, model_name: str) -> bool:
+        """Return True if model_name has at least one date or datetime field."""
+        return bool(
+            self.env["ir.model.fields"].sudo().search_count([
+                ("model", "=", model_name),
+                ("ttype", "in", ["date", "datetime"]),
+            ])
+        )
 
     @api.depends("app_model_id")
     def _compute_available_view_types(self):

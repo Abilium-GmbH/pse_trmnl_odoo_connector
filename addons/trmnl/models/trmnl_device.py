@@ -433,23 +433,23 @@ class TrmnlDevice(models.Model):
     # helpers
     # ------------------------------------------------------------------
 
-    @api.model
-    def _voltage_to_percentage(self, voltage):
+    @staticmethod
+    def _voltage_to_percentage(voltage):
         """Convert a voltage to a battery percentage."""
         if voltage is False or voltage is None:
             return False
 
-        if voltage <= self.BATTERY_MIN_VOLTAGE:
+        if voltage <= TrmnlDevice.BATTERY_MIN_VOLTAGE:
             return 0.0
 
-        if voltage >= self.BATTERY_MAX_VOLTAGE:
+        if voltage >= TrmnlDevice.BATTERY_MAX_VOLTAGE:
             return 100.0
 
-        span = self.BATTERY_MAX_VOLTAGE - self.BATTERY_MIN_VOLTAGE
-        return int(((voltage - self.BATTERY_MIN_VOLTAGE) / span) * 100.0)
+        span = TrmnlDevice.BATTERY_MAX_VOLTAGE - TrmnlDevice.BATTERY_MIN_VOLTAGE
+        return int(((voltage - TrmnlDevice.BATTERY_MIN_VOLTAGE) / span) * 100.0)
 
-    @api.model
-    def _rssi_to_quality(self, rssi_dbm):
+    @staticmethod
+    def _rssi_to_quality(rssi_dbm):
         """Translate an RSSI reading into a coarse quality bucket."""
         if rssi_dbm is False or rssi_dbm is None:
             return "unknown"
@@ -470,8 +470,8 @@ class TrmnlDevice(models.Model):
         """Return a naive UTC datetime for filename generation."""
         return datetime.now(timezone.utc).replace(tzinfo=None)
 
-    @api.model
-    def _parse_to_string(self, value):
+    @staticmethod
+    def _parse_to_string(value):
         """Normalize a value into a stripped string."""
         if value in (None, False, ""):
             return False
@@ -479,8 +479,8 @@ class TrmnlDevice(models.Model):
         value_text = str(value).strip()
         return value_text or False
 
-    @api.model
-    def _parse_to_int(self, value):
+    @staticmethod
+    def _parse_to_int(value):
         """Normalize a value into an integer."""
         if value in (None, False, ""):
             return False
@@ -490,8 +490,8 @@ class TrmnlDevice(models.Model):
         except (TypeError, ValueError):
             return False
 
-    @api.model
-    def _parse_to_float(self, value):
+    @staticmethod
+    def _parse_to_float(value):
         """Normalize a value into a float."""
         if value in (None, False, ""):
             return False
@@ -501,8 +501,8 @@ class TrmnlDevice(models.Model):
         except (TypeError, ValueError):
             return False
 
-    @api.model
-    def _normalize_mac_address(self, value):
+    @staticmethod
+    def _normalize_mac_address(value):
         """Return a canonical uppercase colon-separated MAC address."""
         if value in (None, False, ""):
             return False

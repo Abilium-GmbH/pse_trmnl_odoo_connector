@@ -100,20 +100,42 @@
 
                     <!-- ── Graph Settings ────────────────────────────── -->
                     <group string="Graph Settings" invisible="not app_model_id or trmnl_layout != 'graph'">
+                        <field name="graph_type" string="Graph Type"/>
+                        <!-- Bar chart fields -->
                         <field
                             name="graph_groupby_field_id"
                             string="Group By"
                             domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['char', 'text', 'selection', 'many2one', 'date', 'datetime', 'boolean', 'integer'])]"
                             help="Field to group records by. Each distinct value becomes one bar."
+                            invisible="graph_type != 'bar'"
                         />
                         <field
                             name="graph_measure_field_id"
                             string="Measure (blank = Count)"
-                            domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['integer', 'float', 'monetary'])]"
-                            help="Numeric field to sum per group. Leave empty to count records."
+                            domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['integer', 'float', 'monetary']), ('store', '=', True)]"
+                            help="Stored numeric field to sum per group. Leave empty to count records."
+                            invisible="graph_type != 'bar'"
                         />
-                        <field name="graph_sort_order" string="Sort"/>
-                        <field name="graph_max_groups" string="Max Bars"/>
+                        <field name="graph_sort_order" string="Sort" invisible="graph_type != 'bar'"/>
+                        <field name="graph_max_groups" string="Max Bars" invisible="graph_type != 'bar'"/>
+                        <!-- Line chart fields -->
+                        <field
+                            name="line_date_field_id"
+                            string="Date Field"
+                            domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['date', 'datetime'])]"
+                            help="Date or datetime field used as the x-axis."
+                            invisible="graph_type != 'line'"
+                        />
+                        <field
+                            name="line_measure_field_id"
+                            string="Measure (blank = Count)"
+                            domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['integer', 'float', 'monetary']), ('store', '=', True)]"
+                            help="Stored numeric field to sum per time bucket. Leave empty to count records."
+                            invisible="graph_type != 'line'"
+                        />
+                        <field name="line_date_groupby" string="Group By" invisible="graph_type != 'line'"/>
+                        <field name="line_max_points" string="Max Points" invisible="graph_type != 'line'"/>
+                        <!-- Shared -->
                         <field name="graph_title" string="Chart Title"/>
                     </group>
 

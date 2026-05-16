@@ -83,12 +83,12 @@ class TestAvailableViewTypes(TransactionCase):
         self.assertIn("list", profile.available_view_types)
 
     def test_trmnl_layout_selection_values(self):
-        """trmnl_layout offers list, kanban, calendar when no model is set."""
-        # The selection is a method name; call it on the empty recordset to get options.
+        """trmnl_layout offers list/kanban/calendar/graph — line is a graph subtype."""
         profile_class = self.env["trmnl.profile"].sudo()
         options = profile_class._get_layout_selection_options()
         selection_keys = [k for k, _ in options]
         self.assertEqual(sorted(selection_keys), sorted(["list", "kanban", "calendar", "graph"]))
+        self.assertNotIn("line", selection_keys)
 
 
 @tagged("-at_install", "post_install")

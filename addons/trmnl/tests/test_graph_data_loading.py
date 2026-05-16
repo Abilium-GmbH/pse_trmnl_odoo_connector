@@ -31,6 +31,7 @@ class TestGraphDataLoading(TransactionCase):
             "device_id": self._device.id,
             "app_model_id": self._partner_model.id,
             "trmnl_layout": "graph",
+            "graph_type": "bar",
             "filter_preset": "none",
             "graph_groupby_field_id": self._groupby_field.id,
             "graph_sort_order": "value_desc",
@@ -59,6 +60,7 @@ class TestGraphDataLoading(TransactionCase):
                 "device_id": self._device.id,
                 "app_model_id": self._partner_model.id,
                 "trmnl_layout": "graph",
+                "graph_type": "bar",
                 "filter_preset": "none",
                 "graph_sort_order": "value_desc",
                 "graph_max_groups": 10,
@@ -215,6 +217,7 @@ class TestGraphSelection(TransactionCase):
             "device_id": self._device.id,
             "app_model_id": self._partner_model.id,
             "trmnl_layout": "graph",
+            "graph_type": "bar",
             "filter_preset": "none",
             "graph_groupby_field_id": sel_field.id,
             "graph_sort_order": "value_desc",
@@ -252,6 +255,7 @@ class TestGraphRendering(TransactionCase):
             "device_id": self._device.id,
             "app_model_id": self._partner_model.id,
             "trmnl_layout": "graph",
+            "graph_type": "bar",
             "filter_preset": "none",
             "graph_groupby_field_id": self._groupby_field.id,
             "graph_sort_order": "value_desc",
@@ -294,53 +298,53 @@ class TestGraphRendering(TransactionCase):
 
 @tagged("-at_install", "post_install")
 class TestGraphRendererUnit(TransactionCase):
-    """Unit tests for the pure-Python render_graph_preview function."""
+    """Unit tests for the pure-Python render_bar_chart function."""
 
     def test_renderer_returns_png_bytes(self):
-        from odoo.addons.trmnl.trmnl_graph_preview import render_graph_preview
+        from odoo.addons.trmnl.trmnl_chart_preview import render_bar_chart
         bars = [{"label": "Alpha", "value": 10.0}, {"label": "Beta", "value": 5.0}]
-        result = render_graph_preview(bars, "Test", "Count")
+        result = render_bar_chart(bars, "Test", "Count")
         self.assertIsInstance(result, bytes)
         self.assertTrue(result.startswith(b"\x89PNG"))
 
     def test_renderer_empty_bars(self):
-        from odoo.addons.trmnl.trmnl_graph_preview import render_graph_preview
-        result = render_graph_preview([], "Empty", "Count")
+        from odoo.addons.trmnl.trmnl_chart_preview import render_bar_chart
+        result = render_bar_chart([], "Empty", "Count")
         self.assertIsInstance(result, bytes)
         self.assertTrue(result.startswith(b"\x89PNG"))
 
     def test_renderer_single_bar(self):
-        from odoo.addons.trmnl.trmnl_graph_preview import render_graph_preview
-        result = render_graph_preview([{"label": "Only", "value": 42.0}], "Single", "Count")
+        from odoo.addons.trmnl.trmnl_chart_preview import render_bar_chart
+        result = render_bar_chart([{"label": "Only", "value": 42.0}], "Single", "Count")
         self.assertTrue(result.startswith(b"\x89PNG"))
 
     def test_renderer_zero_values(self):
         """All-zero values render without error (no division by zero)."""
-        from odoo.addons.trmnl.trmnl_graph_preview import render_graph_preview
+        from odoo.addons.trmnl.trmnl_chart_preview import render_bar_chart
         bars = [{"label": "A", "value": 0.0}, {"label": "B", "value": 0.0}]
-        result = render_graph_preview(bars, "Zeros", "Count")
+        result = render_bar_chart(bars, "Zeros", "Count")
         self.assertTrue(result.startswith(b"\x89PNG"))
 
     def test_renderer_custom_dimensions(self):
         """Custom width/content_height produce a PNG of the requested size."""
         from PIL import Image
         import io
-        from odoo.addons.trmnl.trmnl_graph_preview import render_graph_preview
+        from odoo.addons.trmnl.trmnl_chart_preview import render_bar_chart
         bars = [{"label": "X", "value": 1.0}]
-        png = render_graph_preview(bars, "Dim", "Count", width=400, content_height=300)
+        png = render_bar_chart(bars, "Dim", "Count", width=400, content_height=300)
         img = Image.open(io.BytesIO(png))
         self.assertEqual(img.size, (400, 300))
 
     def test_renderer_long_labels_truncated(self):
         """Very long labels do not crash the renderer."""
-        from odoo.addons.trmnl.trmnl_graph_preview import render_graph_preview
+        from odoo.addons.trmnl.trmnl_chart_preview import render_bar_chart
         bars = [{"label": "A" * 200, "value": 5.0}]
-        result = render_graph_preview(bars, "Long", "Count")
+        result = render_bar_chart(bars, "Long", "Count")
         self.assertTrue(result.startswith(b"\x89PNG"))
 
     def test_renderer_many_bars(self):
         """More bars than fit on screen renders an overflow indicator without crash."""
-        from odoo.addons.trmnl.trmnl_graph_preview import render_graph_preview
+        from odoo.addons.trmnl.trmnl_chart_preview import render_bar_chart
         bars = [{"label": f"Group {i}", "value": float(i)} for i in range(50)]
-        result = render_graph_preview(bars, "Many", "Count")
+        result = render_bar_chart(bars, "Many", "Count")
         self.assertTrue(result.startswith(b"\x89PNG"))

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        Device Manager group: grants access to TRMNL devices and profiles.
+        Settings administrators (base.group_system) inherit this group so they
+        can open the TRMNL app and menus without a separate assignment.
+    -->
+    <record id="group_device_manager" model="res.groups">
+        <field name="name">Device Manager</field>
+    </record>
+
+    <record id="base.group_system" model="res.groups">
+        <field name="implied_ids" eval="[(4, ref('trmnl.group_device_manager'))]"/>
+    </record>
+</odoo>

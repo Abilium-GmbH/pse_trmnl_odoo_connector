@@ -15,12 +15,14 @@ This module is one half of the two-layer rendering design:
 **Layer 2 — Pure Python drawing utilities (addon root level)**
 
   ``trmnl_preview``, ``trmnl_calendar_preview``,
-  ``trmnl_calendar_week_preview``, ``trmnl_display_canvas``.
+  ``trmnl_calendar_week_preview``, ``trmnl_chart_preview``,
+  ``trmnl_display_canvas``.
 
   These are stateless functions that accept plain Python data structures
-  (lists of strings, dicts) and return PNG bytes.  They carry no Odoo
-  imports and have no side-effects.  This isolation keeps PIL rendering
-  logic independently testable and free of ORM coupling.
+  (string rows for list, event dicts for calendar, value dicts for charts)
+  and return PNG bytes.  They carry no Odoo imports and have no
+  side-effects.  This isolation keeps PIL rendering logic independently
+  testable and free of ORM coupling.
 
 Call flow on a device poll
 --------------------------
@@ -36,13 +38,14 @@ Call flow on a device poll
             ↓ _dispatch_renderer()             here  — selects Layer 2 renderer
                 ↓ render_list_preview()        Layer 2 (pure Python)
                 ↓ render_calendar_preview()    Layer 2 (pure Python)
+                ↓ render_bar_chart()           Layer 2 (pure Python)
+                ↓ render_line_chart()          Layer 2 (pure Python)
             ↓ _finalize_display_image()        here  — composites footer band
         ↓ profile._get_display_image_url()     trmnl_profile — URL computation
 """
 from __future__ import annotations
 
 import base64
-import io
 import logging
 from calendar import monthrange
 from datetime import date, timedelta, timezone
@@ -51,6 +54,17 @@ from zoneinfo import ZoneInfo
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 from odoo.fields import Domain
+
+from odoo.addons.trmnl.trmnl_display_canvas import (
+    DISPLAY_HEIGHT as _DEFAULT_H,
+    DISPLAY_WIDTH as _DEFAULT_W,
+    FOOTER_BAND_HEIGHT as _FOOTER_H,
+    composite_with_footer,
+)
+from odoo.addons.trmnl.trmnl_calendar_preview import render_calendar_preview
+from odoo.addons.trmnl.trmnl_calendar_week_preview import render_calendar_week_preview
+from odoo.addons.trmnl.trmnl_chart_preview import render_bar_chart, render_line_chart
+from odoo.addons.trmnl.trmnl_preview import render_list_preview
 
 _logger = logging.getLogger(__name__)
 
@@ -74,9 +88,6 @@ class TrmnlProfileRenderMixin(models.Model):
     - Top-level pipeline entry points (``_render_and_store_preview``,
       ``action_render_preview``).
 
-    The pure-Python renderer modules are **not** imported at module level to
-    avoid potential circular references during Odoo addon loading; they are
-    imported lazily inside the methods that call them.
     """
 
     _inherit = "trmnl.profile"
@@ -245,6 +256,156 @@ class TrmnlProfileRenderMixin(models.Model):
         return env.search(domain, limit=limit, order="start asc")
 
     # ------------------------------------------------------------------
+    # line chart data loading
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_group_start_date(domain, field_name):
+        """Extract the bucket start date from a read_group ``__domain``.
+
+        Each read_group result row carries a ``__domain`` that constrains
+        records to that bucket, e.g.
+        ``[('create_date', '>=', datetime(2024,5,1)), ...]``.
+        We locate the ``>=`` (or ``>``) leaf for *field_name* and return
+        its value normalised to a ``datetime.date``.  Returns ``None`` when
+        no matching leaf is found.
+        """
+        from datetime import date as _date, datetime as _datetime
+        for token in domain:
+            if not isinstance(token, (list, tuple)) or len(token) != 3:
+                continue
+            f, op, val = token
+            if f != field_name or op not in (">=", ">"):
+                continue
+            if isinstance(val, _datetime):
+                return val.date()
+            if isinstance(val, _date):
+                return val
+            if isinstance(val, str):
+                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                    try:
+                        return _datetime.strptime(val, fmt).date()
+                    except ValueError:
+                        pass
+        return None
+
+    @staticmethod
+    def _generate_line_date_buckets(min_date, max_date, granularity: str):
+        """Yield every expected bucket start-date from *min_date* to *max_date*.
+
+        Buckets are contiguous and non-overlapping.  *granularity* must be
+        one of ``"day"``, ``"week"``, or ``"month"``.
+        """
+        from datetime import date as _date, timedelta
+        current = min_date
+        while current <= max_date:
+            yield current
+            if granularity == "day":
+                current = current + timedelta(days=1)
+            elif granularity == "week":
+                current = current + timedelta(weeks=1)
+            else:  # month
+                m, y = current.month, current.year
+                current = _date(y + 1, 1, 1) if m == 12 else _date(y, m + 1, 1)
+
+    @staticmethod
+    def _format_line_date_label(d, granularity: str, multi_year: bool) -> str:
+        """Format a bucket start-date as a concise x-axis label."""
+        if granularity == "day":
+            return d.strftime("%d %b %y") if multi_year else d.strftime("%d %b")
+        if granularity == "week":
+            iso = d.isocalendar()
+            return f"W{iso[1]:02d}'{str(iso[0])[2:]}" if multi_year else f"W{iso[1]:02d}"
+        # month
+        return d.strftime("%b '%y") if multi_year else d.strftime("%b")
+
+    def _line_measure_label(self) -> str:
+        """Return a human-readable measure label for the line chart y-axis."""
+        if self.line_measure_field_id:
+            return self.line_measure_field_id.field_description or self.line_measure_field_id.name
+        return "Count"
+
+    def _load_line_data(self, model_name: str) -> list[dict]:
+        """Aggregate records into time-series points for the line chart renderer.
+
+        Uses ``read_group()`` with the configured date granularity.  Returns a
+        list of ``{"label": str, "value": float}`` dicts sorted chronologically,
+        with zero-filled gaps for buckets that have no records, capped at
+        ``line_max_points`` (taking the most-recent N points).
+        """
+        self.ensure_one()
+        date_field = self.line_date_field_id
+        if not date_field:
+            return []
+
+        gb_name = date_field.name
+        granularity = self.line_date_groupby or "month"
+        gb_spec = f"{gb_name}:{granularity}"
+
+        measure_field = self.line_measure_field_id
+        m_name = measure_field.name if measure_field else None
+
+        domain = self._build_effective_domain(model_name)
+
+        # Do NOT include gb_spec in fields — Odoo 19 interprets "field:granularity"
+        # as "aggregate granularity on field", which is invalid.  The groupby
+        # columns appear in every result row automatically; __domain and __count
+        # are always present.
+        fields_spec = []
+        if m_name:
+            fields_spec.append(f"{m_name}:sum")
+
+        model_env = self.env[model_name].sudo()
+        if self.include_archived:
+            model_env = model_env.with_context(active_test=False)
+
+        try:
+            groups = model_env.read_group(
+                domain=domain,
+                fields=fields_spec,
+                groupby=[gb_spec],
+                lazy=False,
+            )
+        except Exception as exc:
+            raise UserError(
+                _("Line chart data could not be loaded: %s") % exc
+            ) from exc
+
+        if not groups:
+            return []
+
+        # Extract (start_date, value) from each group; sort chronologically.
+        dated = []
+        for row in groups:
+            start = self._extract_group_start_date(row.get("__domain", []), gb_name)
+            if start is None:
+                continue
+            value = float(row.get(m_name) or 0) if m_name else float(row.get("__count") or 0)
+            dated.append((start, value))
+        dated.sort(key=lambda x: x[0])
+
+        if not dated:
+            return []
+
+        # Build a lookup and fill zero-gaps across the full date range.
+        by_date = {d: v for d, v in dated}
+        min_date, max_date = dated[0][0], dated[-1][0]
+        all_dates = list(self._generate_line_date_buckets(min_date, max_date, granularity))
+
+        # Cap at max_points (most-recent N).
+        max_points = min(max(1, self.line_max_points or 12), 52)
+        all_dates = all_dates[-max_points:]
+
+        multi_year = len({d.year for d in all_dates}) > 1
+        return [
+            {
+                "label": self._format_line_date_label(d, granularity, multi_year),
+                "value": by_date.get(d, 0.0),
+            }
+            for d in all_dates
+        ]
+
+    # ------------------------------------------------------------------
     # graph data loading
     # ------------------------------------------------------------------
 
@@ -378,9 +539,6 @@ class TrmnlProfileRenderMixin(models.Model):
                     week_events = self._prepare_calendar_week_data(
                         self._load_calendar_week_records(week_start)
                     )
-                    from odoo.addons.trmnl.trmnl_calendar_week_preview import (
-                        render_calendar_week_preview,
-                    )
                     return render_calendar_week_preview(
                         week_events, week_start, self.calendar_week_mode,
                         width=width, content_height=content_height,
@@ -390,7 +548,6 @@ class TrmnlProfileRenderMixin(models.Model):
                     events = self._prepare_calendar_data(
                         self._load_calendar_records(year, month)
                     )
-                    from odoo.addons.trmnl.trmnl_calendar_preview import render_calendar_preview
                     return render_calendar_preview(
                         events, year, month,
                         width=width, content_height=content_height,
@@ -404,32 +561,44 @@ class TrmnlProfileRenderMixin(models.Model):
                 )
 
         if self.trmnl_layout == "graph":
+            graph_type = self.graph_type or "bar"
             try:
-                bars = self._load_graph_data(model_name)
-                title = (self.graph_title or "").strip() or (
-                    self.graph_groupby_field_id.field_description
-                    if self.graph_groupby_field_id
-                    else "Graph"
-                )
-                measure_label = self._graph_measure_label()
-                from odoo.addons.trmnl.trmnl_graph_preview import render_graph_preview
-                return render_graph_preview(
-                    bars, title, measure_label,
-                    width=width, content_height=content_height,
-                )
+                if graph_type == "line":
+                    points = self._load_line_data(model_name)
+                    title = (self.graph_title or "").strip() or (
+                        self.line_date_field_id.field_description
+                        if self.line_date_field_id
+                        else "Line Chart"
+                    )
+                    measure_label = self._line_measure_label()
+                    return render_line_chart(
+                        points, title, measure_label,
+                        width=width, content_height=content_height,
+                    )
+                else:  # bar (and any future types not yet dispatched)
+                    bars = self._load_graph_data(model_name)
+                    title = (self.graph_title or "").strip() or (
+                        self.graph_groupby_field_id.field_description
+                        if self.graph_groupby_field_id
+                        else "Graph"
+                    )
+                    measure_label = self._graph_measure_label()
+                    return render_bar_chart(
+                        bars, title, measure_label,
+                        width=width, content_height=content_height,
+                    )
             except UserError:
                 raise
             except Exception as exc:
                 _logger.warning(
-                    "TRMNL graph renderer failed for profile id=%s — falling back to list: %s",
-                    self.id, exc, exc_info=True,
+                    "TRMNL graph renderer (type=%s) failed for profile id=%s — falling back to list: %s",
+                    graph_type, self.id, exc, exc_info=True,
                 )
 
         rows = [
             [self._extract_field_value(rec, fname) for fname in field_names]
             for rec in records
         ]
-        from odoo.addons.trmnl.trmnl_preview import render_list_preview
         return render_list_preview(rows, field_labels, width=width, content_height=content_height)
 
     # ------------------------------------------------------------------
@@ -459,107 +628,24 @@ class TrmnlProfileRenderMixin(models.Model):
         return device.mac_address or "TRMNL"
 
     def _finalize_display_image(self, png_bytes):
-        """Paste content-sized PNG onto the device frame and draw the poll footer strip.
+        """Composite content PNG with device frame and poll footer strip.
 
-        Layout renderers produce ``(device_w, content_h)`` bytes.  This method
-        composites them into a full device frame with a separator line and
-        optional centered poll metadata in the footer band.
-
-        Uses device telemetry ``display_width``/``display_height`` when
-        available, falling back to the canvas constants (800×480).
+        Resolves device dimensions and poll label from ORM state, then
+        delegates all PIL compositing to ``composite_with_footer`` in
+        ``trmnl_display_canvas`` (Layer 2).
         """
         self.ensure_one()
-        from odoo.addons.trmnl.trmnl_display_canvas import (
-            DISPLAY_HEIGHT,
-            DISPLAY_WIDTH,
-            FOOTER_BAND_FILL,
-            FOOTER_BAND_HEIGHT,
-            FOOTER_SEPARATOR_GRAY,
-            draw_poll_footer_strip,
-            load_font as _lf,
-            text_width as _tw,
-        )
-
         dev = self.device_id
-        device_w = (dev.display_width if dev and dev.display_width > 0 else None) or DISPLAY_WIDTH
-        device_h = (dev.display_height if dev and dev.display_height > 0 else None) or DISPLAY_HEIGHT
-        content_h = device_h - FOOTER_BAND_HEIGHT
+        device_w = (dev.display_width if dev and dev.display_width > 0 else None) or _DEFAULT_W
+        device_h = (dev.display_height if dev and dev.display_height > 0 else None) or _DEFAULT_H
 
-        try:
-            from PIL import Image, ImageDraw
-        except ImportError:
-            return png_bytes
-
-        try:
-            content = Image.open(io.BytesIO(png_bytes)).convert("L")
-        except Exception:
-            _logger.debug(
-                "TRMNL profile id=%s: invalid content PNG for finalize", self.id, exc_info=True
-            )
-            return png_bytes
-
-        cw, ch = content.size
-        if cw != device_w:
-            _logger.debug(
-                "TRMNL profile id=%s: unexpected content width %s (expected %s)",
-                self.id, cw, device_w,
-            )
-            return png_bytes
-        if ch == device_h:
-            content = content.crop((0, 0, device_w, content_h))
-            ch = content_h
-        elif ch != content_h:
-            _logger.debug(
-                "TRMNL profile id=%s: unexpected content height %s (expected %s)",
-                self.id, ch, content_h,
-            )
-            return png_bytes
-
-        out = Image.new("L", (device_w, device_h), 255)
-        out.paste(content, (0, 0))
-        draw = ImageDraw.Draw(out)
-
-        poll_at = self.device_id.last_poll_at
-        label = None
-        font = None
-        if poll_at:
-            font = _lf(11)
-            label = self._format_poll_timestamp(self._get_footer_device_label(), poll_at)
-            max_text_w = device_w - 16
-            while len(label) > 8 and _tw(draw, label + "…", font) > max_text_w:
-                label = label[:-1]
-            if _tw(draw, label, font) > max_text_w:
-                label = (label[: max(4, len(label) - 4)] + "…") if label else ""
-
-        separator_y = content_h
-        try:
-            draw_poll_footer_strip(draw, label=label, font=font, width=device_w, display_height=device_h)
-            buf = io.BytesIO()
-            out.save(buf, format="PNG")
-            return buf.getvalue()
-        except Exception as exc:
-            _logger.warning(
-                "TRMNL profile id=%s: finalize footer/save failed (%s) — "
-                "returning full frame with content + empty footer band",
-                self.id,
-                exc,
-                exc_info=True,
-            )
-            out2 = Image.new("L", (device_w, device_h), 255)
-            out2.paste(content, (0, 0))
-            d2 = ImageDraw.Draw(out2)
-            d2.line(
-                [(0, separator_y), (device_w - 1, separator_y)],
-                fill=FOOTER_SEPARATOR_GRAY,
-                width=1,
-            )
-            d2.rectangle(
-                [0, separator_y + 1, device_w - 1, device_h - 1],
-                fill=FOOTER_BAND_FILL,
-            )
-            buf2 = io.BytesIO()
-            out2.save(buf2, format="PNG")
-            return buf2.getvalue()
+        poll_at = dev.last_poll_at
+        label = (
+            self._format_poll_timestamp(self._get_footer_device_label(), poll_at)
+            if poll_at
+            else None
+        )
+        return composite_with_footer(png_bytes, device_w, device_h, label=label)
 
     # ------------------------------------------------------------------
     # top-level render entry points
@@ -647,17 +733,12 @@ class TrmnlProfileRenderMixin(models.Model):
             field_names = ["display_name"]
             field_labels = [_("Name")]
 
-        from odoo.addons.trmnl.trmnl_display_canvas import (
-            DISPLAY_HEIGHT as _DEFAULT_H,
-            DISPLAY_WIDTH as _DEFAULT_W,
-            FOOTER_BAND_HEIGHT as _FOOTER_H,
-        )
         dev = self.device_id
         device_w = (dev.display_width if dev and dev.display_width > 0 else None) or _DEFAULT_W
         device_h = (dev.display_height if dev and dev.display_height > 0 else None) or _DEFAULT_H
         content_h = device_h - _FOOTER_H
 
-        # Calendar and graph layouts load data themselves inside _dispatch_renderer.
+        # Calendar and graph layouts load their own data inside _dispatch_renderer.
         if self.trmnl_layout in ("calendar", "graph"):
             records = self.env[model_name].sudo().browse()
         else:

@@ -13,7 +13,9 @@ frame and draws the poll footer in the reserved bottom band.
 """
 from __future__ import annotations
 
-from PIL import ImageDraw, ImageFont
+import io
+
+from PIL import Image, ImageDraw, ImageFont
 
 # System font paths tried in order when loading TrueType fonts.
 _FONT_REGULAR = (
@@ -138,3 +140,71 @@ def draw_poll_footer_strip(
     except Exception:
         # Separator + fill already drawn; omit footer text rather than failing the request.
         pass
+
+
+def composite_with_footer(
+    content_png: bytes,
+    device_w: int,
+    device_h: int,
+    label: str | None = None,
+) -> bytes:
+    """Paste content PNG onto a full device frame and draw the poll footer strip.
+
+    *content_png* must be a grayscale PNG of size ``(device_w, device_h -
+    FOOTER_BAND_HEIGHT)``.  Returns a grayscale PNG of size ``(device_w,
+    device_h)``.  The optional *label* string is truncated to fit within the
+    footer band width before rendering.  Returns *content_png* unchanged on
+    any PIL error so the device always receives something displayable.
+    """
+    content_h = device_h - FOOTER_BAND_HEIGHT
+
+    try:
+        content = Image.open(io.BytesIO(content_png)).convert("L")
+    except Exception:
+        return content_png
+
+    cw, ch = content.size
+    if cw != device_w:
+        return content_png
+    if ch == device_h:
+        content = content.crop((0, 0, device_w, content_h))
+        ch = content_h
+    elif ch != content_h:
+        return content_png
+
+    out = Image.new("L", (device_w, device_h), 255)
+    out.paste(content, (0, 0))
+    draw = ImageDraw.Draw(out)
+
+    font = None
+    if label:
+        font = load_font(11)
+        max_text_w = device_w - 16
+        while len(label) > 8 and text_width(draw, label + "…", font) > max_text_w:
+            label = label[:-1]
+        if text_width(draw, label, font) > max_text_w:
+            label = (label[: max(4, len(label) - 4)] + "…") if label else ""
+
+    try:
+        draw_poll_footer_strip(draw, label=label, font=font, width=device_w, display_height=device_h)
+        buf = io.BytesIO()
+        out.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        # Fallback: emit a valid frame with a plain separator and empty footer band.
+        out2 = Image.new("L", (device_w, device_h), 255)
+        out2.paste(content, (0, 0))
+        d2 = ImageDraw.Draw(out2)
+        separator_y = content_h
+        d2.line(
+            [(0, separator_y), (device_w - 1, separator_y)],
+            fill=FOOTER_SEPARATOR_GRAY,
+            width=1,
+        )
+        d2.rectangle(
+            [0, separator_y + 1, device_w - 1, device_h - 1],
+            fill=FOOTER_BAND_FILL,
+        )
+        buf2 = io.BytesIO()
+        out2.save(buf2, format="PNG")
+        return buf2.getvalue()

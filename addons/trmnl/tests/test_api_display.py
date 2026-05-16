@@ -7,7 +7,7 @@ from odoo.tests import HttpCase, tagged
 
 from odoo.addons.trmnl.models.trmnl_device import (
     DEFAULT_REFRESH_RATE,
-    REFRESH_RATE_UNIT_SECONDS,
+    SECONDS_PER_MINUTE,
 )
 
 from .test_api_common import (
@@ -157,10 +157,11 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         registered_device = setup_context["device"]
         api_token = setup_context["api_token"]
 
-        admin_desired_rate = 900
+        admin_desired_rate = 15 * SECONDS_PER_MINUTE
         registered_device.write({"desired_refresh_rate": admin_desired_rate})
 
-        device_reported_rate = 60
+        # Report a different rate from the device side.
+        device_reported_rate = 1 * SECONDS_PER_MINUTE
         display_response = self.url_open(
             "/api/display",
             headers=self._display_headers_with_rate(
@@ -196,7 +197,8 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         first_payload = self._response_json(first_response)
         self.assertEqual(first_payload["refresh_rate"], DEFAULT_REFRESH_RATE)
 
-        new_rate = 4 * REFRESH_RATE_UNIT_SECONDS["hours"]
+        # 20 minutes
+        new_rate = 20 * SECONDS_PER_MINUTE
         registered_device.write({"desired_refresh_rate": new_rate})
 
         second_response = self.url_open(
@@ -214,7 +216,8 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         registered_device = setup_context["device"]
         api_token = setup_context["api_token"]
 
-        admin_desired_rate = 2 * REFRESH_RATE_UNIT_SECONDS["hours"]
+        # 25 minutes
+        admin_desired_rate = 25 * SECONDS_PER_MINUTE
         registered_device.write({"desired_refresh_rate": admin_desired_rate})
 
         device_reported_rate = DEFAULT_REFRESH_RATE

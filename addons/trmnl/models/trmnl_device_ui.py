@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from odoo import _, api, fields, models
+from odoo.exceptions import UserError
 
 from .trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
@@ -14,9 +15,10 @@ class TrmnlDeviceUiExtension(models.Model):
     """Add backend management fields and actions for TRMNL devices.
 
     Provides sequence-based manual ordering, an admin-facing device name,
-    a read-only log relation, a placeholder status indicator, a display-only
-    field for the last device-reported refresh rate in minutes, and a
-    computed flag that controls visibility of the manual-accept button.
+    a read-only log relation, a display-only field for the last device-reported
+    refresh rate in minutes, a computed flag that controls visibility of the
+    manual-accept button, and multi-record action methods wired to the list
+    view's Action drop-down (accept, remove, reset).
     """
 
     _inherit = "trmnl.device"
@@ -162,3 +164,51 @@ class TrmnlDeviceUiExtension(models.Model):
         return self._open_wizard_for_device(
             "trmnl.device.reset.wizard", _("Reset Device")
         )
+
+    # ------------------------------------------------------------------
+    # multi-record list-view actions (Action drop-down)
+    # ------------------------------------------------------------------
+
+    def action_bulk_accept(self):
+        """Accept all selected devices that are not yet accepted.
+
+        Devices without a stored presented token are skipped with a warning
+        rather than aborting the entire batch, so that the remaining devices
+        are still processed.
+        """
+        skipped_names = []
+
+        for device in self:
+            if device.approval_state == APPROVAL_STATE_ACCEPTED:
+                continue
+
+            if not device.last_presented_token_hash:
+                label = device.device_name or device.friendly_id or device.mac_address
+                skipped_names.append(label)
+                continue
+
+            device.accept_device()
+
+        if skipped_names:
+            skipped_list = ", ".join(skipped_names)
+            raise UserError(
+                _(
+                    "The following device(s) could not be accepted because no "
+                    "display poll has been recorded yet (no presented token "
+                    "stored): %(devices)s",
+                    devices=skipped_list,
+                )
+            )
+
+    def action_bulk_remove(self):
+        """Delete all selected device records immediately."""
+        self.unlink()
+
+    def action_bulk_reset(self):
+        """Schedule a factory reset for all selected devices.
+
+        Sets ``reset_pending`` on every record in the selection.  The record
+        is deleted automatically by ``resolve_display_request`` once the
+        reset signal has been delivered to the device.
+        """
+        self.write({"reset_pending": True})

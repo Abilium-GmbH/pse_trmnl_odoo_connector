@@ -2,6 +2,37 @@
 <odoo>
 
     <!-- ══════════════════════════════════════════════════
+         Server actions for the list-view Action drop-down
+    ══════════════════════════════════════════════════ -->
+
+    <record id="trmnl_device_action_bulk_accept" model="ir.actions.server">
+        <field name="name">Accept Selected</field>
+        <field name="model_id" ref="model_trmnl_device"/>
+        <field name="binding_model_id" ref="model_trmnl_device"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">records.action_bulk_accept()</field>
+    </record>
+
+    <record id="trmnl_device_action_bulk_remove" model="ir.actions.server">
+        <field name="name">Remove Selected</field>
+        <field name="model_id" ref="model_trmnl_device"/>
+        <field name="binding_model_id" ref="model_trmnl_device"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">records.action_bulk_remove()</field>
+    </record>
+
+    <record id="trmnl_device_action_bulk_reset" model="ir.actions.server">
+        <field name="name">Reset Selected</field>
+        <field name="model_id" ref="model_trmnl_device"/>
+        <field name="binding_model_id" ref="model_trmnl_device"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">records.action_bulk_reset()</field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
          Search view
     ══════════════════════════════════════════════════ -->
 
@@ -73,27 +104,9 @@
 
                 <field name="filename"/>
                 <field name="last_seen_at"/>
-                <field name="desired_refresh_rate_value" string="Refresh Rate"/>
-                <field name="desired_refresh_rate_unit" string="Unit"/>
+                <field name="desired_refresh_rate_minutes" string="Refresh Rate (min)"/>
                 <field name="battery_percentage"/>
                 <field name="rssi_quality" string="Signal Strength"/>
-
-                <field name="accept_button_visible" column_invisible="1"/>
-
-                <button
-                    name="action_open_accept_wizard"
-                    type="object"
-                    icon="fa-check"
-                    title="Accept this device"
-                    invisible="not accept_button_visible"
-                />
-
-                <button
-                    name="action_open_device_form"
-                    type="object"
-                    icon="fa-cog"
-                    title="Open device"
-                />
             </list>
         </field>
     </record>
@@ -154,10 +167,10 @@
                         <group string="Configuration">
                             <field name="image_url"/>
 
-                            <label for="desired_refresh_rate_value" string="Refresh Rate"/>
+                            <label for="desired_refresh_rate_minutes" string="Refresh Rate"/>
                             <div class="o_field_widget">
-                                <field name="desired_refresh_rate_value" class="oe_inline" style="width: 80px;"/>
-                                <field name="desired_refresh_rate_unit" widget="select" class="oe_inline" style="margin-left: 8px;"/>
+                                <field name="desired_refresh_rate_minutes" class="oe_inline" style="width: 80px;"/>
+                                <span class="oe_inline" style="margin-left: 4px;">minutes</span>
                             </div>
 
                             <field name="filename" readonly="1"/>

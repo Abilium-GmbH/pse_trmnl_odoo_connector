@@ -20,7 +20,7 @@ class TrmnlApiHttpCaseMixin:
 
     DEVICE_MAC_ADDRESS = "AA:BB:CC:DD:EE:FF"
     DEVICE_FIRMWARE_VERSION = "1.5.2"
-    DEVICE_REFRESH_RATE = 1800
+    DEVICE_REFRESH_RATE = 60    # 1 minute — matches DEFAULT_REFRESH_RATE
     DEVICE_BATTERY_VOLTAGE = "4.1"
     DEVICE_RSSI = "-69"
     DEVICE_WIDTH = "800"
@@ -225,7 +225,7 @@ class TrmnlApiHttpCaseMixin:
 
         ``refresh_rate`` in the response reflects the server-configured
         ``desired_refresh_rate``, which defaults to ``DEFAULT_REFRESH_RATE``
-        (1800 s) for freshly registered devices — matching ``DEVICE_REFRESH_RATE``.
+        (60 s = 1 min) for freshly registered devices.
         """
         expected_keys = {
             "status",

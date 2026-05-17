@@ -190,7 +190,7 @@ Both types use Odoo's `read_group()` aggregation and respect Quick Filters and D
 
 The line renderer draws a dark header band, x/y axes, a 2 px data line, filled circular point markers, tick-labeled axes with abbreviated y-axis values (e.g. `1.2k`, `3M`), and faint horizontal gridlines. Missing time buckets are zero-filled. An empty result renders a valid "No data to display" image.
 
-> **Note:** The preview image shown in the form and the image served to the device are the same PNG binary. Differences in appearance on an e-ink display (e.g. alternating row shading) are due to the display's contrast characteristics — the image itself is identical.
+> **Note:** The form preview loads the same `/api/profile/image/<id>?v=…` URL the device downloads, so both show identical bytes. List layouts are threshold-binarized to pure black/white; kanban keeps grayscale (column rules, soft overflow text) to match the kanban design sample.
 
 ---
 

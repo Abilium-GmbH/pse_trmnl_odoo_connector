@@ -38,19 +38,21 @@ class ProfileImageController(http.Controller):
                 return request.make_response("", status=404)
 
             png_bytes = base64.b64decode(profile.preview_image)
+            digest = profile._preview_png_digest()
             _logger.info(
-                "TRMNL profile image GET profile_id=%s bytes=%s cache=no-store",
+                "TRMNL profile image GET profile_id=%s bytes=%s digest=%s cache=no-store",
                 profile_id,
                 len(png_bytes),
+                digest,
             )
-            return request.make_response(
-                png_bytes,
-                headers=[
-                    ("Content-Type", "image/png"),
-                    ("Content-Length", str(len(png_bytes))),
-                    ("Cache-Control", "no-store, max-age=0"),
-                ],
-            )
+            headers = [
+                ("Content-Type", "image/png"),
+                ("Content-Length", str(len(png_bytes))),
+                ("Cache-Control", "no-store, max-age=0"),
+            ]
+            if digest:
+                headers.append(("ETag", f'"{digest}"'))
+            return request.make_response(png_bytes, headers=headers)
         except Exception as exc:
             _logger.warning(
                 "TRMNL profile image serve failed profile_id=%s: %s", profile_id, exc,

@@ -14,17 +14,23 @@ frame and draws the poll footer in the reserved bottom band.
 from __future__ import annotations
 
 import io
+import os
 
 from PIL import Image, ImageDraw, ImageFont
 
-# System font paths tried in order when loading TrueType fonts.
+_MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Bundled + system font paths (TrueType). Avoid PIL's bitmap default — it looks
+# blocky on e-ink and unlike the design samples.
 _FONT_REGULAR = (
+    os.path.join(_MODULE_DIR, "static", "fonts", "DejaVuSans.ttf"),
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
 )
 _FONT_BOLD = (
+    os.path.join(_MODULE_DIR, "static", "fonts", "DejaVuSans-Bold.ttf"),
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
@@ -33,7 +39,7 @@ _FONT_BOLD = (
 
 
 def load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
-    """Load a system TrueType font; falls back to regular weight then PIL default."""
+    """Load a TrueType font; falls back to regular weight then PIL default."""
     for path in (_FONT_BOLD if bold else _FONT_REGULAR):
         try:
             return ImageFont.truetype(path, size)
@@ -88,6 +94,16 @@ EINK_ROW_ALT = 248
 EINK_HEADER_FILL = 26
 EINK_HEADER_TEXT = 255
 EINK_FOOTER_TEXT = 28
+
+# Threshold for list layout: map anti-aliased grays to pure B/W (no Floyd noise).
+# Kanban/calendar/graph pass binarize=False to preserve column rules and greys.
+EINK_BINARIZE_THRESHOLD = 200
+
+
+def binarize_for_eink(img: Image.Image, threshold: int = EINK_BINARIZE_THRESHOLD) -> Image.Image:
+    """Convert grayscale to pure black/white without error-diffusion dither."""
+    t = int(threshold)
+    return img.point(lambda p, cut=t: 255 if p >= cut else 0, mode="L")
 
 
 def draw_poll_footer_strip(
@@ -147,6 +163,8 @@ def composite_with_footer(
     device_w: int,
     device_h: int,
     label: str | None = None,
+    *,
+    binarize: bool = True,
 ) -> bytes:
     """Paste content PNG onto a full device frame and draw the poll footer strip.
 
@@ -187,6 +205,10 @@ def composite_with_footer(
 
     try:
         draw_poll_footer_strip(draw, label=label, font=font, width=device_w, display_height=device_h)
+        if binarize:
+            # Pure B/W (threshold only). Matches TRMNL 1-bit output better than
+            # Floyd–Steinberg and keeps form preview === device download bytes.
+            out = binarize_for_eink(out)
         buf = io.BytesIO()
         out.save(buf, format="PNG")
         return buf.getvalue()

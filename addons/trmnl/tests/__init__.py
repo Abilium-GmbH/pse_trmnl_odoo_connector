@@ -2,7 +2,9 @@ from . import test_api_common
 from . import test_api_display
 from . import test_api_log
 from . import test_api_setup
+from . import test_calendar_device_image
 from . import test_calendar_month_renderer
+from . import test_device_image_sync
 from . import test_device_refresh_rate
 from . import test_profile_auto_refresh
 from . import test_profile_filter_domain
@@ -12,4 +14,9 @@ from . import test_image_url
 from . import test_profile_view_types
 from . import test_graph_data_loading
 from . import test_line_data_loading
+from . import test_design_samples
+from . import test_display_image_quality
+from . import test_kanban_renderer
+from . import test_list_renderer
+from . import test_profile_dashboard_layout
 from . import test_model_selector

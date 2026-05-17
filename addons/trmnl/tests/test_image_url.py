@@ -96,6 +96,7 @@ class TestImageUrlGeneration(TransactionCase):
         self.assertIsNotNone(url)
         self.assertIn("192.168.1.127", url)
         self.assertIn(f"/api/profile/image/{profile.id}", url)
+        self.assertIn("?v=", url, "device URL must cache-bust when PNG bytes change")
 
     def test_web_base_url_localhost_is_rejected(self):
         """web.base.url=localhost yields no URL (device cannot reach it)."""

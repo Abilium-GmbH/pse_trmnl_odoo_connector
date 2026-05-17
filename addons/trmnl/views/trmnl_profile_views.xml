@@ -142,6 +142,12 @@
                     <!-- ── Content ───────────────────────────────────── -->
                     <group string="Content" invisible="not app_model_id or trmnl_layout not in ('list', 'kanban')">
                         <field
+                            name="kanban_stage_field_id"
+                            string="Kanban Stage Field"
+                            invisible="trmnl_layout != 'kanban'"
+                            options="{'no_create': True}"
+                        />
+                        <field
                             name="display_field_ids"
                             string="Fields to Display"
                             domain="[
@@ -150,7 +156,7 @@
                             ]"
                             widget="many2many_tags"
                             nolabel="1"
-                            help="Choose which fields to show. Column order follows selection order."
+                            help="List: first field is the title, next fields are metadata. Kanban: first field is the card title."
                         />
                     </group>
 

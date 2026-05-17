@@ -32,6 +32,7 @@ import math
 from PIL import Image, ImageDraw
 
 from . import trmnl_display_canvas as _canvas
+from . import trmnl_layout_ui as _ui
 
 # ── Shared chart constants ────────────────────────────────────────────────────
 # Header band height — the same dark title band appears on every chart type.
@@ -170,6 +171,8 @@ def render_bar_chart(
     *,
     width: int | None = None,
     content_height: int | None = None,
+    summary_lines: list[str] | None = None,
+    empty_message: str = "No data for selected period",
 ) -> bytes:
     """Render a horizontal bar chart as a grayscale PNG.
 
@@ -187,18 +190,17 @@ def render_bar_chart(
     img = Image.new("L", (w, h), _BG)
     draw = ImageDraw.Draw(img)
 
-    font_title = _canvas.load_font(_FONT_TITLE, bold=True)
     font_label = _canvas.load_font(_BAR_FONT_LABEL)
     font_value = _canvas.load_font(_BAR_FONT_VALUE)
     font_nodata = _canvas.load_font(_FONT_NODATA)
 
-    _draw_chart_header(draw, w, str(title) if title else "Graph", font_title)
-
-    bars_top = HEADER_H
+    bars_top = _ui.draw_chart_header(draw, w, str(title) if title else "Graph")
+    if summary_lines:
+        bars_top = _ui.draw_summary_lines(draw, w, bars_top, summary_lines)
     bars_h = h - bars_top
 
     if not bars:
-        _draw_nodata_centered(draw, "No data", (0, bars_top, w, h), font_nodata)
+        _draw_nodata_centered(draw, empty_message, (0, bars_top, w, h), font_nodata)
         draw.rectangle([0, 0, w - 1, h - 1], outline=_RULE_FAINT, width=1)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
@@ -272,6 +274,10 @@ def render_bar_chart(
     return buf.getvalue()
 
 
+_AREA_FILL = 248
+_LINE_ENDPOINT_R = 5
+
+
 def render_line_chart(
     points: list[dict],
     title: str,
@@ -279,6 +285,8 @@ def render_line_chart(
     *,
     width: int | None = None,
     content_height: int | None = None,
+    summary_lines: list[str] | None = None,
+    empty_message: str = "No data for selected period",
 ) -> bytes:
     """Render a single-series time-series line chart as a grayscale PNG.
 
@@ -296,15 +304,16 @@ def render_line_chart(
     img = Image.new("L", (w, h), _BG)
     draw = ImageDraw.Draw(img)
 
-    font_title = _canvas.load_font(_FONT_TITLE, bold=True)
     font_axis = _canvas.load_font(_LINE_FONT_AXIS)
     font_nodata = _canvas.load_font(_FONT_NODATA)
 
-    _draw_chart_header(draw, w, str(title) if title else "Line Chart", font_title)
+    chart_top_base = _ui.draw_chart_header(draw, w, str(title) if title else "Line Chart")
+    if summary_lines:
+        chart_top_base = _ui.draw_summary_lines(draw, w, chart_top_base, summary_lines)
 
     chart_left = _LINE_MARGIN_L
     chart_right = w - _MARGIN_R
-    chart_top = HEADER_H + _LINE_MARGIN_TOP
+    chart_top = chart_top_base + _LINE_MARGIN_TOP
     chart_bot = h - _LINE_MARGIN_BOT
     chart_w = chart_right - chart_left
     chart_h = chart_bot - chart_top
@@ -315,7 +324,7 @@ def render_line_chart(
 
     if not points:
         _draw_nodata_centered(
-            draw, "No data to display",
+            draw, empty_message,
             (chart_left, chart_top, chart_right, chart_bot),
             font_nodata,
         )
@@ -365,13 +374,19 @@ def render_line_chart(
     pixel_pts = [(xs[i], _py(points[i]["value"])) for i in range(n)]
 
     if n >= 2:
-        draw.line(pixel_pts, fill=_INK, width=_LINE_W)
+        area_poly = [(chart_left, chart_bot)] + pixel_pts + [(chart_right, chart_bot)]
+        draw.polygon(area_poly, fill=_AREA_FILL)
+        draw.line(pixel_pts, fill=_INK, width=_LINE_W + 1)
 
-    for px, py in pixel_pts:
-        draw.ellipse(
-            [px - _LINE_POINT_R, py - _LINE_POINT_R, px + _LINE_POINT_R, py + _LINE_POINT_R],
-            fill=_INK,
-        )
+    for i, (px, py) in enumerate(pixel_pts):
+        r = _LINE_ENDPOINT_R if (i == 0 or i == n - 1) else _LINE_POINT_R
+        draw.ellipse([px - r, py - r, px + r, py + r], fill=_INK)
+        if i == n - 1 and n > 1:
+            draw.ellipse(
+                [px - r - 1, py - r - 1, px + r + 1, py + r + 1],
+                outline=_INK,
+                width=1,
+            )
 
     if n == 1:
         val_lbl = _fmt_y(points[0]["value"])

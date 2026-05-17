@@ -1,12 +1,6 @@
-"""Generic list/table preview renderer for TRMNL e-ink displays.
+"""Dashboard-style list renderer for TRMNL e-ink displays.
 
-No Odoo ORM imports. Receives already-extracted string rows and returns PNG
-bytes. The Odoo profile model handles all data loading; this module only handles
-PIL rendering.
-
-Defaults to 800×CONTENT_HEIGHT (standard TRMNL device). Pass ``width`` and
-``content_height`` to ``render_list_preview`` to render at the device's actual
-reported resolution.
+No Odoo ORM imports. Receives pre-shaped row dicts and returns PNG bytes.
 """
 from __future__ import annotations
 
@@ -15,57 +9,30 @@ import io
 from PIL import Image, ImageDraw
 
 from . import trmnl_display_canvas as _canvas
+from . import trmnl_layout_ui as _ui
 
 DISPLAY_WIDTH = _canvas.DISPLAY_WIDTH
 DISPLAY_HEIGHT = _canvas.CONTENT_HEIGHT
 
-# Pull palette from shared canvas tokens for cohesion with other renderers.
 _BG = _canvas.EINK_WHITE
-_FG = _canvas.EINK_INK
-_HEADER_BG = _canvas.EINK_HEADER_FILL
-_HEADER_FG = _canvas.EINK_HEADER_TEXT
-_STRIPE = _canvas.EINK_ROW_ALT
-_COL_RULE = _canvas.EINK_RULE
-_HEADER_RULE = _canvas.EINK_RULE_FAINT
-_OUTLINE = _canvas.EINK_RULE_FAINT
-
-_MARGIN_X = 24
-_CELL_PAD_X = 8
-_HEADER_H = 44
-_ROW_H = 32
-_FONT_HEADER = 15
-_FONT_CELL = 13
-
-
-def _trunc(draw: ImageDraw.ImageDraw, text: str, font, max_px: int) -> str:
-    text = str(text)
-    if _canvas.text_width(draw, text, font) <= max_px:
-        return text
-    ell = "…"
-    if _canvas.text_width(draw, ell, font) > max_px:
-        return ""
-    while text and _canvas.text_width(draw, text + ell, font) > max_px:
-        text = text[:-1]
-    return text + ell if text else ell
+_INK = _canvas.EINK_INK
+_ROW_H = 38
+_OVERFLOW_RESERVE = 20
 
 
 def render_list_preview(
-    rows: list[list[str]],
-    field_labels: list[str],
+    items: list[dict],
     *,
     width: int | None = None,
     content_height: int | None = None,
+    title: str = "",
+    subtitle: str = "",
+    total_count: int | None = None,
+    empty_message: str = "No records match your filters",
 ) -> bytes:
-    """Render a list of string rows as a grayscale PNG.
+    """Render glanceable list rows (primary + metadata), not a spreadsheet table.
 
-    Defaults to 800×CONTENT_HEIGHT. Pass *width* and *content_height* from the
-    linked device record to render at the device's actual resolution.
-
-    :param rows: table data — each inner list is one row of cell strings.
-    :param field_labels: column headers — same length as each row.
-    :param width: canvas width in pixels (default: DISPLAY_WIDTH).
-    :param content_height: canvas height in pixels (default: DISPLAY_HEIGHT / CONTENT_HEIGHT).
-    :return: PNG file content as raw bytes.
+    Each item: ``{"primary": str, "meta": str, "status": "overdue"|"progress"|"done"|""}``.
     """
     w = width or DISPLAY_WIDTH
     h = content_height or DISPLAY_HEIGHT
@@ -73,66 +40,62 @@ def render_list_preview(
     img = Image.new("L", (w, h), _BG)
     draw = ImageDraw.Draw(img)
 
-    font_header = _canvas.load_font(_FONT_HEADER, bold=True)
-    font_cell = _canvas.load_font(_FONT_CELL)
+    font_primary = _canvas.load_font(_ui.FONT_PRIMARY, bold=True)
+    font_meta = _canvas.load_font(_ui.FONT_META)
 
-    n_cols = max(len(field_labels), 1)
-    inner_w = w - 2 * _MARGIN_X
-    col_w = inner_w // n_cols
+    top = _ui.draw_list_header(draw, w, title)
 
-    # Header bar + subtle bottom edge (separates title from data)
-    draw.rectangle([0, 0, w, _HEADER_H], fill=_HEADER_BG)
-    draw.line(
-        [(0, _HEADER_H - 1), (w - 1, _HEADER_H - 1)],
-        fill=_HEADER_RULE,
-        width=1,
-    )
+    if not items:
+        _ui.draw_empty_centered(draw, w, top, h, empty_message)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
 
-    for i, raw_label in enumerate(field_labels):
-        x = _MARGIN_X + i * col_w + _CELL_PAD_X
-        label = _trunc(draw, str(raw_label), font_header, col_w - 2 * _CELL_PAD_X)
-        bbox = draw.textbbox((0, 0), label, font=font_header)
-        th = bbox[3] - bbox[1]
-        y = (_HEADER_H - th) // 2 - bbox[1]
-        draw.text((x, y), label, fill=_HEADER_FG, font=font_header)
+    body_bottom = h - _OVERFLOW_RESERVE
+    max_rows = max(0, (body_bottom - top) // _ROW_H)
+    visible = items[:max_rows]
+    cap = total_count if total_count is not None else len(items)
+    more = max(0, cap - len(visible))
+    text_w = w - _ui.MARGIN_X - _ui.ACCENT_W - 6
 
-    # Column guides (below header)
-    for i in range(1, n_cols):
-        x = _MARGIN_X + i * col_w
-        draw.line(
-            [(x, _HEADER_H), (x, h - 2)],
-            fill=_COL_RULE,
-            width=1,
+    for idx, item in enumerate(visible):
+        y0 = top + idx * _ROW_H
+        status = (item.get("status") or "").strip().lower()
+        accent = _ui.ACCENT_FILL.get(status, _ui.ACCENT_FILL["default"])
+        draw.rectangle(
+            [_ui.MARGIN_X, y0 + 4, _ui.MARGIN_X + _ui.ACCENT_W - 1, y0 + _ROW_H - 5],
+            fill=accent,
         )
 
-    max_rows = (h - _HEADER_H) // _ROW_H
-    for row_idx, row in enumerate(rows[:max_rows]):
-        y_top = _HEADER_H + row_idx * _ROW_H
-        if row_idx % 2 == 1:
-            draw.rectangle([0, y_top, w, y_top + _ROW_H], fill=_STRIPE)
+        marker = _ui.STATUS_MARKERS.get(status, "")
+        primary = marker + str(item.get("primary") or "")
+        meta = str(item.get("meta") or "")
 
-        # Light row baseline (e-ink friendly rhythm)
-        if row_idx > 0:
+        ptext = _ui.trunc(draw, primary, font_primary, text_w)
+        draw.text(
+            (_ui.MARGIN_X + _ui.ACCENT_W + 6, y0 + 5),
+            ptext,
+            fill=_INK,
+            font=font_primary,
+        )
+        if meta:
+            mtext = _ui.trunc(draw, meta, font_meta, text_w)
+            draw.text(
+                (_ui.MARGIN_X + _ui.ACCENT_W + 6, y0 + 22),
+                mtext,
+                fill=_canvas.EINK_INK_SOFT,
+                font=font_meta,
+            )
+
+        if idx > 0:
             draw.line(
-                [(0, y_top), (w - 1, y_top)],
-                fill=_HEADER_RULE,
+                [(_ui.MARGIN_X, y0), (w - _ui.MARGIN_X, y0)],
+                fill=_canvas.EINK_RULE_FAINT,
                 width=1,
             )
 
-        for col_idx, cell in enumerate(row):
-            x = _MARGIN_X + col_idx * col_w + _CELL_PAD_X
-            max_cell = col_w - 2 * _CELL_PAD_X
-            t = _trunc(draw, cell, font_cell, max_cell)
-            bbox = draw.textbbox((0, 0), t, font=font_cell)
-            th = bbox[3] - bbox[1]
-            y_text = y_top + (_ROW_H - th) // 2 - bbox[1]
-            draw.text((x, y_text), t, fill=_FG, font=font_cell)
-
-    draw.rectangle(
-        [0, 0, w - 1, h - 1],
-        outline=_OUTLINE,
-        width=1,
-    )
+    if more > 0:
+        _ui.draw_overflow_footer(draw, w, top + len(visible) * _ROW_H + 2, more)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")

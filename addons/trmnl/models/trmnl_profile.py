@@ -125,6 +125,16 @@ class TrmnlProfile(models.Model):
         string="Display Fields",
     )
 
+    kanban_stage_field_id = fields.Many2one(
+        "ir.model.fields",
+        string="Stage Field",
+        domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['many2one', 'selection'])]",
+        help=(
+            "Field used to group items into kanban sections (e.g. stage_id, state). "
+            "When empty, the renderer picks a sensible default on the model."
+        ),
+    )
+
     display_limit = fields.Integer(default=20)
     display_order = fields.Char(default="id desc")
 
@@ -230,6 +240,11 @@ class TrmnlProfile(models.Model):
 
     preview_image = fields.Binary(string="Preview", readonly=True)
     preview_generated_at = fields.Datetime(string="Preview Generated At", readonly=True)
+    preview_renderer_version = fields.Char(
+        string="Preview Renderer Version",
+        readonly=True,
+        help="Odoo module version used for the last render; stale values trigger re-render on device poll.",
+    )
     preview_image_html = fields.Html(
         string="Preview",
         compute="_compute_preview_image_html",
@@ -681,8 +696,10 @@ class TrmnlProfile(models.Model):
                 if rec.preview_generated_at
                 else ""
             )
-            unique = f"{ts}_{digest}" if ts else digest
-            url = f"/web/image/trmnl.profile/{rec.id}/preview_image?unique={unique}"
+            cache_qs = f"?v={digest}" if digest else ""
+            # Same endpoint the device downloads — avoids /web/image processing
+            # or cache differences vs /api/profile/image/<id>.
+            url = f"/api/profile/image/{rec.id}{cache_qs}"
             rec.preview_image_html = (
                 f'<img src="{url}" alt="Preview" '
                 f'style="max-width:100%;height:auto;display:block;"/>'
@@ -720,6 +737,32 @@ class TrmnlProfile(models.Model):
     # image URL and data access helpers
     # ------------------------------------------------------------------
 
+    def _preview_png_digest(self) -> str | None:
+        """Short hash of stored preview bytes (cache-bust URL + filename)."""
+        if not self.preview_image:
+            return None
+        try:
+            raw = base64.b64decode(self.preview_image)
+            return hashlib.sha256(raw).hexdigest()[:12]
+        except Exception:
+            return None
+
+    @api.model
+    def _get_installed_trmnl_version(self):
+        """Installed ``trmnl`` module version (changes on ``-u trmnl``)."""
+        mod = self.env["ir.module.module"].sudo().search([("name", "=", "trmnl")], limit=1)
+        return (mod.installed_version or "") if mod else ""
+
+    def _is_preview_renderer_stale(self) -> bool:
+        """True when the stored PNG was rendered with an older module version."""
+        self.ensure_one()
+        if not self.preview_image:
+            return False
+        current = self._get_installed_trmnl_version()
+        if not current:
+            return False
+        return (self.preview_renderer_version or "") != current
+
     def _get_display_image_url(self):
         """Return a device-reachable URL for this profile's preview PNG, or False.
 
@@ -727,6 +770,9 @@ class TrmnlProfile(models.Model):
         1. trmnl.public_base_url  — admin-set override, always trusted.
         2. web.base.url           — used when its host is a LAN address
                                     (any non-loopback, non-virbr0 host).
+
+        The URL includes a ``?v=<png-hash>`` query so TRMNL firmware that caches
+        by URL (not only by filename) still re-downloads after a re-render.
 
         For most local setups, setting web.base.url to the LAN IP is enough.
         trmnl.public_base_url is only needed when web.base.url cannot be
@@ -736,17 +782,20 @@ class TrmnlProfile(models.Model):
         if not self.preview_image:
             return False
 
+        digest = self._preview_png_digest()
+        cache_qs = f"?v={digest}" if digest else ""
+
         params = self.env["ir.config_parameter"].sudo()
 
         public_url = params.get_param("trmnl.public_base_url", "").strip().rstrip("/")
         if public_url:
-            url = f"{public_url}/api/profile/image/{self.id}"
+            url = f"{public_url}/api/profile/image/{self.id}{cache_qs}"
             _logger.debug("TRMNL profile id=%s image_url (trmnl.public_base_url): %s", self.id, url)
             return url
 
         web_url = params.get_param("web.base.url", "").strip().rstrip("/")
         if web_url and self._is_device_reachable_base_url(web_url):
-            url = f"{web_url}/api/profile/image/{self.id}"
+            url = f"{web_url}/api/profile/image/{self.id}{cache_qs}"
             _logger.debug("TRMNL profile id=%s image_url (web.base.url): %s", self.id, url)
             return url
 
@@ -770,11 +819,7 @@ class TrmnlProfile(models.Model):
         if not self.preview_image or not self.preview_generated_at:
             return False
         ts = self.preview_generated_at.strftime("%Y%m%dT%H%M%S")
-        try:
-            raw = base64.b64decode(self.preview_image)
-            digest = hashlib.sha256(raw).hexdigest()[:12]
-        except Exception:
-            digest = "unknown"
+        digest = self._preview_png_digest() or "unknown"
         return f"profile_{self.id}_{ts}_{digest}"
 
     def _load_records(self, model_name, field_names):
@@ -815,6 +860,186 @@ class TrmnlProfile(models.Model):
                     _("Custom Domain could not be applied: %s\nDomain: %s") % (exc, raw_custom)
                 ) from exc
             raise
+
+    _LIST_MAX_COLS = 3
+
+    def _list_total_count(self, model_name):
+        """Count records matching the profile domain (for list overflow subtitle)."""
+        model_env = self.env[model_name].sudo()
+        if self.include_archived:
+            model_env = model_env.with_context(active_test=False)
+        try:
+            domain = self._build_effective_domain(model_name)
+        except UserError:
+            raise
+        except Exception:
+            return None
+        try:
+            return model_env.search_count(domain)
+        except Exception:
+            return None
+
+    def _list_model_label(self, model_name):
+        rec = self.env["ir.model"].sudo().search([("model", "=", model_name)], limit=1)
+        return rec.name if rec else model_name
+
+    def _list_preview_subtitle(self, model_name, shown, total=None):
+        """Build the muted subtitle under the profile title on list/kanban PNGs."""
+        label = self._list_model_label(model_name)
+        if total is not None:
+            return _("%(model)s · %(shown)s of %(total)s") % {
+                "model": label,
+                "shown": shown,
+                "total": total,
+            }
+        return _("%(model)s · %(shown)s shown") % {"model": label, "shown": shown}
+
+    def _empty_state_message(self, model_name: str) -> str:
+        """Context-aware empty copy for dashboard layouts."""
+        self.ensure_one()
+        label = self._list_model_label(model_name)
+        layout = self.trmnl_layout or "list"
+        if layout == "kanban":
+            return _("No items match current filters")
+        if layout == "calendar":
+            if self.calendar_view_mode == "week":
+                return _("No meetings scheduled this week")
+            return _("No events scheduled this month")
+        if layout == "graph":
+            if self.graph_type == "line":
+                return _("No data for the selected period")
+            return _("No %(model)s data for selected filters") % {"model": label}
+        return _("No %(model)s match current filters") % {"model": label}
+
+    @staticmethod
+    def _format_compact_number(value: float) -> str:
+        v = float(value or 0)
+        if abs(v) >= 1_000_000:
+            return f"{v / 1_000_000:.1f}M"
+        if abs(v) >= 10_000:
+            return f"{v / 1_000:.1f}k"
+        if abs(v) >= 1_000:
+            return f"{v / 1_000:.2f}k".rstrip("0").rstrip(".") + "k"
+        if v == int(v):
+            return str(int(v))
+        return f"{v:.1f}"
+
+    def _infer_item_status(self, record, model_name, field_names) -> str:
+        """Map record state to list accent: overdue, progress, done, or default."""
+        Model = self.env[model_name]
+        for fname in field_names:
+            field_def = Model._fields.get(fname)
+            if not field_def or field_def.type != "selection":
+                continue
+            label = (self._extract_field_value(record, fname) or "").lower()
+            if any(k in label for k in ("done", "closed", "won", "complete", "cancel", "archived")):
+                return "done"
+            if any(k in label for k in ("progress", "doing", "running", "pending", "open")):
+                return "progress"
+        today = fields.Date.context_today(self)
+        for fname in ("date_deadline", "activity_date_deadline"):
+            if fname not in Model._fields:
+                continue
+            val = record[fname]
+            if val and val < today:
+                return "overdue"
+        if self.filter_preset == "overdue":
+            return "overdue"
+        return ""
+
+    def _prepare_list_items(self, records, field_names, model_name) -> list[dict]:
+        """Shape ORM rows into dashboard list items for Layer 2."""
+        names = field_names or ["display_name"]
+        primary_f = names[0]
+        meta_fs = names[1:3]
+        items = []
+        for rec in records:
+            primary = self._extract_field_value(rec, primary_f) or "—"
+            meta_parts = [self._extract_field_value(rec, f) for f in meta_fs]
+            meta = " · ".join(p for p in meta_parts if p)
+            items.append({
+                "primary": primary,
+                "meta": meta,
+                "status": self._infer_item_status(rec, model_name, names),
+            })
+        return items
+
+    def _resolve_kanban_stage_field(self, model_name) -> str | None:
+        """Return the field name used to group kanban sections."""
+        self.ensure_one()
+        if self.kanban_stage_field_id and self.kanban_stage_field_id.model == model_name:
+            return self.kanban_stage_field_id.name
+        Model = self.env[model_name]
+        for guess in ("stage_id", "state", "kanban_state", "status"):
+            if guess in Model._fields and Model._fields[guess].type in ("many2one", "selection"):
+                return guess
+        for field_rec in self.display_field_ids.filtered(lambda f: f.model == model_name):
+            if field_rec.ttype in ("many2one", "selection"):
+                return field_rec.name
+        return None
+
+    def _kanban_stage_order(self, model_name, stage_field: str, stages: list[str]) -> list[str]:
+        """Preserve selection order when available; else alphabetical."""
+        Model = self.env[model_name]
+        field_def = Model._fields.get(stage_field)
+        if field_def and field_def.type == "selection":
+            try:
+                sel = field_def.selection
+                if callable(sel):
+                    sel = sel(Model)
+                order = [label for _key, label in sel]
+                ranked = sorted(stages, key=lambda s: order.index(s) if s in order else 999)
+                return ranked + [s for s in stages if s not in ranked]
+            except Exception:
+                pass
+        return sorted(stages, key=lambda s: s.lower())
+
+    def _prepare_kanban_columns(self, records, model_name, field_names) -> list[dict]:
+        """Group records into horizontal stage columns for the kanban renderer."""
+        stage_field = self._resolve_kanban_stage_field(model_name)
+        title_f = (field_names or ["display_name"])[0]
+        meta_f = (field_names or [])[1:2]
+        grouped: dict[str, list[str]] = {}
+        for rec in records:
+            stage = (
+                self._extract_field_value(rec, stage_field)
+                if stage_field
+                else _("Unassigned")
+            ) or _("Unassigned")
+            title = self._extract_field_value(rec, title_f) or "—"
+            meta_parts = [self._extract_field_value(rec, f) for f in meta_f]
+            meta = " · ".join(p for p in meta_parts if p)
+            line = f"{title} — {meta}" if meta else title
+            grouped.setdefault(stage, []).append(line)
+        stages = self._kanban_stage_order(model_name, stage_field or "", list(grouped.keys()))
+        columns = []
+        for stage in stages:
+            lines = grouped[stage]
+            columns.append({
+                "name": stage,
+                "count": len(lines),
+                "items": lines,
+                "hidden": 0,
+            })
+        return columns
+
+    def _bar_chart_summary_lines(self, bars: list[dict], measure_label: str) -> list[str]:
+        if not bars:
+            return []
+        lines = []
+        if measure_label:
+            lines.append(measure_label)
+        total = sum(float(b.get("value") or 0) for b in bars)
+        lines.append(_("Total: %s") % self._format_compact_number(total))
+        top = max(bars, key=lambda b: float(b.get("value") or 0))
+        if top.get("label"):
+            lines.append(
+                _("Top: %(name)s (%(val)s)") % {
+                    "name": top["label"],
+                    "val": self._format_compact_number(top.get("value") or 0),
+                }
+            )
+        return lines[:3]
 
     def _extract_field_value(self, record, field_name):
         """Return a safe display string for one field value on any Odoo record."""

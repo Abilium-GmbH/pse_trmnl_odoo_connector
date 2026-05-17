@@ -39,12 +39,10 @@ GRAY_MUTED = _canvas.EINK_INK_SOFT
 DOW_BAND = 252
 TITLE_RULE = _canvas.EINK_RULE_FAINT
 
-# Out-of-month: tight diagonal hatch (clearly muted vs in-month white).
-_OUT_BASE = 249
-_OUT_HATCH1 = 10
-_OUT_HATCH2 = 7
-_OUT_SPACING = 3
-_OUT_FLOOR = 210
+# Out-of-month padding cells (QWeb-style muted background on e-ink).
+_OUT_FILL = 232
+_OUT_LINE = 188
+_OUT_HATCH_STEP = 4
 
 TODAY_FILL = 242
 TODAY_OUTLINE = _canvas.EINK_INK
@@ -84,20 +82,17 @@ def _col_right(col: int, col_w: int, width: int) -> int:
 
 
 def _fill_out_of_month_cell(img: Image.Image, x0: int, y0: int, x1: int, y1: int) -> None:
-    """Dense diagonal crosshatch — clearly muted vs in-month cells on e-ink."""
-    px = img.load()
-    s = _OUT_SPACING
-    for yy in range(y0, y1 + 1):
-        for xx in range(x0, x1 + 1):
-            v = _OUT_BASE
-            dx, dy = xx - x0, yy - y0
-            if (dx + dy) % s == 0:
-                v -= _OUT_HATCH1
-            if (dx - dy) % s == 0:
-                v -= _OUT_HATCH2
-            if v < _OUT_FLOOR:
-                v = _OUT_FLOOR
-            px[xx, yy] = v
+    """Gray cell with tight diagonal crossing lines (leading/trailing month padding)."""
+    w = x1 - x0 + 1
+    h = y1 - y0 + 1
+    patch = Image.new("L", (w, h), _OUT_FILL)
+    pdraw = ImageDraw.Draw(patch)
+    step = _OUT_HATCH_STEP
+    for offset in range(-h, w, step):
+        pdraw.line([(offset, 0), (offset + h, h - 1)], fill=_OUT_LINE)
+    for offset in range(0, w + h, step):
+        pdraw.line([(0, offset), (w - 1, offset - w + 1)], fill=_OUT_LINE)
+    img.paste(patch, (x0, y0))
 
 
 def render_calendar_preview(
@@ -166,6 +161,7 @@ def render_calendar_preview(
 
     cell_pad_x = 6
     day_num_top_pad = 3
+    pad_cells: list[tuple[int, int, int, int]] = []
 
     for row_i, week in enumerate(weeks):
         for col_i, day_num in enumerate(week):
@@ -173,15 +169,17 @@ def render_calendar_preview(
             cright = _col_right(col_i, col_w, w)
             cw = cright - cx
             cy = GRID_TOP + row_i * row_h
+            cell_box = (cx, cy, cright - 1, cy + row_h - 1)
 
             out_of_month = day_num == 0
             is_today = not out_of_month and date(year, month, day_num) == today
 
             if out_of_month:
-                _fill_out_of_month_cell(img, cx, cy, cright - 1, cy + row_h - 1)
+                pad_cells.append(cell_box)
+                _fill_out_of_month_cell(img, *cell_box)
                 continue
 
-            draw.rectangle([cx, cy, cright - 1, cy + row_h - 1], fill=WHITE)
+            draw.rectangle([*cell_box], fill=WHITE)
 
             if is_today:
                 pad_x, pad_y = 3, 2
@@ -233,6 +231,11 @@ def render_calendar_preview(
     for c in range(1, COLS):
         x = _col_x(c, col_w)
         draw.line([(x, GRID_TOP), (x, GRID_TOP + n_rows * row_h)], fill=GRAY_GRID, width=1)
+
+    # Grid lines are drawn on top of cell fills; re-paint padding cells so hatch
+    # stays visible on e-ink (matches old QWeb greyed-out out-of-month <td> cells).
+    for cell_box in pad_cells:
+        _fill_out_of_month_cell(img, *cell_box)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")

@@ -116,15 +116,15 @@ class TrmnlDeviceDisplayMixin(models.Model):
             )
 
             old_filename = profile._get_display_filename()
-            auto_refresh_due = profile._is_auto_refresh_due()
-            will_render = not profile.preview_image or auto_refresh_due
+            will_render = profile._should_render_for_device()
+            renderer_stale = profile._is_preview_renderer_stale()
 
             _logger.debug(
-                "TRMNL display: refresh decision profile id=%s auto_refresh_due=%s "
-                "will_render=%s",
+                "TRMNL display: refresh decision profile id=%s will_render=%s "
+                "renderer_stale=%s",
                 profile.id,
-                auto_refresh_due,
                 will_render,
+                renderer_stale,
             )
 
             if will_render:

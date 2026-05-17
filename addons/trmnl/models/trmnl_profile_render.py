@@ -64,6 +64,7 @@ from odoo.addons.trmnl.trmnl_display_canvas import (
 from odoo.addons.trmnl.trmnl_calendar_preview import render_calendar_preview
 from odoo.addons.trmnl.trmnl_calendar_week_preview import render_calendar_week_preview
 from odoo.addons.trmnl.trmnl_chart_preview import render_bar_chart, render_line_chart
+from odoo.addons.trmnl.trmnl_kanban_preview import render_kanban_preview
 from odoo.addons.trmnl.trmnl_preview import render_list_preview
 
 _logger = logging.getLogger(__name__)
@@ -119,6 +120,15 @@ class TrmnlProfileRenderMixin(models.Model):
             self.id, self.preview_generated_at, interval, threshold, now, due,
         )
         return due
+
+    def _should_render_for_device(self) -> bool:
+        """Whether the next device poll should re-render before serving the PNG."""
+        self.ensure_one()
+        return (
+            not self.preview_image
+            or self._is_auto_refresh_due()
+            or self._is_preview_renderer_stale()
+        )
 
     # ------------------------------------------------------------------
     # calendar data extraction (ORM records → plain Python dicts)
@@ -560,33 +570,79 @@ class TrmnlProfileRenderMixin(models.Model):
                     self.id, exc, exc_info=True,
                 )
 
+        empty_msg = self._empty_state_message(model_name)
+        title = (self.name or "").strip() or model_name
+
+        if self.trmnl_layout == "kanban":
+            try:
+                columns = self._prepare_kanban_columns(records, model_name, field_names)
+                return render_kanban_preview(
+                    columns,
+                    width=width,
+                    content_height=content_height,
+                    title=title,
+                    empty_message=empty_msg,
+                )
+            except Exception as exc:
+                _logger.warning(
+                    "TRMNL kanban renderer failed for profile id=%s — empty kanban: %s",
+                    self.id, exc, exc_info=True,
+                )
+                return render_kanban_preview(
+                    [],
+                    width=width,
+                    content_height=content_height,
+                    title=title,
+                    empty_message=empty_msg,
+                )
+
         if self.trmnl_layout == "graph":
             graph_type = self.graph_type or "bar"
             try:
                 if graph_type == "line":
                     points = self._load_line_data(model_name)
-                    title = (self.graph_title or "").strip() or (
+                    chart_title = (self.graph_title or "").strip() or (
                         self.line_date_field_id.field_description
                         if self.line_date_field_id
                         else "Line Chart"
                     )
                     measure_label = self._line_measure_label()
+                    summary = []
+                    if measure_label:
+                        summary.append(measure_label)
+                    if points:
+                        last = points[-1]
+                        summary.append(
+                            _("Latest: %(val)s (%(label)s)") % {
+                                "val": self._format_compact_number(last.get("value") or 0),
+                                "label": last.get("label", ""),
+                            }
+                        )
                     return render_line_chart(
-                        points, title, measure_label,
-                        width=width, content_height=content_height,
+                        points,
+                        chart_title,
+                        measure_label,
+                        width=width,
+                        content_height=content_height,
+                        summary_lines=summary[:2] or None,
+                        empty_message=empty_msg,
                     )
-                else:  # bar (and any future types not yet dispatched)
-                    bars = self._load_graph_data(model_name)
-                    title = (self.graph_title or "").strip() or (
-                        self.graph_groupby_field_id.field_description
-                        if self.graph_groupby_field_id
-                        else "Graph"
-                    )
-                    measure_label = self._graph_measure_label()
-                    return render_bar_chart(
-                        bars, title, measure_label,
-                        width=width, content_height=content_height,
-                    )
+                bars = self._load_graph_data(model_name)
+                chart_title = (self.graph_title or "").strip() or (
+                    self.graph_groupby_field_id.field_description
+                    if self.graph_groupby_field_id
+                    else "Graph"
+                )
+                measure_label = self._graph_measure_label()
+                return render_bar_chart(
+                    bars,
+                    chart_title,
+                    measure_label,
+                    width=width,
+                    content_height=content_height,
+                    summary_lines=self._bar_chart_summary_lines(bars, measure_label),
+                    empty_message=empty_msg,
+                )
             except UserError:
                 raise
             except Exception as exc:
@@ -595,11 +651,16 @@ class TrmnlProfileRenderMixin(models.Model):
                     graph_type, self.id, exc, exc_info=True,
                 )
 
-        rows = [
-            [self._extract_field_value(rec, fname) for fname in field_names]
-            for rec in records
-        ]
-        return render_list_preview(rows, field_labels, width=width, content_height=content_height)
+        items = self._prepare_list_items(records, field_names, model_name)
+        total = self._list_total_count(model_name)
+        return render_list_preview(
+            items,
+            width=width,
+            content_height=content_height,
+            title=title,
+            total_count=total,
+            empty_message=empty_msg,
+        )
 
     # ------------------------------------------------------------------
     # display footer compositing
@@ -645,7 +706,12 @@ class TrmnlProfileRenderMixin(models.Model):
             if poll_at
             else None
         )
-        return composite_with_footer(png_bytes, device_w, device_h, label=label)
+        # List: threshold B/W for e-ink parity. Kanban: keep grayscale (column
+        # rules, soft +N) — matches kanban_design_sample and device appearance.
+        binarize = (self.trmnl_layout or "list") == "list"
+        return composite_with_footer(
+            png_bytes, device_w, device_h, label=label, binarize=binarize,
+        )
 
     # ------------------------------------------------------------------
     # top-level render entry points
@@ -666,7 +732,7 @@ class TrmnlProfileRenderMixin(models.Model):
         record = self.browse(self.id)
         record._render_and_store_preview()
 
-        last_poll = record.device_id.last_display_at
+        last_poll = record.device_id.last_poll_at
         rate = record.device_id.desired_refresh_rate or 1800
 
         if last_poll:
@@ -748,8 +814,10 @@ class TrmnlProfileRenderMixin(models.Model):
             lambda f: f.model == model_name
         )
         if valid_display_fields:
-            field_names = valid_display_fields.mapped("name")
-            field_labels = valid_display_fields.mapped("field_description")
+            field_names = list(valid_display_fields.mapped("name"))[: self._LIST_MAX_COLS]
+            field_labels = list(valid_display_fields.mapped("field_description"))[
+                : self._LIST_MAX_COLS
+            ]
         else:
             field_names = ["display_name"]
             field_labels = [_("Name")]
@@ -773,4 +841,18 @@ class TrmnlProfileRenderMixin(models.Model):
         self.write({
             "preview_image": base64.b64encode(png_bytes),
             "preview_generated_at": fields.Datetime.now(),
+            "preview_renderer_version": self._get_installed_trmnl_version(),
         })
+        self.invalidate_recordset([
+            "preview_image_html",
+            "display_image_url",
+            "preview_image",
+        ])
+        # Point the device at this PNG immediately (same URL the form preview uses).
+        image_url = self._get_display_image_url()
+        filename = self._get_display_filename()
+        if self.device_id and image_url and filename:
+            self.device_id.sudo().write({
+                "image_url": image_url,
+                "filename": filename,
+            })

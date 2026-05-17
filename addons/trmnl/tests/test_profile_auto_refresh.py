@@ -186,10 +186,13 @@ class TestAutoRefreshOnDisplayPoll(HttpCase, TrmnlApiHttpCaseMixin):
         ctx = self._register_device_through_setup()
 
         now = dt.datetime(2026, 5, 11, 12, 0, 0)
-        self._make_profile(
+        profile = self._make_profile(
             ctx["device"],
             preview_generated_at=now - dt.timedelta(minutes=5),
         )
+        profile.write({
+            "preview_renderer_version": profile._get_installed_trmnl_version(),
+        })
 
         with patch("odoo.fields.Datetime.now", return_value=now), \
              patch(
@@ -201,6 +204,29 @@ class TestAutoRefreshOnDisplayPoll(HttpCase, TrmnlApiHttpCaseMixin):
             )
 
         mock_render.assert_not_called()
+
+    def test_stale_renderer_version_triggers_render_on_poll(self):
+        """After a module upgrade, the next poll re-renders even if the interval is fresh."""
+        self._set_display_policy(DISPLAY_POLICY_ERROR)
+        ctx = self._register_device_through_setup()
+
+        now = dt.datetime(2026, 5, 11, 12, 0, 0)
+        profile = self._make_profile(
+            ctx["device"],
+            preview_generated_at=now - dt.timedelta(minutes=1),
+            preview_renderer_version="0.0.0",
+        )
+
+        with patch("odoo.fields.Datetime.now", return_value=now), \
+             patch(
+                 "odoo.addons.trmnl.models.trmnl_profile_render.TrmnlProfileRenderMixin._render_and_store_preview"
+             ) as mock_render:
+            self.url_open(
+                "/api/display",
+                headers=self._display_headers(ctx["api_token"], ctx["device"].mac_address),
+            )
+
+        mock_render.assert_called_once()
 
     def test_stale_preview_triggers_render_on_poll(self):
         """A preview older than the interval is re-rendered on the next poll."""

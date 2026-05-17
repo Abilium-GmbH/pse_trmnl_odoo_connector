@@ -178,20 +178,27 @@ class TestCalendarMonthOutOfMonthHatch(TransactionCase):
     """Out-of-month cells use a tighter hatch vs clean white in-month."""
 
     def test_may_2026_leading_pad_is_muted_hatch(self):
-        """May 2026 week 1: Mon–Wed are previous-month padding."""
-        from odoo.addons.trmnl.trmnl_calendar_preview import GRID_TOP
+        """May 2026 week 1: Mon–Thu are previous-month padding (month starts Fri 1)."""
+        from odoo.addons.trmnl.trmnl_calendar_preview import COL_W, GRID_TOP
 
         img = _img(_render(2026, 5))
         px = img.load()
-        cell_vals = [
-            px[x, y]
-            for x in range(8, 105)
-            for y in range(GRID_TOP + 8, GRID_TOP + min(72, img.height - GRID_TOP - 2))
-        ]
-        self.assertTrue(all(200 < v < 255 for v in cell_vals))
-        self.assertGreater(max(cell_vals) - min(cell_vals), 8)
-        # Denser hatch reads visibly darker than pure white on average.
-        self.assertLess(sum(cell_vals) / len(cell_vals), 248.0)
+        row_h = _row_h(2026, 5)
+        pad_vals = []
+        for col in range(4):
+            cx = col * COL_W
+            pad_vals.extend(
+                px[x, y]
+                for x in range(cx + 10, cx + COL_W - 10)
+                for y in range(GRID_TOP + 10, GRID_TOP + row_h - 10)
+            )
+        self.assertTrue(all(180 <= v <= 255 for v in pad_vals))
+        self.assertGreater(max(pad_vals) - min(pad_vals), 12)
+        self.assertLess(sum(pad_vals) / len(pad_vals), 235.0)
+        # Fri 1 May (col 4) stays clean white in the same row.
+        cx_may = 4 * COL_W
+        in_month = px[cx_may + 20, GRID_TOP + row_h // 2]
+        self.assertGreaterEqual(in_month, 254)
 
     def test_april_2026_trailing_pad_is_muted_hatch(self):
         """April 2026 last row: trailing Thu–Sat are next-month padding (day 0)."""
@@ -213,9 +220,24 @@ class TestCalendarMonthOutOfMonthHatch(TransactionCase):
             for x in range(cx_pad + 6, cx_pad + 90)
             for y in range(last_row_y + 10, last_row_y + min(65, row_h - 12))
         ]
-        self.assertTrue(all(200 < v < 255 for v in cell_vals))
+        self.assertTrue(all(180 <= v <= 255 for v in cell_vals))
         self.assertGreater(max(cell_vals) - min(cell_vals), 8)
-        self.assertLess(sum(cell_vals) / len(cell_vals), 248.0)
+        self.assertLess(sum(cell_vals) / len(cell_vals), 235.0)
+
+    def test_padding_cells_rehatch_after_grid_lines(self):
+        """Hatch must remain visible in cell interior after grid strokes."""
+        from odoo.addons.trmnl.trmnl_calendar_preview import COL_W, GRID_TOP
+
+        img = _img(_render(2026, 5))
+        px = img.load()
+        row_h = _row_h(2026, 5)
+        interior = [
+            px[x, y]
+            for x in range(20, COL_W - 15)
+            for y in range(GRID_TOP + 15, GRID_TOP + row_h - 15)
+        ]
+        self.assertTrue(all(v < 250 for v in interior))
+        self.assertLess(sum(interior) / len(interior), 235.0)
 
     def test_event_text_stays_dark_on_in_month_day(self):
         """Event glyphs remain high-contrast on current-month cells."""

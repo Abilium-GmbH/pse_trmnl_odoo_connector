@@ -5,7 +5,7 @@
     "category": "Productivity / IoT",
     "author": "Abilium GmbH",
     "license": "Other OSI approved licence",
-    "version": "1.0.2",
+    "version": "1.0.9",
     "application": True,
     "images": ["static/description/icon.png"],
     "depends": ["base", "web"],

@@ -420,9 +420,22 @@ class TestLineRendering(TransactionCase):
         self.assertTrue(profile.preview_image)
 
     def test_action_render_preview_returns_action(self):
+        """action_render_preview notifies then re-opens the profile form."""
         profile = self._profile()
         result = profile.action_render_preview()
         self.assertEqual(result.get("type"), "ir.actions.client")
+        self.assertEqual(result.get("tag"), "display_notification")
+        next_action = result["params"]["next"]
+        self.assertEqual(next_action.get("type"), "ir.actions.act_window")
+        self.assertEqual(next_action.get("res_model"), "trmnl.profile")
+        self.assertEqual(next_action.get("res_id"), profile.id)
+
+    def test_action_render_preview_sets_preview_image_on_first_call(self):
+        """A single call to action_render_preview is enough to populate preview_image."""
+        profile = self._profile()
+        profile.write({"preview_image": False, "preview_generated_at": False})
+        profile.action_render_preview()
+        self.assertTrue(profile.preview_image, "preview_image must be set after a single call")
 
 
 # ---------------------------------------------------------------------------

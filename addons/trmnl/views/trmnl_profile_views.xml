@@ -59,7 +59,7 @@
                         <field
                             name="app_model_id"
                             string="Odoo Model"
-                            help="Select any installed Odoo model."
+                            help="Select a business model to display on the device. Wizards, mixins, and technical system models are hidden."
                         />
                         <field
                             name="trmnl_layout"
@@ -181,9 +181,10 @@
                     <!-- ── Preview ───────────────────────────────────── -->
                     <group string="Preview" invisible="not preview_image">
                         <field name="preview_generated_at" readonly="1"/>
+                        <field name="preview_image" invisible="1"/>
                         <field
-                            name="preview_image"
-                            widget="image"
+                            name="preview_image_html"
+                            widget="html"
                             readonly="1"
                             nolabel="1"
                             colspan="2"

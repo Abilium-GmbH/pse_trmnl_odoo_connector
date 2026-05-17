@@ -652,14 +652,22 @@ class TrmnlProfileRenderMixin(models.Model):
     # ------------------------------------------------------------------
 
     def action_render_preview(self):
-        """Trigger a manual preview render from the profile form view."""
+        """Trigger a manual preview render from the profile form view.
+
+        The web client saves the form (webSave) before calling this method.  We
+        re-browse the record so the render always uses the persisted field values,
+        not a stale in-memory cache from an earlier read in the same request.
+        """
         self.ensure_one()
         if not self.app_model_id:
             raise UserError(_("Select an Odoo Model before rendering a preview."))
-        self._render_and_store_preview()
 
-        last_poll = self.device_id.last_display_at
-        rate = self.device_id.desired_refresh_rate or 1800
+        self.env.flush_all()
+        record = self.browse(self.id)
+        record._render_and_store_preview()
+
+        last_poll = record.device_id.last_display_at
+        rate = record.device_id.desired_refresh_rate or 1800
 
         if last_poll:
             next_poll = last_poll + timedelta(seconds=rate)
@@ -674,6 +682,9 @@ class TrmnlProfileRenderMixin(models.Model):
                 "The device has not polled yet — power-cycle it to trigger the first poll."
             )
 
+        form_view = self.env.ref("trmnl.trmnl_profile_view_form", raise_if_not_found=False)
+        form_view_id = form_view.id if form_view else False
+
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -682,7 +693,17 @@ class TrmnlProfileRenderMixin(models.Model):
                 "message": msg,
                 "type": "success",
                 "sticky": False,
-                "next": {"type": "ir.actions.client", "tag": "reload"},
+                # Re-open the form so preview_image_html (cache-busted by
+                # preview_generated_at) and all fields reload in one click.
+                "next": {
+                    "type": "ir.actions.act_window",
+                    "name": record.name,
+                    "res_model": "trmnl.profile",
+                    "res_id": record.id,
+                    "view_mode": "form",
+                    "views": [(form_view_id, "form")],
+                    "target": "current",
+                },
             },
         }
 

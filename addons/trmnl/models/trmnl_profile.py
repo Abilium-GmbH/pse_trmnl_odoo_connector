@@ -26,6 +26,27 @@ _logger = logging.getLogger(__name__)
 
 _DOMAIN_BOOL_OPS = frozenset(("&", "|", "!"))
 
+# Technical model namespace prefixes that should never appear in the TRMNL
+# model selector.  Only clear infrastructure namespaces are listed here;
+# transient (wizard) and abstract (mixin) models are excluded via field flags
+# rather than by name.  "not ilike" produces NOT ILIKE '%prefix%' in SQL,
+# which is safe because no business model has these strings as substrings.
+_TECHNICAL_MODEL_PREFIXES = (
+    "ir.",        # Odoo infrastructure: ir.model, ir.ui.view, ir.rule, …
+    "base.",      # Internal base utilities: base.automation, base.import.*, …
+    "bus.",       # Web-push bus framework
+    "web.",       # Web-client technical models
+    "auth.",      # Authentication / TOTP / passkey models
+    "resource.",  # Scheduling-resource infrastructure (resource.calendar, …)
+)
+
+# Domain applied to the app_model_id Many2one field.  Excludes transient and
+# abstract models by flag, then excludes known technical namespaces by prefix.
+_APP_MODEL_DOMAIN = (
+    [("transient", "=", False), ("abstract", "=", False)]
+    + [("model", "not ilike", p) for p in _TECHNICAL_MODEL_PREFIXES]
+)
+
 # Priority-ordered list of date/datetime fields used by filter_preset.
 # create_date is the guaranteed fallback — it exists on every Odoo model.
 _FILTER_DATE_FIELDS = ["date_deadline", "date_order", "start", "date", "create_date"]
@@ -64,6 +85,7 @@ class TrmnlProfile(models.Model):
     app_model_id = fields.Many2one(
         "ir.model",
         string="Odoo Model",
+        domain=_APP_MODEL_DOMAIN,
     )
 
     app_model_name = fields.Char(
@@ -208,6 +230,12 @@ class TrmnlProfile(models.Model):
 
     preview_image = fields.Binary(string="Preview", readonly=True)
     preview_generated_at = fields.Datetime(string="Preview Generated At", readonly=True)
+    preview_image_html = fields.Html(
+        string="Preview",
+        compute="_compute_preview_image_html",
+        sanitize=False,
+        readonly=True,
+    )
 
     auto_refresh_interval_minutes = fields.Integer(
         string="Render Interval (min)",
@@ -543,6 +571,17 @@ class TrmnlProfile(models.Model):
         found.add("graph")
         return sorted(found, key=lambda t: SUPPORTED_VIEW_TYPES.index(t))
 
+    @staticmethod
+    def _get_app_model_domain():
+        """Return the domain used to filter app_model_id in the UI.
+
+        Exposed as a staticmethod so tests can call it without a profile
+        instance and verify the exact set of selectable models.
+        Excludes transient (wizard) and abstract (mixin) models by ORM flag,
+        then excludes known technical namespaces by prefix.
+        """
+        return list(_APP_MODEL_DOMAIN)
+
     def _model_has_date_field(self, model_name: str) -> bool:
         """Return True if model_name has at least one date or datetime field."""
         return bool(
@@ -616,6 +655,38 @@ class TrmnlProfile(models.Model):
                 rec.device_next_expected_poll_at = last + timedelta(seconds=rate)
             else:
                 rec.device_next_expected_poll_at = False
+
+    @api.depends("preview_image", "preview_generated_at")
+    def _compute_preview_image_html(self):
+        """Form preview using a cache-busted image URL.
+
+        The standard ``image`` widget keys its URL on ``write_date``.  A form
+        save (webSave) and a preview render often land in the same second, so
+        ``write_date`` does not change and the browser keeps showing the old
+        PNG.  The ``unique`` query combines ``preview_generated_at`` with a
+        short hash of the PNG bytes so the URL always changes when the image
+        changes, even within the same wall-clock second.
+        """
+        for rec in self:
+            if not rec.preview_image or not rec.id:
+                rec.preview_image_html = False
+                continue
+            try:
+                raw = base64.b64decode(rec.preview_image)
+                digest = hashlib.sha256(raw).hexdigest()[:12]
+            except Exception:
+                digest = "unknown"
+            ts = (
+                fields.Datetime.to_string(rec.preview_generated_at)
+                if rec.preview_generated_at
+                else ""
+            )
+            unique = f"{ts}_{digest}" if ts else digest
+            url = f"/web/image/trmnl.profile/{rec.id}/preview_image?unique={unique}"
+            rec.preview_image_html = (
+                f'<img src="{url}" alt="Preview" '
+                f'style="max-width:100%;height:auto;display:block;"/>'
+            )
 
     @api.depends("preview_image", "preview_generated_at")
     def _compute_display_image_url(self):

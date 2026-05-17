@@ -58,6 +58,9 @@ _ODOO_VIEW_TYPE_MAP = {"tree": "list", "list": "list", "kanban": "kanban", "cale
 # "graph" covers all chart subtypes (bar, line, …) via the graph_type field.
 SUPPORTED_VIEW_TYPES = ("list", "kanban", "calendar", "graph")
 
+# Human-readable labels for each supported view type (validation messages, UI).
+_LAYOUT_LABELS = {"list": "List", "kanban": "Kanban", "calendar": "Calendar", "graph": "Graph"}
+
 # Allowed field types per layout — drives display_field_ids picker filtering.
 # Calendar uses no display_field_ids (picker is hidden via view visibility).
 _LAYOUT_ALLOWED_TTYPES = {
@@ -484,8 +487,7 @@ class TrmnlProfile(models.Model):
                 continue
             available = rec._get_available_view_types()
             if available and rec.trmnl_layout not in available:
-                label_map = {"list": "List", "kanban": "Kanban", "calendar": "Calendar", "graph": "Graph"}
-                label = label_map.get(rec.trmnl_layout, rec.trmnl_layout)
+                label = _LAYOUT_LABELS.get(rec.trmnl_layout, rec.trmnl_layout)
                 raise ValidationError(
                     _("View Type '%s' is not available for the selected model '%s'. "
                       "Available types: %s.")
@@ -619,12 +621,11 @@ class TrmnlProfile(models.Model):
         stored values valid and prevents ORM rejection of existing records.
         Per-record filtering only affects the form dropdown when a model is selected.
         """
-        all_labels = {"list": "List", "kanban": "Kanban", "calendar": "Calendar", "graph": "Graph"}
         if not self.app_model_id:
-            return list(all_labels.items())
+            return list(_LAYOUT_LABELS.items())
         available = self._get_available_view_types()
-        options = [(t, all_labels[t]) for t in available if t in all_labels]
-        return options if options else list(all_labels.items())
+        options = [(t, _LAYOUT_LABELS[t]) for t in available if t in _LAYOUT_LABELS]
+        return options if options else list(_LAYOUT_LABELS.items())
 
     @api.depends("trmnl_layout", "app_model_id")
     def _compute_layout_warning(self):
@@ -634,8 +635,7 @@ class TrmnlProfile(models.Model):
                 continue
             available = rec._get_available_view_types()
             if rec.trmnl_layout not in available:
-                label_map = {"list": "List", "kanban": "Kanban", "calendar": "Calendar", "graph": "Graph"}
-                label = label_map.get(rec.trmnl_layout, rec.trmnl_layout)
+                label = _LAYOUT_LABELS.get(rec.trmnl_layout, rec.trmnl_layout)
                 rec.layout_warning = (
                     f"View Type '{label}' is not available for the selected model. "
                     f"Please choose one of: {', '.join(available)}."
@@ -882,17 +882,6 @@ class TrmnlProfile(models.Model):
     def _list_model_label(self, model_name):
         rec = self.env["ir.model"].sudo().search([("model", "=", model_name)], limit=1)
         return rec.name if rec else model_name
-
-    def _list_preview_subtitle(self, model_name, shown, total=None):
-        """Build the muted subtitle under the profile title on list/kanban PNGs."""
-        label = self._list_model_label(model_name)
-        if total is not None:
-            return _("%(model)s · %(shown)s of %(total)s") % {
-                "model": label,
-                "shown": shown,
-                "total": total,
-            }
-        return _("%(model)s · %(shown)s shown") % {"model": label, "shown": shown}
 
     def _empty_state_message(self, model_name: str) -> str:
         """Context-aware empty copy for dashboard layouts."""

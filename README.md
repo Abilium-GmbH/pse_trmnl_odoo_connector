@@ -39,7 +39,8 @@ Device downloads PNG and displays it
 │       ├── security/             # Access control
 │       ├── tests/                # Test suite
 │       ├── trmnl_display_canvas.py       # Shared canvas constants, font helpers, footer renderer
-│       ├── trmnl_preview.py              # List/table renderer (pure Python, PIL)
+│       ├── trmnl_preview.py              # List renderer (pure Python, PIL)
+│       ├── trmnl_kanban_preview.py       # Kanban renderer (pure Python, PIL)
 │       ├── trmnl_calendar_preview.py     # Calendar month renderer
 │       ├── trmnl_calendar_week_preview.py # Calendar week renderer
 │       └── trmnl_chart_preview.py        # Chart renderers: render_bar_chart, render_line_chart
@@ -61,7 +62,7 @@ The rendering pipeline is split into two clearly separated layers:
 
 All Odoo concerns are handled here. `TrmnlProfile` defines fields, domain building, and generic data access helpers (`_load_records`, `_extract_field_value`). `TrmnlProfileRenderMixin` extends `trmnl.profile` via `_inherit` — making it a full Odoo model — and owns the rendering pipeline: auto-refresh timing, calendar ORM queries, ORM-record → plain-dict conversion, renderer dispatch, footer compositing, and PNG persistence via `write()`.
 
-**Layer 2 — Pure Python drawing utilities** (`trmnl_preview.py`, `trmnl_calendar_preview.py`, `trmnl_calendar_week_preview.py`, `trmnl_chart_preview.py`, `trmnl_display_canvas.py`)
+**Layer 2 — Pure Python drawing utilities** (`trmnl_preview.py`, `trmnl_kanban_preview.py`, `trmnl_calendar_preview.py`, `trmnl_calendar_week_preview.py`, `trmnl_chart_preview.py`, `trmnl_display_canvas.py`)
 
 These are stateless functions. They accept plain Python data structures (string rows for list/kanban, event dicts for calendar, and value dicts for charts) and return PNG bytes. They have no Odoo ORM imports and no side-effects beyond producing image bytes. This keeps PIL rendering logic independently testable without a running Odoo instance.
 

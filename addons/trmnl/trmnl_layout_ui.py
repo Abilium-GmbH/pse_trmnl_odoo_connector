@@ -1,4 +1,4 @@
-"""Shared PIL drawing helpers for TRMNL dashboard layouts (list, kanban, charts).
+"""Shared PIL drawing helpers for TRMNL dashboard layouts (list, kanban, calendar, graph).
 
 No Odoo imports. Layout renderers import typography, truncation, and band drawing
 from here plus palette constants from ``trmnl_display_canvas``.
@@ -11,9 +11,7 @@ from . import trmnl_display_canvas as _c
 
 # Typography scale
 FONT_TITLE = 15
-FONT_DASHBOARD_TITLE = 18
 FONT_LIST_TITLE = 20
-FONT_SUBTITLE = 11
 FONT_SECTION = 13
 FONT_PRIMARY = 14
 FONT_META = 11
@@ -21,16 +19,12 @@ FONT_SMALL = 10
 FONT_EMPTY = 14
 FONT_CHART_SUMMARY = 11
 
-TITLE_BAND_H = 40
-KANBAN_TOP_BAND_H = 34
-STAGE_COLUMN_BAR_H = 22
 _LIST_HEADER_PAD_TOP = 10
 _LIST_HEADER_LINE_GAP = 8
 _LIST_HEADER_PAD_BOTTOM = 12
 LIST_HEADER_PAD_TOP = _LIST_HEADER_PAD_TOP
 MARGIN_X = 16
 ACCENT_W = 4
-ROW_GAP = 6
 
 STATUS_MARKERS = {
     "overdue": "[!] ",
@@ -49,9 +43,7 @@ _INK = _c.EINK_INK
 _SOFT = _c.EINK_INK_SOFT
 _HEADER_BG = _c.EINK_HEADER_FILL
 _HEADER_FG = _c.EINK_HEADER_TEXT
-_HEADER_SUB = 180
 _RULE = _c.EINK_RULE_FAINT
-_SECTION_BG = 250
 
 
 def trunc(draw: ImageDraw.ImageDraw, text: str, font, max_px: int) -> str:
@@ -99,41 +91,6 @@ def draw_kanban_column_header(
     line_y = y + (bb[3] - bb[1]) + line_gap
     draw.line([(x0 + pad, line_y), (x0 + col_w - pad, line_y)], fill=_INK, width=1)
     return line_y + pad_bottom
-
-
-def draw_kanban_top_band(draw: ImageDraw.ImageDraw, w: int, title: str) -> int:
-    """Kanban profile title: full-width dark bar, white text."""
-    band_h = KANBAN_TOP_BAND_H
-    draw.rectangle([0, 0, w - 1, band_h - 1], fill=_HEADER_BG)
-    draw.line([(0, band_h - 1), (w - 1, band_h - 1)], fill=_RULE, width=1)
-    if title:
-        font = _c.load_font(FONT_DASHBOARD_TITLE, bold=True)
-        t = trunc(draw, title, font, w - 2 * MARGIN_X)
-        bb = draw.textbbox((0, 0), t, font=font)
-        th = bb[3] - bb[1]
-        ty = (band_h - th) // 2 - bb[1]
-        draw.text((MARGIN_X, ty), t, fill=_HEADER_FG, font=font)
-    return band_h
-
-
-def draw_stage_column_header(
-    draw: ImageDraw.ImageDraw,
-    w: int,
-    y: int,
-    label: str,
-) -> int:
-    """Kanban stage column: dark bar, white label, rule at bottom of bar. Returns y below bar."""
-    bar_h = STAGE_COLUMN_BAR_H
-    y1 = y + bar_h - 1
-    draw.rectangle([0, y, w - 1, y1], fill=_HEADER_BG)
-    font = _c.load_font(FONT_SECTION, bold=True)
-    text = trunc(draw, label, font, w - 2 * MARGIN_X)
-    bb = draw.textbbox((0, 0), text, font=font)
-    th = bb[3] - bb[1]
-    ty = y + (bar_h - th) // 2 - bb[1]
-    draw.text((MARGIN_X, ty), text, fill=_HEADER_FG, font=font)
-    draw.line([(0, y1), (w - 1, y1)], fill=_HEADER_SUB, width=1)
-    return y1 + 1
 
 
 def draw_empty_centered(

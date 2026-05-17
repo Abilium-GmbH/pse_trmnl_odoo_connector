@@ -67,6 +67,8 @@ from odoo.addons.trmnl.trmnl_chart_preview import render_bar_chart, render_line_
 from odoo.addons.trmnl.trmnl_kanban_preview import render_kanban_preview
 from odoo.addons.trmnl.trmnl_preview import render_list_preview
 
+from .trmnl_profile import _LAYOUT_LABELS
+
 _logger = logging.getLogger(__name__)
 
 
@@ -528,7 +530,6 @@ class TrmnlProfileRenderMixin(models.Model):
         self,
         model_name,
         field_names,
-        field_labels,
         records,
         *,
         width=None,
@@ -802,8 +803,7 @@ class TrmnlProfileRenderMixin(models.Model):
 
         available = self._get_available_view_types()
         if available and self.trmnl_layout not in available:
-            label_map = {"list": "List", "kanban": "Kanban", "calendar": "Calendar", "graph": "Graph"}
-            label = label_map.get(self.trmnl_layout, self.trmnl_layout)
+            label = _LAYOUT_LABELS.get(self.trmnl_layout, self.trmnl_layout)
             raise UserError(
                 _("View Type '%s' is not available for the selected model. "
                   "Please update the profile and choose an available view type.")
@@ -815,12 +815,8 @@ class TrmnlProfileRenderMixin(models.Model):
         )
         if valid_display_fields:
             field_names = list(valid_display_fields.mapped("name"))[: self._LIST_MAX_COLS]
-            field_labels = list(valid_display_fields.mapped("field_description"))[
-                : self._LIST_MAX_COLS
-            ]
         else:
             field_names = ["display_name"]
-            field_labels = [_("Name")]
 
         dev = self.device_id
         device_w = (dev.display_width if dev and dev.display_width > 0 else None) or _DEFAULT_W
@@ -833,7 +829,7 @@ class TrmnlProfileRenderMixin(models.Model):
         else:
             records = self._load_records(model_name, field_names)
         png_bytes = self._dispatch_renderer(
-            model_name, field_names, field_labels, records,
+            model_name, field_names, records,
             width=device_w, content_height=content_h,
         )
         png_bytes = self._finalize_display_image(png_bytes)

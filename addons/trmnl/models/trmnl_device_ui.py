@@ -122,7 +122,7 @@ class TrmnlDeviceUiExtension(models.Model):
         )
         action = {
             "type": "ir.actions.act_window",
-            "name": self.device_name or self.friendly_id,
+            "name": self.device_name or self.mac_address,
             "res_model": "trmnl.device",
             "res_id": self.id,
             "view_mode": "form",
@@ -183,7 +183,7 @@ class TrmnlDeviceUiExtension(models.Model):
                 continue
 
             if not device.last_presented_token_hash:
-                label = device.device_name or device.friendly_id or device.mac_address
+                label = device.device_name or device.mac_address
                 skipped_names.append(label)
                 continue
 

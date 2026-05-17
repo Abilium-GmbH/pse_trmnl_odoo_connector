@@ -98,7 +98,6 @@ class TrmnlDeviceLifecycleMixin(models.Model):
 
         create_values = {
             "mac_address": mac_address,
-            "friendly_id": self._generate_unique_friendly_id(),
             "approval_state": APPROVAL_STATE_ACCEPTED,
             "registration_source": "setup",
             "first_seen_at": now_value,
@@ -123,11 +122,8 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         """Create a minimal stub record for a previously unseen MAC address.
 
         Called under the error policy so that the admin can review and
-        manually accept the device.  The presented token is stored as a
-        hashed value so it can be promoted on manual acceptance.
-
-        No friendly_id is assigned because that is only issued during
-        /api/setup; the device already has one stored on-board.
+        manually accept the device from the list view.  The presented token
+        is stored as a hashed value so it can be promoted on manual acceptance.
 
         Returns the newly created device record.
         """
@@ -236,12 +232,6 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         Called from ``TrmnlDeviceAcceptWizard``.  The device must have a stored
         presented token (i.e. it must have attempted at least one display poll
         since the stub record was created).
-
-        A friendly_id is generated here for unknown_device records that never
-        went through /api/setup, so the admin can identify the device in the UI.
-        The device itself will not use this server-generated ID because it
-        already has its own stored ID from its original /api/setup call against
-        whichever server it was previously paired with.
         """
         self.ensure_one()
         self._promote_presented_token_to_accepted()
@@ -252,9 +242,6 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             "accepted_at": now_value,
             "last_seen_at": now_value,
         }
-
-        if not self.friendly_id:
-            update_values["friendly_id"] = self._generate_unique_friendly_id()
 
         self.with_context(trmnl_allow_identity_update=True).write(update_values)
         return self
@@ -274,6 +261,5 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         return {
             "status": 200,
             "api_key": api_token or "",
-            "friendly_id": self.friendly_id,
             "image_url": self.image_url or "",
         }

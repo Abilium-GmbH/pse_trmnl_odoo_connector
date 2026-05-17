@@ -41,7 +41,6 @@
         <field name="model">trmnl.device</field>
         <field name="arch" type="xml">
             <search string="TRMNL Devices">
-                <field name="friendly_id"/>
                 <field name="device_name"/>
                 <field name="mac_address"/>
                 <field name="filename"/>
@@ -92,7 +91,6 @@
                 default_order="sequence, id"
             >
                 <field name="sequence" widget="handle"/>
-                <field name="friendly_id"/>
                 <field name="device_name"/>
                 <field name="mac_address"/>
 
@@ -155,9 +153,7 @@
                             <field name="device_name" placeholder="Admin-facing device name"/>
                         </h1>
                         <div class="text-muted">
-                            <field name="friendly_id" readonly="1" class="oe_inline"/>
-                            <span invisible="not friendly_id"> · </span>
-                            <field name="mac_address" readonly="1" class="oe_inline"/>
+                            <field name="mac_address" readonly="1"/>
                         </div>
                     </div>
 

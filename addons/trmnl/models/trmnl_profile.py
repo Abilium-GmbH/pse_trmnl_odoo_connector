@@ -110,11 +110,14 @@ class TrmnlProfile(models.Model):
         store=False,
     )
 
-    user_id = fields.Many2one(
+    user_ids = fields.Many2many(
         "res.users",
-        string="User",
+        "trmnl_profile_res_users_rel",
+        "profile_id",
+        "user_id",
+        string="Users",
         help=(
-            "Records for this profile are fetched as this user. "
+            "Records for this profile are fetched as these users. "
             "Affects the 'Assigned to Me' filter and the uid variable in custom domains. "
             "Leave empty to use the active user at render time."
         ),
@@ -333,7 +336,7 @@ class TrmnlProfile(models.Model):
         """
         if not domain_str or domain_str.strip() in ("", "[]"):
             return []
-        profile_user = self.user_id or self.env.user
+        profile_user = self.user_ids[:1] or self.env.user
         eval_ctx = {
             "uid": profile_user.id,
             "user": profile_user,
@@ -535,8 +538,9 @@ class TrmnlProfile(models.Model):
         if self.filter_preset == "my_records":
             if "user_id" not in existing:
                 return []
-            target_uid = self.user_id.id if self.user_id else self.env.uid
-            return [("user_id", "=", target_uid)]
+            if self.user_ids:
+                return [("user_id", "in", self.user_ids.ids)]
+            return [("user_id", "=", self.env.uid)]
 
         date_field = next((f for f in _FILTER_DATE_FIELDS if f in existing), None)
         if not date_field:

@@ -68,10 +68,11 @@
                             invisible="not app_model_id"
                         />
                         <field
-                            name="user_id"
-                            string="User"
+                            name="user_ids"
+                            string="Users"
+                            widget="many2many_tags"
                             invisible="not app_model_id or not trmnl_layout"
-                            help="Records are fetched as this user (affects 'Assigned to Me' and uid in custom domains). Leave empty to use the current user."
+                            help="Records are fetched as these users (affects 'Assigned to Me' and uid in custom domains). Leave empty to use the current user."
                         />
                         <field
                             name="layout_warning"

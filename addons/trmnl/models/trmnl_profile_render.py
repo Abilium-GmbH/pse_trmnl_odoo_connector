@@ -219,7 +219,10 @@ class TrmnlProfileRenderMixin(models.Model):
         domain = [("start", ">=", month_start), ("start", "<=", month_end)]
 
         if self.filter_preset == "my_records":
-            domain.append(("user_id", "=", self.env.uid))
+            if self.user_ids:
+                domain.append(("user_id", "in", self.user_ids.ids))
+            else:
+                domain.append(("user_id", "=", self.env.uid))
 
         raw_custom = (self.filter_domain or "").strip()
         if raw_custom and raw_custom != "[]":
@@ -248,7 +251,10 @@ class TrmnlProfileRenderMixin(models.Model):
         week_end = week_start + timedelta(days=6)
         domain = [("start", ">=", week_start), ("start", "<=", week_end)]
         if self.filter_preset == "my_records":
-            domain.append(("user_id", "=", self.env.uid))
+            if self.user_ids:
+                domain.append(("user_id", "in", self.user_ids.ids))
+            else:
+                domain.append(("user_id", "=", self.env.uid))
 
         raw_custom = (self.filter_domain or "").strip()
         if raw_custom and raw_custom != "[]":
@@ -455,7 +461,11 @@ class TrmnlProfileRenderMixin(models.Model):
 
         domain = self._build_effective_domain(model_name)
 
-        fields_spec = [gb_name]
+        # Do NOT include gb_name in fields — Odoo 19 treats plain field names
+        # in the fields list as aggregation targets, which is invalid for
+        # groupby columns.  The groupby field appears in every result row
+        # automatically; only aggregated measure fields need to be listed.
+        fields_spec = []
         if m_name:
             fields_spec.append(f"{m_name}:sum")
 

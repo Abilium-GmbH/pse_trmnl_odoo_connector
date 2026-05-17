@@ -185,7 +185,7 @@ class TrmnlApiHttpCaseMixin:
 
         self.assertEqual(self._response_status(setup_response), 200)
 
-        expected_keys = {"status", "api_key", "friendly_id", "image_url"}
+        expected_keys = {"status", "api_key", "image_url"}
         self.assertEqual(set(setup_payload.keys()), expected_keys)
         self.assertEqual(setup_payload["status"], 200)
         self.assertTrue(setup_payload["api_key"])
@@ -199,7 +199,6 @@ class TrmnlApiHttpCaseMixin:
         self.assertEqual(registered_device.approval_state, APPROVAL_STATE_ACCEPTED)
         self.assertEqual(registered_device.registration_source, "setup")
         self.assertEqual(registered_device.setup_request_count, 1)
-        self.assertEqual(registered_device.friendly_id, setup_payload["friendly_id"])
         self.assertEqual(registered_device.image_url, setup_payload["image_url"])
 
         verify_token_method = getattr(registered_device, "_verify_api_token", None)

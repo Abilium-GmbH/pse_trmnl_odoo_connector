@@ -577,9 +577,12 @@ class TrmnlProfileRenderMixin(models.Model):
                 raise
             except Exception as exc:
                 _logger.warning(
-                    "TRMNL calendar renderer failed for profile id=%s — falling back to list: %s",
+                    "TRMNL calendar renderer failed for profile id=%s: %s",
                     self.id, exc, exc_info=True,
                 )
+                raise UserError(
+                    _("Calendar preview could not be rendered: %s") % exc
+                ) from exc
 
         empty_msg = self._empty_state_message(model_name)
         title = (self.name or "").strip() or model_name
@@ -658,9 +661,12 @@ class TrmnlProfileRenderMixin(models.Model):
                 raise
             except Exception as exc:
                 _logger.warning(
-                    "TRMNL graph renderer (type=%s) failed for profile id=%s — falling back to list: %s",
+                    "TRMNL graph renderer (type=%s) failed for profile id=%s: %s",
                     graph_type, self.id, exc, exc_info=True,
                 )
+                raise UserError(
+                    _("Graph preview could not be rendered: %s") % exc
+                ) from exc
 
         items = self._prepare_list_items(records, field_names, model_name)
         total = self._list_total_count(model_name)

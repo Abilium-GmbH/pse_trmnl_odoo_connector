@@ -679,12 +679,11 @@ class TrmnlProfile(models.Model):
     def _compute_preview_image_html(self):
         """Form preview using a cache-busted image URL.
 
-        The standard ``image`` widget keys its URL on ``write_date``.  A form
-        save (webSave) and a preview render often land in the same second, so
-        ``write_date`` does not change and the browser keeps showing the old
-        PNG.  The ``unique`` query combines ``preview_generated_at`` with a
-        short hash of the PNG bytes so the URL always changes when the image
-        changes, even within the same wall-clock second.
+        The URL version token combines ``preview_generated_at`` (always updated
+        on every render) with a short hash of the PNG bytes.  The timestamp
+        component ensures the URL changes after every render even when the image
+        bytes are identical, which forces OWL to update the DOM <img> src and
+        triggers a fresh browser fetch.
         """
         for rec in self:
             if not rec.preview_image or not rec.id:
@@ -695,12 +694,17 @@ class TrmnlProfile(models.Model):
                 digest = hashlib.sha256(raw).hexdigest()[:12]
             except Exception:
                 digest = "unknown"
+            # Include preview_generated_at so the URL always changes after every
+            # render, even when image bytes are identical. Without this, OWL's
+            # virtual-DOM diff sees the same <img src> string and skips the DOM
+            # update — the browser never re-fetches the updated image.
             ts = (
-                fields.Datetime.to_string(rec.preview_generated_at)
+                rec.preview_generated_at.strftime("%Y%m%d%H%M%S")
                 if rec.preview_generated_at
                 else ""
             )
-            cache_qs = f"?v={digest}" if digest else ""
+            version = f"{ts}-{digest}" if ts and digest else digest or ts
+            cache_qs = f"?v={version}" if version else ""
             # Same endpoint the device downloads — avoids /web/image processing
             # or cache differences vs /api/profile/image/<id>.
             url = f"/api/profile/image/{rec.id}{cache_qs}"

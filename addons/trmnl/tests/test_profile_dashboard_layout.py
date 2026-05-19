@@ -78,7 +78,7 @@ class TestProfileDashboardLayout(TransactionCase):
 
         profile._render_and_store_preview()
         px = _png_pixels(profile.preview_image)
-        from odoo.addons.trmnl.trmnl_layout_ui import LIST_HEADER_PAD_TOP
+        from odoo.addons.trmnl.trmnl_display_canvas import LIST_HEADER_PAD_TOP
 
         self.assertGreaterEqual(px[20, LIST_HEADER_PAD_TOP], 250)
         self.assertLess(px[20, LIST_HEADER_PAD_TOP + 8], 40)

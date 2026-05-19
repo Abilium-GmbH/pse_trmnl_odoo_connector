@@ -6,8 +6,6 @@ import base64
 import io
 
 from odoo.addons.trmnl.trmnl_display_canvas import CONTENT_HEIGHT, DISPLAY_WIDTH
-from odoo.addons.trmnl.trmnl_kanban_preview import render_kanban_preview
-from odoo.addons.trmnl.trmnl_preview import render_list_preview
 from odoo.tests import TransactionCase, tagged
 
 
@@ -38,7 +36,7 @@ class TestDisplayImageQuality(TransactionCase):
                 "status": "progress",
             },
         ]
-        content = render_list_preview(items, title="My Sales Orders")
+        content = self.profile._render_list_png(items, title="My Sales Orders")
         result = self.profile._finalize_display_image(content)
         img = Image.open(io.BytesIO(result))
         px = img.load()
@@ -58,7 +56,7 @@ class TestDisplayImageQuality(TransactionCase):
             {"name": "Todo", "count": 1, "items": ["Task A"], "hidden": 0},
             {"name": "Done", "count": 1, "items": ["Task B"], "hidden": 0},
         ]
-        content = render_kanban_preview(cols, title="Board")
+        content = kanban_profile._render_kanban_png(cols, title="Board")
         result = kanban_profile._finalize_display_image(content)
         img = Image.open(io.BytesIO(result))
         px = img.load()

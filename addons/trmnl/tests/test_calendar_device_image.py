@@ -158,7 +158,7 @@ class TestCalendarMonthDeviceImageBytes(HttpCase, TrmnlApiHttpCaseMixin):
         """End-to-end calendar month keeps grey padding cells in the stored PNG."""
         from PIL import Image
 
-        from odoo.addons.trmnl.trmnl_calendar_preview import COL_W, GRID_TOP
+        from odoo.addons.trmnl.trmnl_display_canvas import CALENDAR_COL_W as COL_W, CALENDAR_GRID_TOP as GRID_TOP
 
         self._set_display_policy(DISPLAY_POLICY_ERROR)
         ctx = self._register_device_through_setup()

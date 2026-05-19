@@ -12,17 +12,16 @@ This module is one half of the two-layer rendering design:
   ORM-record → plain-dict conversion, PNG compositing, persistence via
   ``write()``, and auto-refresh timing.
 
-**Layer 2 — Pure Python drawing utilities (addon root level)**
+**Layer 2 — PIL drawing methods (Odoo model layer)**
 
-  ``trmnl_preview``, ``trmnl_calendar_preview``,
-  ``trmnl_calendar_week_preview``, ``trmnl_chart_preview``,
-  ``trmnl_display_canvas``.
+  ``trmnl_profile_render_list``, ``trmnl_profile_render_calendar``,
+  ``trmnl_profile_render_graph``, ``trmnl_display_canvas``.
 
-  These are stateless functions that accept plain Python data structures
-  (string rows for list, event dicts for calendar, value dicts for charts)
-  and return PNG bytes.  They carry no Odoo imports and have no
-  side-effects.  This isolation keeps PIL rendering logic independently
-  testable and free of ORM coupling.
+  The three render-layout mixins define static methods that accept plain
+  Python data structures (row dicts for list, event dicts for calendar,
+  value dicts for charts) and return PNG bytes.  They are part of the
+  trmnl.profile model (via _inherit) so they live alongside the ORM
+  data-loading code and are easy to find for an Odoo project reviewer.
 
 Call flow on a device poll
 --------------------------
@@ -35,11 +34,11 @@ Call flow on a device poll
             ↓ _load_records()                  trmnl_profile — generic ORM search
             ↓ _load_calendar_records()         here  — calendar-specific ORM search
             ↓ _prepare_calendar_data()         here  — ORM records → plain dicts
-            ↓ _dispatch_renderer()             here  — selects Layer 2 renderer
-                ↓ render_list_preview()        Layer 2 (pure Python)
-                ↓ render_calendar_preview()    Layer 2 (pure Python)
-                ↓ render_bar_chart()           Layer 2 (pure Python)
-                ↓ render_line_chart()          Layer 2 (pure Python)
+            ↓ _dispatch_renderer()             here  — selects PIL render method
+                ↓ self._render_list_png()      trmnl_profile_render_list
+                ↓ self._render_calendar_*_png  trmnl_profile_render_calendar
+                ↓ self._render_bar_chart_png() trmnl_profile_render_graph
+                ↓ self._render_line_chart_png  trmnl_profile_render_graph
             ↓ _finalize_display_image()        here  — composites footer band
         ↓ profile._get_display_image_url()     trmnl_profile — URL computation
 """
@@ -61,11 +60,10 @@ from odoo.addons.trmnl.trmnl_display_canvas import (
     FOOTER_BAND_HEIGHT as _FOOTER_H,
     composite_with_footer,
 )
-from odoo.addons.trmnl.trmnl_calendar_preview import render_calendar_preview
-from odoo.addons.trmnl.trmnl_calendar_week_preview import render_calendar_week_preview
-from odoo.addons.trmnl.trmnl_chart_preview import render_bar_chart, render_line_chart
-from odoo.addons.trmnl.trmnl_kanban_preview import render_kanban_preview
-from odoo.addons.trmnl.trmnl_preview import render_list_preview
+# PIL drawing is handled by the three render-layout mixins defined in
+# trmnl_profile_render_list, trmnl_profile_render_calendar, and
+# trmnl_profile_render_graph.  Their methods are available on self because
+# all three inherit from trmnl.profile via _inherit.
 
 from .trmnl_profile import _LAYOUT_LABELS
 
@@ -560,7 +558,7 @@ class TrmnlProfileRenderMixin(models.Model):
                     week_events = self._prepare_calendar_week_data(
                         self._load_calendar_week_records(week_start)
                     )
-                    return render_calendar_week_preview(
+                    return self._render_calendar_week_png(
                         week_events, week_start, self.calendar_week_mode,
                         width=width, content_height=content_height,
                     )
@@ -569,7 +567,7 @@ class TrmnlProfileRenderMixin(models.Model):
                     events = self._prepare_calendar_data(
                         self._load_calendar_records(year, month)
                     )
-                    return render_calendar_preview(
+                    return self._render_calendar_month_png(
                         events, year, month,
                         width=width, content_height=content_height,
                     )
@@ -590,7 +588,7 @@ class TrmnlProfileRenderMixin(models.Model):
         if self.trmnl_layout == "kanban":
             try:
                 columns = self._prepare_kanban_columns(records, model_name, field_names)
-                return render_kanban_preview(
+                return self._render_kanban_png(
                     columns,
                     width=width,
                     content_height=content_height,
@@ -602,7 +600,7 @@ class TrmnlProfileRenderMixin(models.Model):
                     "TRMNL kanban renderer failed for profile id=%s — empty kanban: %s",
                     self.id, exc, exc_info=True,
                 )
-                return render_kanban_preview(
+                return self._render_kanban_png(
                     [],
                     width=width,
                     content_height=content_height,
@@ -632,7 +630,7 @@ class TrmnlProfileRenderMixin(models.Model):
                                 "label": last.get("label", ""),
                             }
                         )
-                    return render_line_chart(
+                    return self._render_line_chart_png(
                         points,
                         chart_title,
                         measure_label,
@@ -648,7 +646,7 @@ class TrmnlProfileRenderMixin(models.Model):
                     else "Graph"
                 )
                 measure_label = self._graph_measure_label()
-                return render_bar_chart(
+                return self._render_bar_chart_png(
                     bars,
                     chart_title,
                     measure_label,
@@ -670,7 +668,7 @@ class TrmnlProfileRenderMixin(models.Model):
 
         items = self._prepare_list_items(records, field_names, model_name)
         total = self._list_total_count(model_name)
-        return render_list_preview(
+        return self._render_list_png(
             items,
             width=width,
             content_height=content_height,

@@ -8,3 +8,6 @@ from . import trmnl_device_ui
 from . import trmnl_device_wizard
 from . import trmnl_profile
 from . import trmnl_profile_render
+from . import trmnl_profile_render_list
+from . import trmnl_profile_render_calendar
+from . import trmnl_profile_render_graph

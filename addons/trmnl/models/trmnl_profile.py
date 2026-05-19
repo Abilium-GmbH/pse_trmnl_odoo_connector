@@ -588,8 +588,6 @@ class TrmnlProfile(models.Model):
             mapped = _ODOO_VIEW_TYPE_MAP.get(v["type"])
             if mapped and mapped in SUPPORTED_VIEW_TYPES:
                 found.add(mapped)
-        # Graph is always available: read_group() works on any model.
-        found.add("graph")
         return sorted(found, key=lambda t: SUPPORTED_VIEW_TYPES.index(t))
 
     @staticmethod

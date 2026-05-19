@@ -444,62 +444,56 @@ class TestLineRendering(TransactionCase):
 
 @tagged("-at_install", "post_install")
 class TestLineRendererUnit(TransactionCase):
-    """Unit tests for render_line_chart (pure Python, no ORM)."""
+    """Unit tests for the line chart renderer method on trmnl.profile."""
+
+    def _render(self, points, title="Test", measure_label="Count", **kw):
+        return self.env["trmnl.profile"]._render_line_chart_png(points, title, measure_label, **kw)
 
     def test_renderer_returns_png_bytes(self):
-        from odoo.addons.trmnl.trmnl_chart_preview import render_line_chart
         points = [{"label": "Jan", "value": 100.0}, {"label": "Feb", "value": 200.0}]
-        result = render_line_chart(points, "Revenue", "Count")
+        result = self._render(points, title="Revenue")
         self.assertIsInstance(result, bytes)
         self.assertTrue(result.startswith(b"\x89PNG"))
 
     def test_renderer_empty_points(self):
-        from odoo.addons.trmnl.trmnl_chart_preview import render_line_chart
-        result = render_line_chart([], "Empty", "Count")
+        result = self._render([], title="Empty")
         self.assertIsInstance(result, bytes)
         self.assertTrue(result.startswith(b"\x89PNG"))
 
     def test_renderer_single_point(self):
-        from odoo.addons.trmnl.trmnl_chart_preview import render_line_chart
-        result = render_line_chart([{"label": "Jan", "value": 42.0}], "Single", "Count")
+        result = self._render([{"label": "Jan", "value": 42.0}], title="Single")
         self.assertTrue(result.startswith(b"\x89PNG"))
 
     def test_renderer_all_zero_values(self):
-        from odoo.addons.trmnl.trmnl_chart_preview import render_line_chart
         points = [{"label": "A", "value": 0.0}, {"label": "B", "value": 0.0}]
-        result = render_line_chart(points, "Zeros", "Count")
+        result = self._render(points, title="Zeros")
         self.assertTrue(result.startswith(b"\x89PNG"))
 
     def test_renderer_custom_dimensions(self):
         from PIL import Image
-        from odoo.addons.trmnl.trmnl_chart_preview import render_line_chart
         points = [{"label": "X", "value": 5.0}, {"label": "Y", "value": 10.0}]
-        png = render_line_chart(points, "Dim", "Count", width=400, content_height=300)
+        png = self._render(points, title="Dim", width=400, content_height=300)
         img = Image.open(io.BytesIO(png))
         self.assertEqual(img.size, (400, 300))
 
     def test_renderer_long_labels(self):
-        from odoo.addons.trmnl.trmnl_chart_preview import render_line_chart
         points = [{"label": "A" * 100, "value": 5.0}, {"label": "B" * 100, "value": 10.0}]
-        result = render_line_chart(points, "Long", "Count")
+        result = self._render(points, title="Long")
         self.assertTrue(result.startswith(b"\x89PNG"))
 
     def test_renderer_many_points(self):
-        from odoo.addons.trmnl.trmnl_chart_preview import render_line_chart
         points = [{"label": f"W{i:02d}", "value": float(i)} for i in range(52)]
-        result = render_line_chart(points, "Many", "Count")
+        result = self._render(points, title="Many")
         self.assertTrue(result.startswith(b"\x89PNG"))
 
     def test_renderer_large_values(self):
-        from odoo.addons.trmnl.trmnl_chart_preview import render_line_chart
         points = [
             {"label": "Jan", "value": 1_500_000.0},
             {"label": "Feb", "value": 2_300_000.0},
         ]
-        result = render_line_chart(points, "Revenue M", "Revenue")
+        result = self._render(points, title="Revenue M", measure_label="Revenue")
         self.assertTrue(result.startswith(b"\x89PNG"))
 
     def test_renderer_no_title(self):
-        from odoo.addons.trmnl.trmnl_chart_preview import render_line_chart
-        result = render_line_chart([{"label": "Jan", "value": 1.0}], "", "Count")
+        result = self._render([{"label": "Jan", "value": 1.0}], title="")
         self.assertTrue(result.startswith(b"\x89PNG"))

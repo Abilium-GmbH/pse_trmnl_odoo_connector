@@ -43,10 +43,17 @@ class TestAvailableViewTypes(TransactionCase):
         profile = self._make_profile(self._partner_model)
         self.assertIn("list", profile._get_available_view_types())
 
-    def test_graph_always_included(self):
-        """graph is always available for any model (read_group works on all models)."""
+    def test_graph_included_for_model_with_graph_view(self):
+        """graph is available for res.partner, which ships with a graph view in Odoo."""
         profile = self._make_profile(self._partner_model)
         self.assertIn("graph", profile._get_available_view_types())
+
+    def test_graph_not_included_for_calendar_model(self):
+        """calendar.event has no graph view — graph must not appear in available types."""
+        if not self._calendar_model:
+            self.skipTest("calendar.event not installed")
+        profile = self._make_profile(self._calendar_model)
+        self.assertNotIn("graph", profile._get_available_view_types())
 
     def test_no_model_returns_all_supported(self):
         """Without a model set, all SUPPORTED_VIEW_TYPES are returned."""

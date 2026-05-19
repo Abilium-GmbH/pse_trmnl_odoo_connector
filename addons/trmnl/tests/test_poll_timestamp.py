@@ -214,9 +214,8 @@ class TestListRendererContentSize(TransactionCase):
     def test_list_preview_matches_content_height(self):
         from PIL import Image
 
-        from odoo.addons.trmnl.trmnl_preview import render_list_preview
-
-        png = render_list_preview([{"primary": "cell", "meta": "", "status": ""}])
+        profile = self.env["trmnl.profile"]
+        png = profile._render_list_png([{"primary": "cell", "meta": "", "status": ""}])
         img = Image.open(io.BytesIO(png))
         self.assertEqual(img.size, (DISPLAY_WIDTH, CONTENT_HEIGHT))
 

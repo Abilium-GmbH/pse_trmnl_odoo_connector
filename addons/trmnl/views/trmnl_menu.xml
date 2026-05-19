@@ -6,7 +6,7 @@
         name="TRMNL"
         sequence="10"
         web_icon="trmnl,static/description/icon.png"
-        groups="trmnl.group_device_manager"
+        groups="base.group_system"
     />
 
     <menuitem

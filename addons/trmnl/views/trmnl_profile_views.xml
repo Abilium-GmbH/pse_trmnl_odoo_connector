@@ -163,7 +163,7 @@
 
                     <!-- ── Filters &amp; Sorting ──────────────────────── -->
                     <group string="Filters &amp; Sorting" invisible="not app_model_id or not trmnl_layout">
-                        <field name="filter_preset" string="Quick Filter"/>
+                        <field name="filter_preset" string="Quick Filter" invisible="trmnl_layout == 'calendar'"/>
                         <field
                             name="filter_domain"
                             string="Domain Filter"

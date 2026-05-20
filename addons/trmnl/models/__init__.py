@@ -11,3 +11,4 @@ from . import trmnl_profile_render
 from . import trmnl_profile_render_list
 from . import trmnl_profile_render_calendar
 from . import trmnl_profile_render_graph
+from . import trmnl_data_watcher

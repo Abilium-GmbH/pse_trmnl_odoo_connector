@@ -246,6 +246,12 @@ class TrmnlProfile(models.Model):
 
     preview_image = fields.Binary(string="Preview", readonly=True)
     preview_generated_at = fields.Datetime(string="Preview Generated At", readonly=True)
+    preview_data_stale = fields.Boolean(
+        default=False,
+        help="Set by the data-change watcher when source records are created, "
+             "modified, or deleted. Cleared after each successful render. "
+             "Causes _should_render_for_device to return True on the next poll.",
+    )
     preview_renderer_version = fields.Char(
         string="Preview Renderer Version",
         readonly=True,

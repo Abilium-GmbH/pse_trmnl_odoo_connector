@@ -122,10 +122,19 @@ class TrmnlProfileRenderMixin(models.Model):
         return due
 
     def _should_render_for_device(self) -> bool:
-        """Whether the next device poll should re-render before serving the PNG."""
+        """Whether the next device poll should re-render before serving the PNG.
+
+        Returns True when any of the following hold:
+        - No preview has ever been generated.
+        - ``preview_data_stale`` was set by the data-change watcher (source
+          records were created / modified / deleted since the last render).
+        - The configured auto-refresh interval has elapsed.
+        - The stored renderer version no longer matches the installed module.
+        """
         self.ensure_one()
         return (
             not self.preview_image
+            or self.preview_data_stale
             or self._is_auto_refresh_due()
             or self._is_preview_renderer_stale()
         )
@@ -888,6 +897,7 @@ class TrmnlProfileRenderMixin(models.Model):
             "preview_image": base64.b64encode(png_bytes),
             "preview_generated_at": fields.Datetime.now(),
             "preview_renderer_version": self._get_installed_trmnl_version(),
+            "preview_data_stale": False,
         })
         self.invalidate_recordset([
             "preview_image_html",

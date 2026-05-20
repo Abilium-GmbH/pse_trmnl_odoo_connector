@@ -366,7 +366,10 @@ class TrmnlProfile(models.Model):
             return
         model_fields = self.env[model_name]._fields
         for token in domain:
-            if token in _DOMAIN_BOOL_OPS or not isinstance(token, (list, tuple)) or len(token) != 3:
+            # Must test str before "token in _DOMAIN_BOOL_OPS" — list leaves are unhashable.
+            if isinstance(token, str) and token in _DOMAIN_BOOL_OPS:
+                continue
+            if not isinstance(token, (list, tuple)) or len(token) != 3:
                 continue
             field_path = token[0]
             if not isinstance(field_path, str):
@@ -919,6 +922,15 @@ class TrmnlProfile(models.Model):
             return str(int(v))
         return f"{v:.1f}"
 
+    @staticmethod
+    def _deadline_as_date(val):
+        """Normalize date/datetime ORM values for comparison with ``context_today``."""
+        if not val:
+            return None
+        if hasattr(val, "date") and callable(val.date):
+            return val.date()
+        return val
+
     def _infer_item_status(self, record, model_name, field_names) -> str:
         """Map record state to list accent: overdue, progress, done, or default."""
         Model = self.env[model_name]
@@ -935,8 +947,8 @@ class TrmnlProfile(models.Model):
         for fname in ("date_deadline", "activity_date_deadline"):
             if fname not in Model._fields:
                 continue
-            val = record[fname]
-            if val and val < today:
+            deadline = self._deadline_as_date(record[fname])
+            if deadline and deadline < today:
                 return "overdue"
         if self.filter_preset == "overdue":
             return "overdue"

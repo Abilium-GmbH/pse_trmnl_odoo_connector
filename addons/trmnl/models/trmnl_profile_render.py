@@ -162,10 +162,18 @@ class TrmnlProfileRenderMixin(models.Model):
         """Extract timed event dicts from calendar.event ORM records for week view.
 
         All-day events are excluded.  Missing stop defaults to start + 1 hour.
-        Times are in server timezone (UTC); no conversion applied.
+        Odoo stores datetimes as naive UTC; they are converted to the user's
+        configured timezone here so the renderer works with local times throughout.
         All ORM access is isolated here so the Layer 2 renderer receives only
-        plain Python dicts.
+        plain Python dicts with naive local-time datetimes.
         """
+        user_tz_name = (self.env.user.tz or "UTC") if self.env.user else "UTC"
+        try:
+            user_tz = ZoneInfo(user_tz_name)
+        except Exception:
+            user_tz = ZoneInfo("UTC")
+        utc = ZoneInfo("UTC")
+
         events = []
         for rec in records:
             try:
@@ -175,10 +183,13 @@ class TrmnlProfileRenderMixin(models.Model):
                 if getattr(rec, "allday", False):
                     continue
                 stop = rec.stop or (start + timedelta(hours=1))
+                # Convert naive UTC → aware UTC → aware local → naive local.
+                start_local = start.replace(tzinfo=utc).astimezone(user_tz).replace(tzinfo=None)
+                stop_local = stop.replace(tzinfo=utc).astimezone(user_tz).replace(tzinfo=None)
                 events.append({
                     "title":          rec.display_name or "",
-                    "start_datetime": start,
-                    "end_datetime":   stop,
+                    "start_datetime": start_local,
+                    "end_datetime":   stop_local,
                 })
             except Exception:
                 pass
@@ -192,13 +203,25 @@ class TrmnlProfileRenderMixin(models.Model):
         today = date.today()
         return today.year, today.month
 
+    def _resolve_local_today(self) -> date:
+        """Return today's date in the user's configured timezone."""
+        user_tz_name = (self.env.user.tz or "UTC") if self.env.user else "UTC"
+        try:
+            from datetime import datetime as _dt
+            return _dt.now(ZoneInfo(user_tz_name)).date()
+        except Exception:
+            return date.today()
+
     def _resolve_calendar_week_start(self) -> date:
-        """Return the Monday of the target week based on reference settings."""
+        """Return the Monday of the target week in the user's local timezone."""
         if self.calendar_reference_mode == "custom" and self.calendar_reference_date:
             ref = self.calendar_reference_date
             return ref - timedelta(days=ref.weekday())
-        today = date.today()
-        return today - timedelta(days=today.weekday())
+        # Use the user's timezone so "today" matches what the user actually sees.
+        # date.today() returns the server date (UTC on most hosts), which can be
+        # one day behind/ahead of the user's local date near midnight.
+        local_today = self._resolve_local_today()
+        return local_today - timedelta(days=local_today.weekday())
 
     # ------------------------------------------------------------------
     # calendar ORM loading
@@ -240,14 +263,26 @@ class TrmnlProfileRenderMixin(models.Model):
         return env.search(domain, limit=limit, order="start asc")
 
     def _load_calendar_week_records(self, week_start: date):
-        """Load calendar.event records for the full Mon–Sun week window.
+        """Load calendar.event records for the displayed week.
 
         Always loads the full 7 days regardless of week_mode so the renderer
         can decide which columns to draw.  Respects my_records filter and
         applies filter_domain on top.
+
+        The query window is expanded by ±1 day around the Mon–Sun range so
+        that events which fall within the displayed week after UTC→local
+        timezone conversion are never missed.  The renderer filters to the
+        correct columns using local-time dates.
+
+        Note: Odoo interprets a bare date value in a Datetime domain as
+        midnight of that date (UTC), so ``<= Sunday`` silently drops all
+        Sunday events after 00:00 UTC.  Using ``< Monday-next-week`` (i.e.
+        the strict-less-than form with the following day) is the correct way
+        to include the full last day of the range.
         """
-        week_end = week_start + timedelta(days=6)
-        domain = [("start", ">=", week_start), ("start", "<=", week_end)]
+        query_start = week_start - timedelta(days=1)
+        query_end = week_start + timedelta(days=8)  # Mon next week + 1 → strict <
+        domain = [("start", ">=", query_start), ("start", "<", query_end)]
         if self.filter_preset == "my_records":
             if self.user_ids:
                 domain.append(("user_id", "in", self.user_ids.ids))
@@ -561,6 +596,7 @@ class TrmnlProfileRenderMixin(models.Model):
                     return self._render_calendar_week_png(
                         week_events, week_start, self.calendar_week_mode,
                         width=width, content_height=content_height,
+                        today=self._resolve_local_today(),
                     )
                 else:
                     year, month = self._resolve_calendar_date()

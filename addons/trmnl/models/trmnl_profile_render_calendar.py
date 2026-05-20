@@ -236,6 +236,7 @@ class TrmnlProfileRenderCalendarMixin(models.Model):
         *,
         width: int | None = None,
         content_height: int | None = None,
+        today: date | None = None,
     ) -> bytes:
         """Render a week-view time-grid calendar as a grayscale PNG.
 
@@ -281,7 +282,7 @@ class TrmnlProfileRenderCalendarMixin(models.Model):
         img = Image.new("L", (w, h), _canvas.EINK_WHITE)
         draw = ImageDraw.Draw(img)
 
-        today = date.today()
+        today = today or date.today()
         _, iso_week, _ = week_start.isocalendar()
 
         # ── Week banner ────────────────────────────────────────────────────
@@ -355,38 +356,50 @@ class TrmnlProfileRenderCalendarMixin(models.Model):
             end_dt = ev.get("end_datetime")
             if not isinstance(start_dt, datetime) or not isinstance(end_dt, datetime):
                 continue
-            col_idx = (start_dt.date() - week_start).days
-            if col_idx < 0 or col_idx >= num_days:
-                continue
-            start_min = start_dt.hour * 60 + start_dt.minute
-            end_min = end_dt.hour * 60 + end_dt.minute
-            if end_min <= _HOUR_START * 60 or start_min >= _HOUR_END * 60:
-                continue
-
-            cx = _TIME_COL_W + col_idx * col_w + ev_pad
-            cr = (w if col_idx == num_days - 1 else _TIME_COL_W + (col_idx + 1) * col_w) - ev_pad
-
-            frac_start = max(0.0, min(float(_HOURS), (start_dt.hour - _HOUR_START) + start_dt.minute / 60.0))
-            frac_end = max(0.0, min(float(_HOURS), (end_dt.hour - _HOUR_START) + end_dt.minute / 60.0))
-            y_top = grid_top + int(frac_start * hour_h_f)
-            y_bot = grid_top + int(frac_end * hour_h_f)
-            y_top = max(y_top, grid_top)
-            y_bot = min(y_bot, grid_top + grid_h)
-            y_bot = max(y_bot, y_top + ev_min_h)
-
-            draw.rectangle(
-                [cx, y_top, cr - 1, y_bot - 1],
-                fill=_GRAY_EVENT,
-                outline=_GRAY_EVENT_OUTLINE,
-                width=1,
-            )
-            ev_label = f"{start_dt.strftime('%H:%M')} {ev.get('title', '')}".strip()
-            draw.text(
-                (cx + 3, y_top + 3),
-                _trunc_cal(draw, ev_label, f_event, cr - cx - 8),
-                fill=_canvas.EINK_WHITE,
-                font=f_event,
-            )
+            ev_start_date = start_dt.date()
+            ev_end_date = end_dt.date()
+            # Render one segment per column the event spans (handles multi-day events).
+            for col_idx in range(num_days):
+                col_date = week_start + timedelta(days=col_idx)
+                if col_date < ev_start_date or col_date > ev_end_date:
+                    continue
+                seg_start_h = (
+                    start_dt.hour + start_dt.minute / 60.0
+                    if col_date == ev_start_date
+                    else float(_HOUR_START)
+                )
+                seg_end_h = (
+                    end_dt.hour + end_dt.minute / 60.0
+                    if col_date == ev_end_date
+                    else float(_HOUR_END)
+                )
+                # Skip segments entirely outside the visible hour range.
+                if seg_end_h <= _HOUR_START or seg_start_h >= _HOUR_END:
+                    continue
+                cx = _TIME_COL_W + col_idx * col_w + ev_pad
+                cr = (w if col_idx == num_days - 1 else _TIME_COL_W + (col_idx + 1) * col_w) - ev_pad
+                frac_start = max(0.0, min(float(_HOURS), seg_start_h - _HOUR_START))
+                frac_end = max(0.0, min(float(_HOURS), seg_end_h - _HOUR_START))
+                y_top = grid_top + int(frac_start * hour_h_f)
+                y_bot = grid_top + int(frac_end * hour_h_f)
+                y_top = max(y_top, grid_top)
+                y_bot = min(y_bot, grid_top + grid_h)
+                y_bot = max(y_bot, y_top + ev_min_h)
+                draw.rectangle(
+                    [cx, y_top, cr - 1, y_bot - 1],
+                    fill=_GRAY_EVENT,
+                    outline=_GRAY_EVENT_OUTLINE,
+                    width=1,
+                )
+                # Label only on the first (start) column segment.
+                if col_date == ev_start_date:
+                    ev_label = f"{start_dt.strftime('%H:%M')} {ev.get('title', '')}".strip()
+                    draw.text(
+                        (cx + 3, y_top + 3),
+                        _trunc_cal(draw, ev_label, f_event, cr - cx - 8),
+                        fill=_canvas.EINK_WHITE,
+                        font=f_event,
+                    )
 
         buf = io.BytesIO()
         img.save(buf, format="PNG")

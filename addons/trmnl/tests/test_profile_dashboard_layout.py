@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import base64
 import io
+from datetime import datetime, timedelta
 
+from odoo import fields
 from odoo.tests import TransactionCase, tagged
 
 
@@ -63,6 +65,36 @@ class TestProfileDashboardLayout(TransactionCase):
         self.assertIn("primary", items[0])
         self.assertIn("meta", items[0])
         self.assertIn("status", items[0])
+
+    def test_infer_item_status_datetime_deadline_vs_today(self):
+        """project.task date_deadline is datetime — must not crash list render."""
+        if "project.task" not in self.env:
+            self.skipTest("project module not installed")
+        task_model = self.env["ir.model"].sudo().search(
+            [("model", "=", "project.task")], limit=1
+        )
+        name_field = self.env["ir.model.fields"].sudo().search(
+            [("model", "=", "project.task"), ("name", "=", "name")], limit=1
+        )
+        profile = self._profile(
+            "list",
+            app_model_id=task_model.id,
+            display_field_ids=[(6, 0, [name_field.id])],
+            filter_preset="none",
+            filter_domain="[]",
+        )
+        yesterday = fields.Datetime.to_string(
+            datetime.combine(
+                fields.Date.context_today(profile) - timedelta(days=1),
+                datetime.min.time(),
+            )
+        )
+        task = self.env["project.task"].sudo().create({
+            "name": "Overdue datetime deadline",
+            "date_deadline": yesterday,
+        })
+        status = profile._infer_item_status(task, "project.task", ["name"])
+        self.assertEqual(status, "overdue")
 
     def test_kanban_profile_renders_column_layout(self):
         profile = self._profile(

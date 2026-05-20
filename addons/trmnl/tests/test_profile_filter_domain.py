@@ -92,6 +92,42 @@ class TestProfileFilterDomain(TransactionCase):
         profile = self._profile(filter_domain="[('id', 'in', [1, 2])]")
         self.assertTrue(profile.filter_domain)
 
+    def test_build_effective_domain_list_shaped_leaves(self):
+        """Domain widget may store leaves as lists; render must not crash."""
+        profile = self._profile(filter_domain="[]")
+        domain = [
+            ["name", "!=", False],
+            ["id", "in", [1, 2, 3]],
+        ]
+        profile._validate_custom_domain_fields(domain, "res.partner")
+        built = profile._build_effective_domain("res.partner")
+        records = profile.env["res.partner"].sudo().search(built, limit=5)
+        self.assertTrue(records is not None)
+
+    def test_render_with_many2one_domain_widget_value(self):
+        """project_id picked in domain UI is often [id, label] — must flatten."""
+        if "project.task" not in self.env:
+            self.skipTest("project module not installed")
+        project = self.env["project.project"].sudo().create({"name": "Office Design"})
+        task_model = self.env["ir.model"].sudo().search(
+            [("model", "=", "project.task")], limit=1
+        )
+        name_field = self.env["ir.model.fields"].sudo().search(
+            [("model", "=", "project.task"), ("name", "=", "name")], limit=1
+        )
+        profile = self.env["trmnl.profile"].sudo().create({
+            "name": "Kanban domain m2o",
+            "device_id": self._device.id,
+            "app_model_id": task_model.id,
+            "trmnl_layout": "kanban",
+            "filter_preset": "none",
+            "filter_domain": str([("project_id", "=", [project.id, project.name])]),
+            "display_field_ids": [(6, 0, [name_field.id])],
+            "display_limit": 50,
+        })
+        profile._render_and_store_preview()
+        self.assertTrue(profile.preview_image)
+
     def test_empty_domain_saves_cleanly(self):
         profile = self._profile(filter_domain="[]")
         self.assertEqual(profile.filter_domain, "[]")

@@ -188,6 +188,36 @@ class TestCalendarWeekRendererORM(TransactionCase):
         )
         self.assertTrue(result.startswith(b"\x89PNG"))
 
+    def test_monday_midnight_event_not_skipped(self):
+        """An event at 00:30 on Monday must appear in column 0, not be dropped."""
+        events = [
+            {
+                "start_datetime": datetime(2026, 5, 18, 0, 30),
+                "end_datetime": datetime(2026, 5, 18, 1, 30),
+                "title": "Early Monday",
+            }
+        ]
+        # Must not raise and must return valid PNG — event is outside the visible
+        # 07:00–19:00 grid so it is clipped, but must not crash.
+        result = self.env["trmnl.profile"]._render_calendar_week_png(
+            events, date(2026, 5, 18), "work_week"
+        )
+        self.assertTrue(result.startswith(b"\x89PNG"))
+
+    def test_sunday_late_event_not_skipped_in_full_week(self):
+        """An event at 23:00 on Sunday must appear in column 6 in full_week mode."""
+        events = [
+            {
+                "start_datetime": datetime(2026, 5, 24, 23, 0),
+                "end_datetime": datetime(2026, 5, 24, 23, 59),
+                "title": "Late Sunday",
+            }
+        ]
+        result = self.env["trmnl.profile"]._render_calendar_week_png(
+            events, date(2026, 5, 18), "full_week"
+        )
+        self.assertTrue(result.startswith(b"\x89PNG"))
+
 
 @tagged("-at_install", "post_install")
 class TestBarChartRendererORM(TransactionCase):

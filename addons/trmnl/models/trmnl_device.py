@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, ValidationError
 
-# TRMNL-Displays send a 6-octet, uppercase hex, colon-separated string accoring to the
+# TRMNL-Displays send a 6-octet, uppercase hex, colon-separated string according to the
 # firmware, e.g.: A4:CF:12:7E:3B:01
 MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
 
@@ -29,7 +29,6 @@ REFRESH_RATE_MIN_SECONDS: int = 1 * SECONDS_PER_MINUTE  # 1 minute
 REFRESH_RATE_MAX_SECONDS: int = 30 * SECONDS_PER_MINUTE # 30 minutes
 DEFAULT_REFRESH_RATE: int = 1 * SECONDS_PER_MINUTE      # 1 minute
 
-DEFAULT_DISPLAY_ERROR_STATUS = 202
 DISPLAY_POLICY_ERROR = "error"
 DISPLAY_POLICY_AUTO_ACCEPT = "auto_accept"
 DISPLAY_POLICY_FACTORY_RESET = "factory_reset"
@@ -44,7 +43,7 @@ DISPLAY_POLICY_SELECTION = [
 # accepted       — device is registered and has a valid, matching API token.
 # token_mismatch — device MAC is known but the token it last presented did not
 #                  match the stored hash.
-# unknown_device — device MAC has never been seen before; a stub record has
+# unknown_device — device MAC has not been registered before; a full record has
 #                  been created so the admin can review and manually accept it.
 APPROVAL_STATE_ACCEPTED = "accepted"
 APPROVAL_STATE_TOKEN_MISMATCH = "token_mismatch"
@@ -54,6 +53,19 @@ APPROVAL_STATE_SELECTION = [
     (APPROVAL_STATE_TOKEN_MISMATCH, "Token Mismatch"),
     (APPROVAL_STATE_UNKNOWN_DEVICE, "Unknown Device"),
 ]
+
+# Default image served to devices that are accepted and have no custom image configured.
+DEFAULT_FILENAME = "abilium_test_screen"
+DEFAULT_IMAGE_URL = (
+    "https://sampleimg.com/800x480?bg=000000&fg=ffffff&text=Abilium&format=png"
+)
+
+# Image served to unknown or token-mismatched devices under the error policy.
+# This gives the device something to display rather than leaving the screen blank.
+ERROR_IMAGE_FILENAME = "trmnl_error_screen"
+ERROR_IMAGE_URL = (
+    "https://sampleimg.com/800x480?bg=000000&fg=ffffff&text=Error&format=png"
+)
 
 
 class TrmnlDevice(models.Model):
@@ -69,7 +81,7 @@ class TrmnlDevice(models.Model):
     token_mismatch — MAC is known but the token last presented by the device
                      did not match; the admin can manually accept the device to
                      adopt the presented token.
-    unknown_device — MAC has never been seen via /api/setup; a stub record was
+    unknown_device — MAC has never been seen via /api/setup; a full record was
                      created automatically so the admin can act on it.
 
     Refresh rate
@@ -92,10 +104,6 @@ class TrmnlDevice(models.Model):
 
     BATTERY_MIN_VOLTAGE = 3.0
     BATTERY_MAX_VOLTAGE = 4.2
-    DEFAULT_FILENAME = "abilium_test_screen"
-    DEFAULT_IMAGE_URL = (
-        "https://sampleimg.com/800x480?bg=000000&fg=ffffff&text=Abilium&format=png"
-    )
 
     # ------------------------------------------------------------------
     # identity
@@ -170,17 +178,27 @@ class TrmnlDevice(models.Model):
 
     first_seen_at = fields.Datetime(string="First Seen At", readonly=True, copy=False)
     last_seen_at = fields.Datetime(string="Last Seen At", readonly=True, copy=False)
-    last_setup_at = fields.Datetime(string="Last Setup At", readonly=True, copy=False)
     last_display_at = fields.Datetime(string="Last Display At", readonly=True, copy=False)
     last_log_at = fields.Datetime(string="Last Log At", readonly=True, copy=False)
-    accepted_at = fields.Datetime(string="Accepted At", readonly=True, copy=False)
     last_access_denied_at = fields.Datetime(
         string="Last Access Denied At",
         readonly=True,
         copy=False,
     )
 
-    setup_request_count = fields.Integer(string="Setup Request Count", readonly=True, copy=False)
+    added_at = fields.Datetime(
+        string="Added At",
+        readonly=True,
+        copy=False,
+        help=(
+            "When the device was added to the system. "
+            "For devices registered via /api/setup this is the registration timestamp. "
+            "For devices first seen via /api/display this is the timestamp at which "
+            "the device was accepted, either automatically (auto-accept policy) or "
+            "manually by an administrator."
+        ),
+    )
+
     display_request_count = fields.Integer(
         string="Display Request Count",
         readonly=True,
@@ -196,13 +214,13 @@ class TrmnlDevice(models.Model):
 
     filename = fields.Char(
         string="Image Filename",
-        default=lambda self: self.DEFAULT_FILENAME,
+        default=lambda self: DEFAULT_FILENAME,
         help="The device only refreshes the displayed image when the filename changes.",
     )
 
     image_url = fields.Char(
         string="Image URL",
-        default=lambda self: self.DEFAULT_IMAGE_URL,
+        default=lambda self: DEFAULT_IMAGE_URL,
         help="URL returned to the display.",
     )
 
@@ -413,7 +431,7 @@ class TrmnlDevice(models.Model):
 
     @staticmethod
     def _utc_now():
-        """Return a naive UTC datetime for filename generation."""
+        """Return a naive UTC datetime for use in timestamps."""
         return datetime.now(timezone.utc).replace(tzinfo=None)
 
     @api.model
@@ -459,7 +477,7 @@ class TrmnlDevice(models.Model):
         if len(hex_digits) != 12:
             return False
 
-        mac_address = ":".join(hex_digits[index : index + 2] for index in range(0, 12, 2)).upper()
+        mac_address = ":".join(hex_digits[index: index + 2] for index in range(0, 12, 2)).upper()
         if not MAC_RE.match(mac_address):
             return False
 

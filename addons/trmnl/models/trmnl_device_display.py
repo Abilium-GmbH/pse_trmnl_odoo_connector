@@ -8,10 +8,11 @@ from odoo import api, models
 
 from .trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
-    DEFAULT_DISPLAY_ERROR_STATUS,
     DEFAULT_REFRESH_RATE,
     DISPLAY_POLICY_AUTO_ACCEPT,
     DISPLAY_POLICY_FACTORY_RESET,
+    ERROR_IMAGE_FILENAME,
+    ERROR_IMAGE_URL,
 )
 
 
@@ -33,15 +34,15 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
     Request resolution follows this decision tree for each incoming poll:
 
-    1. MAC address missing          → error response, no record touched.
+    1. MAC address missing          → error-image response, no record touched.
     2. MAC unknown + auto-accept    → register & adopt token, serve display.
     3. MAC unknown + factory-reset  → return {"status": 500}.
-    4. MAC unknown + error          → create stub record, return error.
+    4. MAC unknown + error          → create full record, serve error image.
     5. MAC known, token valid       → serve display (if accepted).
     6. MAC known, token invalid
         + auto-accept               → adopt new token, serve display.
         + factory-reset             → return {"status": 500}, delete record.
-        + error                     → update mismatch record, return {"status": 202}.
+        + error                     → update mismatch record, serve error image.
     """
 
     _inherit = "trmnl.device"
@@ -50,11 +51,21 @@ class TrmnlDeviceDisplayMixin(models.Model):
     # response builders
     # ------------------------------------------------------------------
 
-    def build_display_error_response(self, status=None):
-        """Build the payload returned when a display request cannot be served."""
-        if status is None:
-            status = DEFAULT_DISPLAY_ERROR_STATUS
-        return {"status": status}
+    def build_display_error_response(self):
+        """Build the payload returned when a display request cannot be served.
+
+        Returns a full display-shaped payload using the error image constants
+        and the default refresh rate so the device always has something to
+        render.  This is only used for the error policy (unknown device and
+        token mismatch); the factory-reset path returns {"status": 500}
+        directly.
+        """
+        return {
+            "status": 0,
+            "filename": ERROR_IMAGE_FILENAME,
+            "image_url": ERROR_IMAGE_URL,
+            "refresh_rate": DEFAULT_REFRESH_RATE,
+        }
 
     def _consume_identify_flag(self):
         """Consume the one-shot identify flag if set."""
@@ -79,7 +90,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
         """Build the display payload that instructs the device to factory-reset.
 
         Uses the semantically correct firmware reset signal: status 0 with
-        reset_firmware set to True. All standard display keys are included
+        reset_firmware set to True.  All standard display keys are included
         alongside the reset flag so the firmware can parse the response
         normally before acting on the reset instruction.
         """
@@ -111,7 +122,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
         device = self.sudo().search([("mac_address", "=", mac_address)], limit=1)
 
-        # Per-device reset handling (must run before any token validation)
+        # Per-device reset handling (must run before any token validation).
         if device and device.reset_pending:
             reset_payload = device.build_reset_response()
             device.unlink()
@@ -165,12 +176,16 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 )
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
+            # Factory-reset signal: the device receives status 500 which
+            # triggers a wipe of its Wi-Fi credentials and API key.
             return DisplayResolutionResult(
                 self.browse(),
-                self.build_display_error_response(status=500),
+                {"status": 500},
                 "factory_reset",
             )
 
+        # Error policy: create a full record so the admin can review and
+        # manually accept the device; serve the error image to the device.
         stub_device = self.record_unknown_device_from_display(
             mac_address, api_token, headers
         )
@@ -183,14 +198,13 @@ class TrmnlDeviceDisplayMixin(models.Model):
     def _resolve_token_mismatch_display_request(self, device, headers, api_token):
         """Resolve a display request from a known device that presented a wrong token.
 
-        Under the auto-accept policy the presented token is adopted and the device
-        is served normally.  Under the factory-reset policy the device receives a
-        reset signal (``{"status": 500}``) and its record is deleted, so the device
-        must re-register from scratch.  Under the error policy the mismatch is
-        recorded for manual admin review and the device receives a rejection
-        response (``{"status": 202}``).
+        Under the auto-accept policy the presented token is adopted and the
+        device is served normally.  Under the factory-reset policy the device
+        receives a reset signal (``{"status": 500}``) and its record is deleted,
+        so the device must re-register from scratch.  Under the error policy
+        the mismatch is recorded for manual admin review and the device receives
+        the error image.
         """
-
         policy = self._get_display_request_policy()
 
         if api_token and policy == DISPLAY_POLICY_AUTO_ACCEPT:
@@ -199,7 +213,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 {
                     "approval_state": APPROVAL_STATE_ACCEPTED,
                     "registration_source": "display",
-                    "accepted_at": device.accepted_at or self._utc_now(),
+                    "added_at": self._utc_now(),
                     "last_presented_token_hash": False,
                     "last_presented_token_salt": False,
                 }
@@ -213,14 +227,17 @@ class TrmnlDeviceDisplayMixin(models.Model):
             )
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
-            error_payload = self.build_display_error_response(status=500)
+            # Factory-reset signal: the device receives status 500 which
+            # triggers a wipe of its Wi-Fi credentials and API key.
             device.unlink()
             return DisplayResolutionResult(
                 self.browse(),
-                error_payload,
+                {"status": 500},
                 "factory_reset",
             )
 
+        # Error policy: record the mismatch for admin review and serve the
+        # error image so the device has something to display.
         self.record_token_mismatch_from_display(device, api_token, headers)
         return DisplayResolutionResult(
             device,

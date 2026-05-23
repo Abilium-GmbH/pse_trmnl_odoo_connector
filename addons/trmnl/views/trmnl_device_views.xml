@@ -176,6 +176,7 @@
                             <field name="battery_percentage" readonly="1"/>
                             <field name="rssi_quality" readonly="1"/>
                             <field name="last_reported_refresh_rate_minutes" readonly="1" string="Last Reported Refresh Rate (min)"/>
+                            <field name="added_at" readonly="1"/>
                             <field name="last_seen_at" readonly="1"/>
                             <field name="last_display_at" readonly="1"/>
                         </group>
@@ -183,8 +184,12 @@
 
                     <notebook>
                         <page string="Logs">
-                            <field name="log_ids" readonly="1" mode="list">
-                                <list create="false" edit="false" delete="false">
+                            <!-- Administrators can select and delete individual log entries
+                                 using the standard list-view checkboxes and the Delete action.
+                                 Log entries are also removed automatically when the device
+                                 record itself is deleted. -->
+                            <field name="log_ids" mode="list">
+                                <list create="false" edit="false" delete="true">
                                     <field name="log_id"/>
                                     <field name="name"/>
                                     <field name="created_at"/>

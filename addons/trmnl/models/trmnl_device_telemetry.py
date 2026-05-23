@@ -18,7 +18,8 @@ class TrmnlDeviceTelemetryMixin(models.Model):
     different interval without the device overwriting it on the next poll.
 
     Log ingestion only stores entries for devices in the ``accepted`` state.
-    All other devices receive a 401 response without any data being persisted.
+    Submissions from devices in any other state are ignored; the
+    caller receives HTTP 401.
     """
 
     _inherit = "trmnl.device"
@@ -177,9 +178,11 @@ class TrmnlDeviceTelemetryMixin(models.Model):
     def ingest_logs_from_payload(self, headers, payload):
         """Create log entries from the raw JSON payload sent by the device.
 
-        Only devices in the ``accepted`` state have their logs stored.  Any
-        other state (unknown_device, token_mismatch, or missing identity)
-        results in an ``unauthorized`` status so the controller can return 401.
+        Only devices in the ``accepted`` state have their logs stored.  For
+        devices in any other state (unknown_device, token_mismatch, or missing
+        identity) the submitted data is silently dropped and ``"unauthorized"``
+        is returned so the controller can send HTTP 401.  No writes are made
+        to the database for non-accepted devices.
         """
         mac_address = self._normalize_mac_address(headers.get("ID"))
         token_value = self._parse_to_string(headers.get("Access-Token"))

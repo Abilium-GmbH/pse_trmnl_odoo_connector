@@ -41,9 +41,8 @@ class TrmnlDeviceUiExtension(models.Model):
         comodel_name="trmnl.device.log",
         inverse_name="device_id",
         string="Logs",
-        readonly=True,
         copy=False,
-        help="Read-only log entries collected from this device.",
+        help="Log entries collected from this device.",
     )
     last_reported_refresh_rate_minutes = fields.Integer(
         string="Last Reported Refresh Rate (min)",
@@ -201,7 +200,11 @@ class TrmnlDeviceUiExtension(models.Model):
             )
 
     def action_bulk_remove(self):
-        """Delete all selected device records immediately."""
+        """Delete all selected device records immediately.
+
+        Associated log entries are removed automatically by the database
+        cascade on ``trmnl.device.log.device_id``.
+        """
         self.unlink()
 
     def action_bulk_reset(self):

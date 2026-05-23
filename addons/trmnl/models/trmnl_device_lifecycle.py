@@ -20,9 +20,9 @@ class TrmnlDeviceLifecycleMixin(models.Model):
 
     Responsibilities
     ----------------
-    - Display-policy read/write/consume helpers.
+    - Display-policy read/write helpers.
     - Device registration from /api/setup headers.
-    - Stub-record creation for unknown devices arriving via /api/display.
+    - Full record creation for unknown devices arriving via /api/display.
     - Token-mismatch recording for known devices that present a wrong token.
     - Auto-register/adopt path used by the auto-accept policy.
     - Manual accept logic invoked from the accept wizard.
@@ -76,6 +76,10 @@ class TrmnlDeviceLifecycleMixin(models.Model):
     def upsert_from_setup_headers(self, headers):
         """Create a device from setup headers or fail if the MAC already exists.
 
+        A device registered via /api/setup is immediately placed in the
+        ``accepted`` state with a freshly generated API token.  ``added_at``
+        is set to the creation timestamp.
+
         Returns a tuple of (device, raw_token, record_status).
         """
         mac_address = self._normalize_mac_address(headers.get("ID"))
@@ -90,7 +94,9 @@ class TrmnlDeviceLifecycleMixin(models.Model):
                 })
                 existing_device.unlink()
             else:
-                raise ValidationError(_("TRMNL device with this MAC address is already registered."))
+                raise ValidationError(
+                    _("TRMNL device with this MAC address is already registered.")
+                )
 
         firmware_version = self._parse_to_string(headers.get("FW-Version"))
         now_value = fields.Datetime.now()
@@ -102,9 +108,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             "registration_source": "setup",
             "first_seen_at": now_value,
             "last_seen_at": now_value,
-            "last_setup_at": now_value,
-            "accepted_at": now_value,
-            "setup_request_count": 1,
+            "added_at": now_value,
         }
         if firmware_version is not False:
             create_values["firmware_version"] = firmware_version
@@ -114,20 +118,24 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         return device, raw_token, "created"
 
     # ------------------------------------------------------------------
-    # /api/display stub-record creation (error policy)
+    # /api/display full record creation (error policy)
     # ------------------------------------------------------------------
 
     @api.model
     def record_unknown_device_from_display(self, mac_address, presented_token, headers):
-        """Create a minimal stub record for a previously unseen MAC address.
+        """Create a full device record for a previously unseen MAC address.
 
         Called under the error policy so that the admin can review and
-        manually accept the device from the list view.  The presented token
-        is stored as a hashed value so it can be promoted on manual acceptance.
+        manually accept the device from the list view.  All available
+        telemetry from the display headers is persisted immediately so the
+        admin has full context when reviewing the device.
+
+        The presented token is stored hashed so it can be promoted to the
+        accepted token slot on manual acceptance.  ``added_at`` is intentionally
+        left unset because the device has not yet been accepted.
 
         Returns the newly created device record.
         """
-        firmware_version = self._parse_to_string(headers.get("FW-Version"))
         now_value = fields.Datetime.now()
 
         create_values = {
@@ -137,8 +145,9 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             "first_seen_at": now_value,
             "last_seen_at": now_value,
         }
-        if firmware_version is not False:
-            create_values["firmware_version"] = firmware_version
+
+        # Persist all available telemetry so the admin has full context.
+        self._apply_telemetry_to_values(create_values, headers)
 
         if presented_token:
             create_values.update(self._hash_presented_token(presented_token))
@@ -146,10 +155,30 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         return self.sudo().create(create_values)
 
     @api.model
+    def _apply_telemetry_to_values(self, values, headers):
+        """Merge parsed telemetry from display headers into a values dict in place.
+
+        Only fields whose parsed value is not ``False`` are written, so
+        missing or unparseable headers do not overwrite existing data with
+        empty values.
+        """
+        telemetry_map = {
+            "firmware_version": self._parse_to_string(headers.get("FW-Version")),
+            "refresh_rate": self._parse_to_int(headers.get("Refresh-Rate")),
+            "battery_voltage": self._parse_to_float(headers.get("Battery-Voltage")),
+            "rssi_dbm": self._parse_to_int(headers.get("RSSI")),
+            "display_width": self._parse_to_int(headers.get("Width")),
+            "display_height": self._parse_to_int(headers.get("Height")),
+        }
+        for field_name, parsed_value in telemetry_map.items():
+            if parsed_value is not False:
+                values[field_name] = parsed_value
+
+    @api.model
     def record_token_mismatch_from_display(self, device, presented_token, headers):
         """Update a known device record to reflect a token-mismatch display attempt.
 
-        Stores the presented token (hashed) for later manual acceptance and
+        Stores the presented token hashed for later manual acceptance and
         bumps the access-denied counters.
         """
         now_value = fields.Datetime.now()
@@ -159,9 +188,8 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             "last_access_denied_at": now_value,
             "invalid_token_count": (device.invalid_token_count or 0) + 1,
         }
-        firmware_version = self._parse_to_string(headers.get("FW-Version"))
-        if firmware_version is not False:
-            update_values["firmware_version"] = firmware_version
+
+        self._apply_telemetry_to_values(update_values, headers)
 
         if presented_token:
             update_values.update(self._hash_presented_token(presented_token))
@@ -177,8 +205,10 @@ class TrmnlDeviceLifecycleMixin(models.Model):
     def register_or_adopt_from_display_headers(self, headers, api_token):
         """Register a device from display headers by adopting the presented token.
 
-        Used exclusively by the auto-accept policy path.  Returns a tuple of
-        (device, record_status).
+        Used exclusively by the auto-accept policy path.  ``added_at`` is set
+        to the acceptance timestamp.
+
+        Returns a tuple of (device, record_status).
         """
         mac_address = self._normalize_mac_address(headers.get("ID"))
         token_value = self._parse_to_string(api_token)
@@ -186,23 +216,19 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         if not mac_address or not token_value:
             return self.browse(), "missing_identity"
 
-        firmware_version = self._parse_to_string(headers.get("FW-Version"))
         now_value = fields.Datetime.now()
-
         device = self.sudo().search([("mac_address", "=", mac_address)], limit=1)
 
         if device:
             update_values = {
                 "approval_state": APPROVAL_STATE_ACCEPTED,
                 "registration_source": "display",
-                "accepted_at": device.accepted_at or now_value,
+                "added_at": now_value,
                 "last_seen_at": now_value,
                 "last_presented_token_hash": False,
                 "last_presented_token_salt": False,
             }
-            if firmware_version is not False:
-                update_values["firmware_version"] = firmware_version
-
+            self._apply_telemetry_to_values(update_values, headers)
             update_values.update(self._hash_api_token(token_value))
             device.with_context(trmnl_allow_identity_update=True).write(update_values)
             return device, "updated"
@@ -213,11 +239,9 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             "registration_source": "display",
             "first_seen_at": now_value,
             "last_seen_at": now_value,
-            "accepted_at": now_value,
+            "added_at": now_value,
         }
-        if firmware_version is not False:
-            create_values["firmware_version"] = firmware_version
-
+        self._apply_telemetry_to_values(create_values, headers)
         create_values.update(self._hash_api_token(token_value))
         device = self.sudo().create(create_values)
         return device, "created"
@@ -231,7 +255,8 @@ class TrmnlDeviceLifecycleMixin(models.Model):
 
         Called from ``TrmnlDeviceAcceptWizard``.  The device must have a stored
         presented token (i.e. it must have attempted at least one display poll
-        since the stub record was created).
+        since the record was created).  ``added_at`` is set to the acceptance
+        timestamp.
         """
         self.ensure_one()
         self._promote_presented_token_to_accepted()
@@ -239,7 +264,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         now_value = fields.Datetime.now()
         update_values = {
             "approval_state": APPROVAL_STATE_ACCEPTED,
-            "accepted_at": now_value,
+            "added_at": now_value,
             "last_seen_at": now_value,
         }
 

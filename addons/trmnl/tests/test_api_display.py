@@ -23,10 +23,17 @@ from .test_api_common import (
 
 @tagged("-at_install", "post_install")
 class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
-    """Verify the default error policy for ``/api/display``."""
+    """Verify the default error policy for ``/api/display``.
 
-    def test_api_display_unknown_device_returns_202_and_creates_stub(self):
-        """Unknown devices should receive the error payload and a stub record is created."""
+    Under the error policy, unknown devices and token-mismatched devices
+    receive the error image payload (status 0 with the hardcoded error image
+    URL and filename) rather than a bare status code.  A full device record
+    is created in both cases so the admin can review and manually accept the
+    device.
+    """
+
+    def test_api_display_unknown_device_returns_error_image_and_creates_full_record(self):
+        """Unknown devices should receive the error image and a full record is created."""
         self._set_display_policy(DISPLAY_POLICY_ERROR)
 
         display_response = self.url_open(
@@ -36,18 +43,26 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         display_payload = self._response_json(display_response)
 
         self.assertEqual(self._response_status(display_response), 200)
-        self.assertEqual(display_payload, {"status": 202})
+        self._assert_display_error_payload(display_payload)
 
-        stub_device = self.env["trmnl.device"].sudo().search(
+        device = self.env["trmnl.device"].sudo().search(
             [("mac_address", "=", self.UNKNOWN_MAC_ADDRESS)],
             limit=1,
         )
-        self.assertTrue(stub_device, "A stub record should be created for unknown devices.")
-        self.assertEqual(stub_device.approval_state, APPROVAL_STATE_UNKNOWN_DEVICE)
-        self.assertTrue(stub_device.last_presented_token_hash)
+        self.assertTrue(device, "A full record should be created for unknown devices.")
+        self.assertEqual(device.approval_state, APPROVAL_STATE_UNKNOWN_DEVICE)
+        self.assertTrue(device.last_presented_token_hash)
+        # Telemetry from the display headers must be persisted on the new record.
+        self.assertTrue(device.firmware_version)
+        self.assertTrue(device.first_seen_at)
+        # added_at must not be set yet — the device has not been accepted.
+        self.assertFalse(
+            device.added_at,
+            "added_at must not be set until the device is accepted.",
+        )
 
-    def test_api_display_unknown_device_without_token_returns_202_and_creates_stub(self):
-        """Unknown devices without a token receive the error payload; stub has no presented token."""
+    def test_api_display_unknown_device_without_token_returns_error_image_and_creates_record(self):
+        """Unknown devices without a token receive the error image; record has no presented token."""
         self._set_display_policy(DISPLAY_POLICY_ERROR)
 
         display_response = self.url_open(
@@ -57,18 +72,18 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         display_payload = self._response_json(display_response)
 
         self.assertEqual(self._response_status(display_response), 200)
-        self.assertEqual(display_payload, {"status": 202})
+        self._assert_display_error_payload(display_payload)
 
-        stub_device = self.env["trmnl.device"].sudo().search(
+        device = self.env["trmnl.device"].sudo().search(
             [("mac_address", "=", self.UNKNOWN_MAC_ADDRESS)],
             limit=1,
         )
-        self.assertTrue(stub_device)
-        self.assertEqual(stub_device.approval_state, APPROVAL_STATE_UNKNOWN_DEVICE)
-        self.assertFalse(stub_device.last_presented_token_hash)
+        self.assertTrue(device)
+        self.assertEqual(device.approval_state, APPROVAL_STATE_UNKNOWN_DEVICE)
+        self.assertFalse(device.last_presented_token_hash)
 
-    def test_api_display_known_device_with_invalid_token_returns_202_and_records_mismatch(self):
-        """Known devices with a bad token receive the error payload and state becomes token_mismatch."""
+    def test_api_display_known_device_with_invalid_token_returns_error_image_and_records_mismatch(self):
+        """Known devices with a bad token receive the error image and state becomes token_mismatch."""
         self._set_display_policy(DISPLAY_POLICY_ERROR)
 
         setup_context = self._register_device_through_setup()
@@ -82,7 +97,7 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         display_payload = self._response_json(display_response)
 
         self.assertEqual(self._response_status(display_response), 200)
-        self.assertEqual(display_payload, {"status": 202})
+        self._assert_display_error_payload(display_payload)
 
         refreshed_device = self.env["trmnl.device"].sudo().search(
             [("mac_address", "=", registered_device.mac_address)],
@@ -96,8 +111,8 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(refreshed_device.display_request_count, 0)
         self.assertTrue(refreshed_device.last_presented_token_hash)
 
-    def test_api_display_missing_id_returns_202(self):
-        """A display request without a MAC address should return the default rejection payload."""
+    def test_api_display_missing_id_returns_error_image(self):
+        """A display request without a MAC address should return the error image payload."""
         self._set_display_policy(DISPLAY_POLICY_ERROR)
 
         display_response = self.url_open(
@@ -115,7 +130,7 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         display_payload = self._response_json(display_response)
 
         self.assertEqual(self._response_status(display_response), 200)
-        self.assertEqual(display_payload, {"status": 202})
+        self._assert_display_error_payload(display_payload)
 
     def test_api_display_accepted_device_returns_display_payload(self):
         """A registered and accepted device should receive the display payload."""
@@ -274,6 +289,10 @@ class TestTrmnlDisplayAutoAcceptPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(adopted_device.registration_source, "display")
         self.assertTrue(adopted_device._verify_api_token(self.UNKNOWN_DEVICE_TOKEN))
         self.assertEqual(adopted_device.display_request_count, 1)
+        self.assertTrue(
+            adopted_device.added_at,
+            "added_at must be set when a device is auto-accepted via /api/display.",
+        )
 
         self._assert_display_success_payload(display_payload, adopted_device.image_url)
 
@@ -321,6 +340,11 @@ class TestTrmnlDisplayAutoAcceptPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(refreshed_device.display_request_count, 1)
         self.assertEqual(refreshed_device.invalid_token_count, 0)
         self.assertEqual(refreshed_device.display_denied_count, 0)
+        # added_at was set during /api/setup and must not be overwritten.
+        self.assertTrue(
+            refreshed_device.added_at,
+            "added_at must remain set after token adoption.",
+        )
 
         self._assert_display_success_payload(display_payload, refreshed_device.image_url)
 
@@ -541,7 +565,7 @@ class TestTrmnlDisplayPolicyPersistenceApi(HttpCase, TrmnlApiHttpCaseMixin):
     """Verify that all three display policies persist until explicitly changed by an admin."""
 
     def test_error_policy_persists_across_multiple_unknown_device_polls(self):
-        """The error policy should continue returning 202 for every unknown device poll."""
+        """The error policy should continue returning the error image for every unknown device poll."""
         self._set_display_policy(DISPLAY_POLICY_ERROR)
 
         for iteration_index in range(3):
@@ -552,7 +576,7 @@ class TestTrmnlDisplayPolicyPersistenceApi(HttpCase, TrmnlApiHttpCaseMixin):
             payload = self._response_json(response)
 
             self.assertEqual(self._response_status(response), 200)
-            self.assertEqual(payload, {"status": 202})
+            self._assert_display_error_payload(payload)
 
         self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_ERROR)
 
@@ -631,7 +655,7 @@ class TestTrmnlDisplayPolicyPersistenceApi(HttpCase, TrmnlApiHttpCaseMixin):
         )
         first_payload = self._response_json(first_response)
 
-        self.assertEqual(first_payload, {"status": 202})
+        self._assert_display_error_payload(first_payload)
         self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_ERROR)
 
         self._set_display_policy(DISPLAY_POLICY_FACTORY_RESET)
@@ -653,5 +677,5 @@ class TestTrmnlDisplayPolicyPersistenceApi(HttpCase, TrmnlApiHttpCaseMixin):
         )
         third_payload = self._response_json(third_response)
 
-        self.assertEqual(third_payload, {"status": 202})
+        self._assert_display_error_payload(third_payload)
         self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_ERROR)

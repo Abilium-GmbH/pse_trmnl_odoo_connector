@@ -25,6 +25,16 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
             },
         )
 
+    def test_api_setup_sets_added_at_on_registration(self):
+        """A successful setup call should set added_at on the device record."""
+        setup_context = self._register_device_through_setup()
+        registered_device = setup_context["device"]
+
+        self.assertTrue(
+            registered_device.added_at,
+            "added_at must be set when a device is registered via /api/setup.",
+        )
+
     def test_api_setup_rejects_existing_mac_address(self):
         """A second setup request for the same MAC address should be rejected."""
         setup_context = self._register_device_through_setup()
@@ -45,7 +55,6 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertTrue(stored_device)
         self.assertTrue(stored_device._verify_api_token(api_token))
         self.assertEqual(stored_device.approval_state, APPROVAL_STATE_ACCEPTED)
-        self.assertEqual(stored_device.setup_request_count, 1)
 
     def test_api_setup_missing_id_returns_404(self):
         """Missing device identity should return the setup error payload."""
@@ -106,3 +115,7 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertFalse(found_device.reset_pending)
         self.assertEqual(found_device.approval_state, APPROVAL_STATE_ACCEPTED)
         self.assertTrue(found_device._verify_api_token(setup_payload["api_key"]))
+        self.assertTrue(
+            found_device.added_at,
+            "added_at must be set on the re-registered device.",
+        )

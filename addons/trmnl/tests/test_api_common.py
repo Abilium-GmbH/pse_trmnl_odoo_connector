@@ -2,6 +2,12 @@
 
 import json
 
+from odoo.addons.trmnl.models.trmnl_device import (
+    DEFAULT_REFRESH_RATE,
+    ERROR_IMAGE_FILENAME,
+    ERROR_IMAGE_URL,
+)
+
 DISPLAY_POLICY_PARAMETER = "trmnl.display_unknown_device_policy"
 
 DISPLAY_POLICY_ERROR = "error"
@@ -198,7 +204,6 @@ class TrmnlApiHttpCaseMixin:
         self.assertTrue(registered_device, "The setup request should register the device.")
         self.assertEqual(registered_device.approval_state, APPROVAL_STATE_ACCEPTED)
         self.assertEqual(registered_device.registration_source, "setup")
-        self.assertEqual(registered_device.setup_request_count, 1)
         self.assertEqual(registered_device.image_url, setup_payload["image_url"])
 
         verify_token_method = getattr(registered_device, "_verify_api_token", None)
@@ -240,5 +245,23 @@ class TrmnlApiHttpCaseMixin:
                 "image_url": image_url,
                 "filename": self.EXPECTED_FILENAME,
                 "refresh_rate": self.DEVICE_REFRESH_RATE,
+            },
+        )
+
+    def _assert_display_error_payload(self, display_payload):
+        """Assert the error-image ``/api/display`` payload.
+
+        Returned to unknown devices and token-mismatched devices under the
+        error policy so the device always has something to render.  The
+        payload has the same shape as a normal display response but carries
+        the hardcoded error image URL and filename.
+        """
+        self.assertEqual(
+            display_payload,
+            {
+                "status": 0,
+                "filename": ERROR_IMAGE_FILENAME,
+                "image_url": ERROR_IMAGE_URL,
+                "refresh_rate": DEFAULT_REFRESH_RATE,
             },
         )

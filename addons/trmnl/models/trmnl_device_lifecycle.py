@@ -22,8 +22,8 @@ class TrmnlDeviceLifecycleMixin(models.Model):
     ----------------
     - Display-policy read/write helpers.
     - Device registration from /api/setup headers.
-    - Full record creation for unknown devices arriving via /api/display.
-    - Token-mismatch recording for known devices that present a wrong token.
+    - Full record upsert for unknown devices arriving via /api/display.
+    - Token-mismatch recording for accepted devices that present a wrong token.
     - Auto-register/adopt path used by the auto-accept policy.
     - Manual accept logic invoked from the accept wizard.
     - Setup and display error/success response builders.
@@ -118,25 +118,43 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         return device, raw_token, "created"
 
     # ------------------------------------------------------------------
-    # /api/display full record creation (error policy)
+    # /api/display unknown-device upsert (error policy)
     # ------------------------------------------------------------------
 
     @api.model
     def record_unknown_device_from_display(self, mac_address, presented_token, headers):
-        """Create a full device record for a previously unseen MAC address.
+        """Upsert a full device record for an unknown MAC address.
 
-        Called under the error policy so that the admin can review and
-        manually accept the device from the list view.  All available
-        telemetry from the display headers is persisted immediately so the
-        admin has full context when reviewing the device.
+        Called under the error policy (and when re-polling an existing
+        ``unknown_device`` record) so that the admin can review and manually
+        accept the device from the list view.
 
-        The presented token is stored hashed so it can be promoted to the
-        accepted token slot on manual acceptance.  ``added_at`` is intentionally
-        left unset because the device has not yet been accepted.
+        If a record for ``mac_address`` already exists in the ``unknown_device``
+        state, it is updated in place (telemetry refreshed, presented token
+        overwritten).  Creating a duplicate record is never correct: the unique
+        MAC constraint would raise, and the admin would lose the previously
+        stored telemetry context.
 
-        Returns the newly created device record.
+        If no record exists, a new one is created with all available telemetry
+        from the display headers.
+
+        ``added_at`` is intentionally left unset because the device has not yet
+        been accepted.
+
+        Returns the created-or-updated device record.
         """
         now_value = fields.Datetime.now()
+        existing_device = self.sudo().search(
+            [("mac_address", "=", mac_address)], limit=1
+        )
+
+        if existing_device:
+            update_values = {"last_seen_at": now_value}
+            self._apply_telemetry_to_values(update_values, headers)
+            if presented_token:
+                update_values.update(self._hash_presented_token(presented_token))
+            existing_device.with_context(trmnl_allow_identity_update=True).write(update_values)
+            return existing_device
 
         create_values = {
             "mac_address": mac_address,
@@ -145,10 +163,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             "first_seen_at": now_value,
             "last_seen_at": now_value,
         }
-
-        # Persist all available telemetry so the admin has full context.
         self._apply_telemetry_to_values(create_values, headers)
-
         if presented_token:
             create_values.update(self._hash_presented_token(presented_token))
 
@@ -178,8 +193,9 @@ class TrmnlDeviceLifecycleMixin(models.Model):
     def record_token_mismatch_from_display(self, device, presented_token, headers):
         """Update a known device record to reflect a token-mismatch display attempt.
 
-        Stores the presented token hashed for later manual acceptance and
-        bumps the access-denied counters.
+        Only called for devices in the ``accepted`` or ``token_mismatch`` state.
+        Stores the presented token hashed for later manual acceptance and bumps
+        the access-denied counters.
         """
         now_value = fields.Datetime.now()
         update_values = {

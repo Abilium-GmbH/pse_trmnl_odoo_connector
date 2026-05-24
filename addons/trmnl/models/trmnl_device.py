@@ -55,17 +55,15 @@ APPROVAL_STATE_SELECTION = [
 ]
 
 # Default image served to devices that are accepted and have no custom image configured.
-DEFAULT_FILENAME = "abilium_test_screen"
-DEFAULT_IMAGE_URL = (
-    "https://sampleimg.com/800x480?bg=000000&fg=ffffff&text=Abilium&format=png"
-)
+# The file is served as a static asset by Odoo from addons/trmnl/static/img/.
+DEFAULT_FILENAME = "default_screen.bmp"
+DEFAULT_IMAGE_URL = "/trmnl/static/src/img/default_screen.bmp"
 
 # Image served to unknown or token-mismatched devices under the error policy.
 # This gives the device something to display rather than leaving the screen blank.
-ERROR_IMAGE_FILENAME = "trmnl_error_screen"
-ERROR_IMAGE_URL = (
-    "https://sampleimg.com/800x480?bg=000000&fg=ffffff&text=Error&format=png"
-)
+# The file is served as a static asset by Odoo from addons/trmnl/static/img/.
+ERROR_IMAGE_FILENAME = "error_screen.bmp"
+ERROR_IMAGE_URL = "/trmnl/static/src/img/error_screen.bmp"
 
 
 class TrmnlDevice(models.Model):
@@ -91,6 +89,12 @@ class TrmnlDevice(models.Model):
     ``desired_refresh_rate_minutes`` compute/inverse pair.  Valid range:
     1 minute (``REFRESH_RATE_MIN_SECONDS``) to 30 minutes
     (``REFRESH_RATE_MAX_SECONDS``).
+
+    Image URL
+    ---------
+    ``image_url`` and ``filename`` are managed by the image renderer and are
+    read-only in the admin UI.  They default to the module's static placeholder
+    assets and can be overwritten freely at the model level by the renderer.
     """
 
     _name = "trmnl.device"
@@ -215,13 +219,19 @@ class TrmnlDevice(models.Model):
     filename = fields.Char(
         string="Image Filename",
         default=lambda self: DEFAULT_FILENAME,
-        help="The device only refreshes the displayed image when the filename changes.",
+        help=(
+            "The device only refreshes the displayed image when the filename changes. "
+            "Managed by the image renderer; read-only in the admin UI."
+        ),
     )
 
     image_url = fields.Char(
         string="Image URL",
         default=lambda self: DEFAULT_IMAGE_URL,
-        help="URL returned to the display.",
+        help=(
+            "URL returned to the display. "
+            "Managed by the image renderer; read-only in the admin UI."
+        ),
     )
 
     reset_pending = fields.Boolean(

@@ -6,12 +6,17 @@
     "author": "Abilium GmbH",
     "license": "Other OSI approved licence",
     "version": "1.0.0",
-    "depends": ["base",],
+    "depends": ["base"],
     "external_dependencies": {"python": ["Pillow", "requests"]},
     "data": [
-            "security/ir.model.access.csv",
-            "views/trmnl_device_views.xml",
-            "views/trmnl_device_wizard_views.xml",
-            "views/trmnl_menu.xml",
-            ],
+        "security/ir.model.access.csv",
+        "views/trmnl_device_views.xml",
+        "views/trmnl_device_wizard_views.xml",
+        "views/trmnl_menu.xml",
+    ],
+    "assets": {
+        "web.assets_common": [],
+    },
+    "post_init_hook": "post_init_hook",
+    "uninstall_hook": "uninstall_hook",
 }

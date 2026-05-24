@@ -21,7 +21,6 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
             {
                 "status": 200,
                 "api_key": api_token,
-                "friendly_id": registered_device.friendly_id,
                 "image_url": registered_device.image_url,
             },
         )
@@ -76,7 +75,9 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(setup_payload, {"status": 404})
 
     def test_api_setup_with_reset_pending_reregisters_device(self):
-        """A setup call from a MAC with reset_pending True should clear the flag and issue a fresh registration."""
+        """A setup call from a MAC with reset_pending True should clear the flag and
+        issue a fresh registration.
+        """
         setup_context = self._register_device_through_setup()
         registered_device = setup_context["device"]
         old_device_id = registered_device.id

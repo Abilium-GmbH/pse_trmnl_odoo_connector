@@ -59,9 +59,8 @@ APPROVAL_STATE_SELECTION = [
 class TrmnlDevice(models.Model):
     """Represent a TRMNL e-ink display and its server-side state.
 
-    Identity fields (mac_address, friendly_id) are write-protected after
-    creation and may only be mutated via the ``trmnl_allow_identity_update``
-    context flag.
+    Identity fields (mac_address) are write-protected after creation and may
+    only be mutated via the ``trmnl_allow_identity_update`` context flag.
 
     Approval states
     ---------------
@@ -71,9 +70,7 @@ class TrmnlDevice(models.Model):
                      did not match; the admin can manually accept the device to
                      adopt the presented token.
     unknown_device — MAC has never been seen via /api/setup; a stub record was
-                     created automatically so the admin can act on it.  The
-                     friendly_id is absent for such devices because it is only
-                     assigned by the server during /api/setup.
+                     created automatically so the admin can act on it.
 
     Refresh rate
     ------------
@@ -86,15 +83,11 @@ class TrmnlDevice(models.Model):
 
     _name = "trmnl.device"
     _description = "TRMNL E-ink display device"
-    _rec_name = "friendly_id"
+    _rec_name = "mac_address"
 
     _unique_mac_address = models.Constraint(
         "UNIQUE(mac_address)",
         "MAC address must be unique.",
-    )
-    _unique_friendly_id = models.Constraint(
-        "UNIQUE(friendly_id)",
-        "Friendly ID must be unique.",
     )
 
     BATTERY_MIN_VOLTAGE = 3.0
@@ -107,17 +100,6 @@ class TrmnlDevice(models.Model):
     # ------------------------------------------------------------------
     # identity
     # ------------------------------------------------------------------
-
-    friendly_id = fields.Char(
-        string="Friendly ID",
-        readonly=True,
-        index=True,
-        copy=False,
-        help=(
-            "Short unique identifier returned to the device during /api/setup. "
-            "Absent for devices that were first seen via /api/display."
-        ),
-    )
 
     mac_address = fields.Char(
         string="MAC Address",
@@ -317,26 +299,17 @@ class TrmnlDevice(models.Model):
             if mac_address:
                 normalized_values["mac_address"] = self._normalize_mac_address(mac_address)
 
-            # friendly_id is optional for unknown_device records created via
-            # /api/display.  Only auto-generate one when the state is not
-            # unknown_device, or when the caller explicitly requested one.
-            state = normalized_values.get("approval_state", APPROVAL_STATE_UNKNOWN_DEVICE)
-            if not normalized_values.get("friendly_id") and state != APPROVAL_STATE_UNKNOWN_DEVICE:
-                normalized_values["friendly_id"] = self._generate_unique_friendly_id()
-
             normalized_values_list.append(normalized_values)
 
         return super().create(normalized_values_list)
 
     def write(self, values):
         """Protect device identity unless an explicit context override is present."""
-        protected_fields = {"mac_address", "friendly_id"}
-
-        if protected_fields.intersection(values.keys()) and not self.env.context.get(
+        if "mac_address" in values and not self.env.context.get(
             "trmnl_allow_identity_update"
         ):
             raise AccessError(
-                "MAC address and Friendly ID are protected identity fields and "
+                "MAC address is a protected identity field and "
                 "cannot be modified after creation."
             )
 
@@ -491,13 +464,3 @@ class TrmnlDevice(models.Model):
             return False
 
         return mac_address
-
-    @api.model
-    def _generate_unique_friendly_id(self):
-        """Generate a short unique friendly identifier."""
-        for attempt in range(25):
-            friendly_id = f"TRMNL-{secrets.token_hex(3).upper()}"
-            if not self.sudo().search([("friendly_id", "=", friendly_id)], limit=1):
-                return friendly_id
-
-        raise ValidationError("Unable to generate a unique friendly ID.")

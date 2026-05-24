@@ -44,7 +44,6 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         )
         self.assertTrue(stub_device, "A stub record should be created for unknown devices.")
         self.assertEqual(stub_device.approval_state, APPROVAL_STATE_UNKNOWN_DEVICE)
-        self.assertFalse(stub_device.friendly_id)
         self.assertTrue(stub_device.last_presented_token_hash)
 
     def test_api_display_unknown_device_without_token_returns_202_and_creates_stub(self):

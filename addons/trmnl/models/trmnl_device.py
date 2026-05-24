@@ -41,13 +41,19 @@ DISPLAY_POLICY_SELECTION = [
 
 # Approval state constants
 #
-# accepted       — device is registered and has a valid, matching API token.
+# accepted       — device is registered and has a valid, matching API token
+#                  stored in the accepted-token slot (api_token_hash /
+#                  api_token_salt).
 # token_mismatch — device MAC is known, the device is accepted, but the token
-#                  it last presented did not match the stored hash.
-#                  Only reachable from ``accepted``; never from ``unknown_device``.
+#                  it last presented did not match the stored accepted-token
+#                  hash.  Only reachable from ``accepted``; never from
+#                  ``unknown_device``.
 # unknown_device — device MAC has not been registered before; a full record has
 #                  been created so the admin can review and manually accept it.
-#                  Token validation is never performed for records in this state.
+#                  Any token the device presents is stored in the presented-token
+#                  slot (last_presented_token_hash / last_presented_token_salt)
+#                  only.  The accepted-token slot is always empty for these
+#                  records, so token validation is never performed.
 APPROVAL_STATE_ACCEPTED = "accepted"
 APPROVAL_STATE_TOKEN_MISMATCH = "token_mismatch"
 APPROVAL_STATE_UNKNOWN_DEVICE = "unknown_device"
@@ -87,20 +93,26 @@ def _default_image_url(self):
 class TrmnlDevice(models.Model):
     """Represent a TRMNL e-ink display and its server-side state.
 
-    Identity fields (mac_address) are write-protected after creation and may
-    only be mutated via the ``trmnl_allow_identity_update`` context flag.
+        Identity fields (mac_address) are write-protected after creation and may
+        only be mutated via the ``trmnl_allow_identity_update`` context flag.
 
-    Approval states
-    ---------------
-    accepted       — device is registered with a matching API token and will
-                     be served display content and have its logs stored.
-    token_mismatch — the device was previously accepted but the token it last
-                     presented did not match the stored hash.  Only reachable
-                     from ``accepted``; token validation is never performed on
-                     ``unknown_device`` records.
-    unknown_device — MAC has never been seen via /api/setup; a full record was
-                     created automatically so the admin can act on it.  Token
-                     validation is skipped entirely for records in this state.
+        Approval states
+        ---------------
+        accepted       — device is registered with a matching API token stored in
+                        the accepted-token slot (``api_token_hash`` /
+                        ``api_token_salt``) and will be served display content
+                        and have its logs stored.
+        token_mismatch — the device was previously accepted but the token it last
+                        presented did not match the accepted-token hash.  Only
+                        reachable from ``accepted``; token validation is never
+                        performed on ``unknown_device`` records.
+        unknown_device — MAC has never been registered via /api/setup; a full
+                        record was created automatically so the admin can act on
+                        it.  Any token presented by the device is stored in the
+                        presented-token slot (``last_presented_token_hash`` /
+                        ``last_presented_token_salt``) only.  The accepted-token
+                        slot is always empty, so token validation is skipped
+                        entirely for records in this state.
 
     Refresh rate
     ------------

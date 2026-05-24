@@ -161,7 +161,7 @@
 
                     <group>
                         <group string="Configuration">
-                            <field name="image_url"/>
+                            <field name="image_url" readonly="1"/>
 
                             <label for="desired_refresh_rate_minutes" string="Refresh Rate"/>
                             <div class="o_field_widget">
@@ -188,7 +188,7 @@
                                  using the standard list-view checkboxes and the Delete action.
                                  Log entries are also removed automatically when the device
                                  record itself is deleted. -->
-                            <field name="log_ids" mode="list">
+                            <field name="log_ids">
                                 <list create="false" edit="false" delete="true">
                                     <field name="log_id"/>
                                     <field name="name"/>

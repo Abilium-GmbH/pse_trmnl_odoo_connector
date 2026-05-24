@@ -58,7 +58,7 @@ APPROVAL_STATE_SELECTION = [
 ]
 
 # Filenames for the two built-in display images.
-DEFAULT_FILENAME = "default_screen.png"
+DEFAULT_FILENAME = "default_screen.bmp"
 UNAUTHORIZED_IMAGE_FILENAME = "unauthorized_screen.bmp"
 
 # Static asset paths — used only as a last-resort fallback when the
@@ -66,7 +66,7 @@ UNAUTHORIZED_IMAGE_FILENAME = "unauthorized_screen.bmp"
 # install before post_init_hook runs).  TRMNL devices must never be served
 # these relative paths directly; they need absolute URLs built from
 # web.base.url via TrmnlImageSeeder.get_image_url().
-DEFAULT_IMAGE_STATIC_PATH = "/trmnl/static/default_screen.png"
+DEFAULT_IMAGE_STATIC_PATH = "/trmnl/static/default_screen.bmp"
 UNAUTHORIZED_IMAGE_STATIC_PATH = "/trmnl/static/unauthorzied_screen.bmp"
 
 

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
-import secrets
 from datetime import datetime, timezone
 
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, ValidationError
+
+from .trmnl_image import DEFAULT_IMAGE_CONFIG_KEY, UNAUTHORIZED_IMAGE_CONFIG_KEY  # noqa: F401
 
 # TRMNL-Displays send a 6-octet, uppercase hex, colon-separated string according to the
 # firmware, e.g.: A4:CF:12:7E:3B:01
@@ -26,8 +27,8 @@ SECONDS_PER_MINUTE: int = 60
 # Refresh rate bounds.
 # Both bounds are expressed in seconds; the UI always displays minutes.
 REFRESH_RATE_MIN_SECONDS: int = 1 * SECONDS_PER_MINUTE  # 1 minute
-REFRESH_RATE_MAX_SECONDS: int = 30 * SECONDS_PER_MINUTE # 30 minutes
-DEFAULT_REFRESH_RATE: int = 1 * SECONDS_PER_MINUTE      # 1 minute
+REFRESH_RATE_MAX_SECONDS: int = 30 * SECONDS_PER_MINUTE  # 30 minutes
+DEFAULT_REFRESH_RATE: int = 1 * SECONDS_PER_MINUTE       # 1 minute
 
 DISPLAY_POLICY_ERROR = "error"
 DISPLAY_POLICY_AUTO_ACCEPT = "auto_accept"
@@ -41,10 +42,12 @@ DISPLAY_POLICY_SELECTION = [
 # Approval state constants
 #
 # accepted       — device is registered and has a valid, matching API token.
-# token_mismatch — device MAC is known but the token it last presented did not
-#                  match the stored hash.
+# token_mismatch — device MAC is known, the device is accepted, but the token
+#                  it last presented did not match the stored hash.
+#                  Only reachable from ``accepted``; never from ``unknown_device``.
 # unknown_device — device MAC has not been registered before; a full record has
 #                  been created so the admin can review and manually accept it.
+#                  Token validation is never performed for records in this state.
 APPROVAL_STATE_ACCEPTED = "accepted"
 APPROVAL_STATE_TOKEN_MISMATCH = "token_mismatch"
 APPROVAL_STATE_UNKNOWN_DEVICE = "unknown_device"
@@ -54,16 +57,31 @@ APPROVAL_STATE_SELECTION = [
     (APPROVAL_STATE_UNKNOWN_DEVICE, "Unknown Device"),
 ]
 
-# Default image served to devices that are accepted and have no custom image configured.
-# The file is served as a static asset by Odoo from addons/trmnl/static/img/.
-DEFAULT_FILENAME = "default_screen.bmp"
-DEFAULT_IMAGE_URL = "/trmnl/static/src/img/default_screen.bmp"
+# Filenames for the two built-in display images.
+DEFAULT_FILENAME = "default_screen.png"
+UNAUTHORIZED_IMAGE_FILENAME = "unauthorized_screen.bmp"
 
-# Image served to unknown or token-mismatched devices under the error policy.
-# This gives the device something to display rather than leaving the screen blank.
-# The file is served as a static asset by Odoo from addons/trmnl/static/img/.
-ERROR_IMAGE_FILENAME = "error_screen.bmp"
-ERROR_IMAGE_URL = "/trmnl/static/src/img/error_screen.bmp"
+# Static asset paths — used only as a last-resort fallback when the
+# ir.attachment seed has not been created yet (e.g. during the very first
+# install before post_init_hook runs).  TRMNL devices must never be served
+# these relative paths directly; they need absolute URLs built from
+# web.base.url via TrmnlImageSeeder.get_image_url().
+DEFAULT_IMAGE_STATIC_PATH = "/trmnl/static/default_screen.png"
+UNAUTHORIZED_IMAGE_STATIC_PATH = "/trmnl/static/unauthorzied_screen.bmp"
+
+
+def _default_image_url(self):
+    """Resolve the absolute URL for the default display image.
+
+    Used as the ``default=`` callable for the ``image_url`` field so that
+    every newly created device record is immediately populated with an
+    absolute, device-reachable URL.  Falls back to the static asset path
+    when the attachment has not been seeded yet.
+    """
+    return (
+        self.env["trmnl.image.seeder"].get_image_url(DEFAULT_IMAGE_CONFIG_KEY)
+        or DEFAULT_IMAGE_STATIC_PATH
+    )
 
 
 class TrmnlDevice(models.Model):
@@ -76,11 +94,13 @@ class TrmnlDevice(models.Model):
     ---------------
     accepted       — device is registered with a matching API token and will
                      be served display content and have its logs stored.
-    token_mismatch — MAC is known but the token last presented by the device
-                     did not match; the admin can manually accept the device to
-                     adopt the presented token.
+    token_mismatch — the device was previously accepted but the token it last
+                     presented did not match the stored hash.  Only reachable
+                     from ``accepted``; token validation is never performed on
+                     ``unknown_device`` records.
     unknown_device — MAC has never been seen via /api/setup; a full record was
-                     created automatically so the admin can act on it.
+                     created automatically so the admin can act on it.  Token
+                     validation is skipped entirely for records in this state.
 
     Refresh rate
     ------------
@@ -92,9 +112,12 @@ class TrmnlDevice(models.Model):
 
     Image URL
     ---------
-    ``image_url`` and ``filename`` are managed by the image renderer and are
-    read-only in the admin UI.  They default to the module's static placeholder
-    assets and can be overwritten freely at the model level by the renderer.
+    ``image_url`` holds an absolute URL built from ``web.base.url`` and the
+    ``/web/image/{id}`` route of the seeded ``ir.attachment`` record.  This
+    URL is reachable by the TRMNL device regardless of whether Odoo is running
+    in a local Docker container or on odoo.sh.  The static asset files under
+    ``static/`` are only used as the seed source during installation
+    and as a last-resort fallback; they are never served directly to devices.
     """
 
     _name = "trmnl.device"
@@ -227,9 +250,11 @@ class TrmnlDevice(models.Model):
 
     image_url = fields.Char(
         string="Image URL",
-        default=lambda self: DEFAULT_IMAGE_URL,
+        default=_default_image_url,
         help=(
-            "URL returned to the display. "
+            "Absolute URL returned to the display device. "
+            "Built from web.base.url and the /web/image/{id} route of the seeded "
+            "ir.attachment record so the device can fetch it over the network. "
             "Managed by the image renderer; read-only in the admin UI."
         ),
     )

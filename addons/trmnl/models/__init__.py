@@ -6,3 +6,4 @@ from . import trmnl_device_display
 from . import trmnl_device_log
 from . import trmnl_device_ui
 from . import trmnl_device_wizard
+from . import trmnl_image

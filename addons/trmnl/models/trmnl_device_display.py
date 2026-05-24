@@ -29,39 +29,44 @@ class DisplayResolutionResult(NamedTuple):
 class TrmnlDeviceDisplayMixin(models.Model):
     """Extend TRMNL devices with display request resolution helpers.
 
-    Response builders read ``desired_refresh_rate`` (the admin-configured
-    value) rather than the telemetry field ``refresh_rate`` (the value last
-    reported by the device), so the server can command a new interval
-    independently of what the device currently uses.
+        Response builders read ``desired_refresh_rate`` (the admin-configured
+        value) rather than the telemetry field ``refresh_rate`` (the value last
+        reported by the device), so the server can command a new interval
+        independently of what the device currently uses.
 
-    State machine contract
-    ----------------------
-    ``unknown_device`` records are handled entirely separately from token
-    validation.  Token checking (and the ``token_mismatch`` state) only ever
-    applies to devices that are currently in the ``accepted`` or
-    ``token_mismatch`` state, both of which imply that the device was
-    previously registered with a known API token.  A device in the
-    ``unknown_device`` state has no accepted token on file, so there is
-    nothing to verify against; it is served the error image unconditionally
-    and its record is updated with the latest telemetry and presented token.
+        State machine contract
+        ----------------------
+        ``unknown_device`` records are handled entirely separately from token
+        validation.  Token checking (and the ``token_mismatch`` state) only ever
+        applies to devices that are currently in the ``accepted`` or
+        ``token_mismatch`` state, both of which imply that the device was
+        previously registered with a known API token stored in the accepted-token
+        slot (``api_token_hash`` / ``api_token_salt``).  A device in the
+        ``unknown_device`` state stores any presented token only in the
+        presented-token slot (``last_presented_token_hash`` /
+        ``last_presented_token_salt``); the accepted-token slot is always empty,
+        so token verification via ``_verify_api_token`` is meaningless and is
+        never attempted.
 
-    Request resolution follows this decision tree for each incoming poll:
+        Request resolution follows this decision tree for each incoming poll:
 
-    1. MAC address missing
-           → error-image response, no record touched.
-    2. Per-device reset_pending flag set
-           → reset signal, record deleted.
-    3. MAC known, device is ``unknown_device``
-           → update record (telemetry + presented token), serve error image.
-           Token is never checked; ``token_mismatch`` is never set from here.
-    4. MAC unknown (no DB record)
-           → _resolve_unknown_display_request (policy-driven).
-    5. MAC known, device is ``accepted`` or ``token_mismatch``, token valid
-           → serve display (if ``accepted``); serve error image (if
-             ``token_mismatch`` — manual or auto-accept required to restore).
-    6. MAC known, device is ``accepted`` or ``token_mismatch``, token invalid
-           → _resolve_token_mismatch_display_request (policy-driven).
-    """
+        1. MAC address missing
+            → error-image response, no record touched.
+        2. Per-device reset_pending flag set
+            → reset signal, record deleted.
+        3. MAC known, device is ``unknown_device``
+            → _resolve_known_unknown_device_display_request (policy-driven).
+                error:         refresh record, serve error image.
+                auto_accept:   promote record to accepted, serve display payload.
+                factory_reset: delete record, return {"status": 500}.
+        4. MAC unknown (no DB record)
+            → _resolve_unknown_display_request (policy-driven).
+        5. MAC known, device is ``accepted`` or ``token_mismatch``, token valid
+            → serve display (if ``accepted``); serve error image (if
+                ``token_mismatch`` — manual or auto-accept required to restore).
+        6. MAC known, device is ``accepted`` or ``token_mismatch``, token invalid
+            → _resolve_token_mismatch_display_request (policy-driven).
+        """
 
     _inherit = "trmnl.device"
 
@@ -147,9 +152,6 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 "reset_pending",
             )
 
-        # Unknown-device records are handled here, independently of any token
-        # check.  Token validation and the token_mismatch state only apply to
-        # devices that are in the ``accepted`` or ``token_mismatch`` state.
         if device and device.approval_state == APPROVAL_STATE_UNKNOWN_DEVICE:
             return self._resolve_known_unknown_device_display_request(
                 device, headers, api_token
@@ -189,11 +191,44 @@ class TrmnlDeviceDisplayMixin(models.Model):
     def _resolve_known_unknown_device_display_request(self, device, headers, api_token):
         """Handle a display poll from a device whose record is in ``unknown_device`` state.
 
-        The existing record is updated in place (latest telemetry and presented
-        token are stored so the admin has full context when reviewing).  The
-        error image is returned unconditionally — no token check is performed
-        and ``token_mismatch`` is never set from this path.
+        Consults the current display policy so that a policy change takes effect
+        immediately, even for devices that already have a stub record:
+
+        - ``error``        — Update telemetry and the presented token on the existing
+                             record; return the error image unconditionally.
+        - ``auto_accept``  — Promote the stub record to ``accepted`` by adopting the
+                             presented token; serve the normal display payload.
+        - ``factory_reset``— Delete the stub record and return the reset signal
+                             (``{"status": 500}``), consistent with the first-seen
+                             factory-reset path.
+
+        Token validation is never performed for ``unknown_device`` records;
+        ``token_mismatch`` is never set from this path.
         """
+        policy = self._get_display_request_policy()
+
+        if policy == DISPLAY_POLICY_AUTO_ACCEPT and api_token:
+            promoted_device, record_status = self.register_or_adopt_from_display_headers(
+                headers, api_token
+            )
+            if promoted_device:
+                promoted_device._apply_display_telemetry(headers)
+                promoted_device._record_display_served()
+                return DisplayResolutionResult(
+                    promoted_device,
+                    promoted_device.build_display_response(),
+                    record_status,
+                )
+
+        if policy == DISPLAY_POLICY_FACTORY_RESET:
+            device.unlink()
+            return DisplayResolutionResult(
+                self.browse(),
+                {"status": 500},
+                "factory_reset",
+            )
+
+        # Error policy (default): refresh the record for admin review.
         self.record_unknown_device_from_display(
             device.mac_address, api_token, headers
         )
@@ -221,8 +256,6 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 )
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
-            # Factory-reset signal: the device receives status 500 which
-            # triggers a wipe of its Wi-Fi credentials and API key.
             return DisplayResolutionResult(
                 self.browse(),
                 {"status": 500},
@@ -273,8 +306,6 @@ class TrmnlDeviceDisplayMixin(models.Model):
             )
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
-            # Factory-reset signal: the device receives status 500 which
-            # triggers a wipe of its Wi-Fi credentials and API key.
             device.unlink()
             return DisplayResolutionResult(
                 self.browse(),

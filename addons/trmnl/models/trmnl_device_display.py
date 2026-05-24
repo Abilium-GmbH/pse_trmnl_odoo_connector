@@ -8,12 +8,14 @@ from odoo import api, models
 
 from .trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
+    APPROVAL_STATE_UNKNOWN_DEVICE,
     DEFAULT_REFRESH_RATE,
     DISPLAY_POLICY_AUTO_ACCEPT,
     DISPLAY_POLICY_FACTORY_RESET,
-    ERROR_IMAGE_FILENAME,
-    ERROR_IMAGE_URL,
+    UNAUTHORIZED_IMAGE_FILENAME,
+    UNAUTHORIZED_IMAGE_STATIC_PATH,
 )
+from .trmnl_image import UNAUTHORIZED_IMAGE_CONFIG_KEY
 
 
 class DisplayResolutionResult(NamedTuple):
@@ -32,17 +34,33 @@ class TrmnlDeviceDisplayMixin(models.Model):
     reported by the device), so the server can command a new interval
     independently of what the device currently uses.
 
+    State machine contract
+    ----------------------
+    ``unknown_device`` records are handled entirely separately from token
+    validation.  Token checking (and the ``token_mismatch`` state) only ever
+    applies to devices that are currently in the ``accepted`` or
+    ``token_mismatch`` state, both of which imply that the device was
+    previously registered with a known API token.  A device in the
+    ``unknown_device`` state has no accepted token on file, so there is
+    nothing to verify against; it is served the error image unconditionally
+    and its record is updated with the latest telemetry and presented token.
+
     Request resolution follows this decision tree for each incoming poll:
 
-    1. MAC address missing          → error-image response, no record touched.
-    2. MAC unknown + auto-accept    → register & adopt token, serve display.
-    3. MAC unknown + factory-reset  → return {"status": 500}.
-    4. MAC unknown + error          → create full record, serve error image.
-    5. MAC known, token valid       → serve display (if accepted).
-    6. MAC known, token invalid
-        + auto-accept               → adopt new token, serve display.
-        + factory-reset             → return {"status": 500}, delete record.
-        + error                     → update mismatch record, serve error image.
+    1. MAC address missing
+           → error-image response, no record touched.
+    2. Per-device reset_pending flag set
+           → reset signal, record deleted.
+    3. MAC known, device is ``unknown_device``
+           → update record (telemetry + presented token), serve error image.
+           Token is never checked; ``token_mismatch`` is never set from here.
+    4. MAC unknown (no DB record)
+           → _resolve_unknown_display_request (policy-driven).
+    5. MAC known, device is ``accepted`` or ``token_mismatch``, token valid
+           → serve display (if ``accepted``); serve error image (if
+             ``token_mismatch`` — manual or auto-accept required to restore).
+    6. MAC known, device is ``accepted`` or ``token_mismatch``, token invalid
+           → _resolve_token_mismatch_display_request (policy-driven).
     """
 
     _inherit = "trmnl.device"
@@ -54,16 +72,22 @@ class TrmnlDeviceDisplayMixin(models.Model):
     def build_display_error_response(self):
         """Build the payload returned when a display request cannot be served.
 
-        Returns a full display-shaped payload using the error image constants
-        and the default refresh rate so the device always has something to
-        render.  This is only used for the error policy (unknown device and
-        token mismatch); the factory-reset path returns {"status": 500}
-        directly.
+        Returns a full display-shaped payload using the seeded error image URL
+        (resolved via ``web.base.url``) and the default refresh rate so the
+        device always has something to render.  Falls back to the static asset
+        path when the attachment URL is not yet available.
+
+        This response is used for the error policy (unknown device and token
+        mismatch); the factory-reset path returns ``{"status": 500}`` directly.
         """
+        unauthorized_image_url = (
+            self.env["trmnl.image.seeder"].get_image_url(UNAUTHORIZED_IMAGE_CONFIG_KEY)
+            or UNAUTHORIZED_IMAGE_STATIC_PATH
+        )
         return {
             "status": 0,
-            "filename": ERROR_IMAGE_FILENAME,
-            "image_url": ERROR_IMAGE_URL,
+            "filename": UNAUTHORIZED_IMAGE_FILENAME,
+            "image_url": unauthorized_image_url,
             "refresh_rate": DEFAULT_REFRESH_RATE,
         }
 
@@ -113,7 +137,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
         device = self.sudo().search([("mac_address", "=", mac_address)], limit=1)
 
-        # Per-device reset handling (must run before any token validation).
+        # Per-device reset handling (runs before any other checks).
         if device and device.reset_pending:
             reset_payload = device.build_reset_response()
             device.unlink()
@@ -123,13 +147,26 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 "reset_pending",
             )
 
+        # Unknown-device records are handled here, independently of any token
+        # check.  Token validation and the token_mismatch state only apply to
+        # devices that are in the ``accepted`` or ``token_mismatch`` state.
+        if device and device.approval_state == APPROVAL_STATE_UNKNOWN_DEVICE:
+            return self._resolve_known_unknown_device_display_request(
+                device, headers, api_token
+            )
+
         if not device:
             return self._resolve_unknown_display_request(
                 mac_address, headers, api_token
             )
 
+        # At this point the device exists and is either ``accepted`` or
+        # ``token_mismatch`` — both states have an accepted token on file.
         if api_token and device._verify_api_token(api_token):
             if device.approval_state != APPROVAL_STATE_ACCEPTED:
+                # token_mismatch device presenting the correct token: the device
+                # must be explicitly re-accepted (manual or auto-accept) before
+                # it is served display content again.
                 device._record_access_denied(reason=device.approval_state)
                 return DisplayResolutionResult(
                     device,
@@ -147,6 +184,23 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
         return self._resolve_token_mismatch_display_request(
             device, headers, api_token
+        )
+
+    def _resolve_known_unknown_device_display_request(self, device, headers, api_token):
+        """Handle a display poll from a device whose record is in ``unknown_device`` state.
+
+        The existing record is updated in place (latest telemetry and presented
+        token are stored so the admin has full context when reviewing).  The
+        error image is returned unconditionally — no token check is performed
+        and ``token_mismatch`` is never set from this path.
+        """
+        self.record_unknown_device_from_display(
+            device.mac_address, api_token, headers
+        )
+        return DisplayResolutionResult(
+            device,
+            self.build_display_error_response(),
+            "unknown_device",
         )
 
     def _resolve_unknown_display_request(self, mac_address, headers, api_token):
@@ -189,6 +243,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
     def _resolve_token_mismatch_display_request(self, device, headers, api_token):
         """Resolve a display request from a known device that presented a wrong token.
 
+        Only called for devices in the ``accepted`` or ``token_mismatch`` state.
         Under the auto-accept policy the presented token is adopted and the
         device is served normally.  Under the factory-reset policy the device
         receives a reset signal (``{"status": 500}``) and its record is deleted,

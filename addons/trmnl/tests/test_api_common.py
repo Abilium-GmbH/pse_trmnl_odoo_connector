@@ -4,8 +4,7 @@ import json
 
 from odoo.addons.trmnl.models.trmnl_device import (
     DEFAULT_REFRESH_RATE,
-    ERROR_IMAGE_FILENAME,
-    ERROR_IMAGE_URL,
+    UNAUTHORIZED_IMAGE_FILENAME,
 )
 
 DISPLAY_POLICY_PARAMETER = "trmnl.display_unknown_device_policy"
@@ -35,7 +34,7 @@ class TrmnlApiHttpCaseMixin:
     UNKNOWN_DEVICE_TOKEN = "unknown-device-token"
     BAD_TOKEN = "bad-token"
     EMPTY_TOKEN = ""
-    EXPECTED_FILENAME = "abilium_test_screen"
+    EXPECTED_FILENAME = "default_screen.bmp"
 
     def _response_status(self, http_response):
         """Return the HTTP status code for a ``url_open`` response."""
@@ -180,6 +179,11 @@ class TrmnlApiHttpCaseMixin:
             DISPLAY_POLICY_ERROR,
         )
 
+    def _get_unauthorized_image_url(self):
+        """Return the absolute unauthorized image URL as the server would produce it."""
+        from odoo.addons.trmnl.models.trmnl_image import UNAUTHORIZED_IMAGE_CONFIG_KEY
+        return self.env["trmnl.image.seeder"].get_image_url(UNAUTHORIZED_IMAGE_CONFIG_KEY)
+
     def _register_device_through_setup(self, mac_address=None):
         """Register a device through the real ``/api/setup`` endpoint."""
         setup_mac_address = mac_address or self.DEVICE_MAC_ADDRESS
@@ -248,20 +252,22 @@ class TrmnlApiHttpCaseMixin:
             },
         )
 
-    def _assert_display_error_payload(self, display_payload):
-        """Assert the error-image ``/api/display`` payload.
+    def _assert_display_unauthorized_payload(self, display_payload):
+        """Assert the unauthorized-image ``/api/display`` payload.
 
         Returned to unknown devices and token-mismatched devices under the
         error policy so the device always has something to render.  The
         payload has the same shape as a normal display response but carries
-        the hardcoded error image URL and filename.
+        the seeded unauthorized image URL (absolute, built from web.base.url) and
+        the unauthorized image filename.
         """
+        unauthorized_image_url = self._get_unauthorized_image_url()
         self.assertEqual(
             display_payload,
             {
                 "status": 0,
-                "filename": ERROR_IMAGE_FILENAME,
-                "image_url": ERROR_IMAGE_URL,
+                "filename": UNAUTHORIZED_IMAGE_FILENAME,
+                "image_url": unauthorized_image_url,
                 "refresh_rate": DEFAULT_REFRESH_RATE,
             },
         )

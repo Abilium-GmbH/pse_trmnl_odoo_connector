@@ -43,7 +43,7 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         display_payload = self._response_json(display_response)
 
         self.assertEqual(self._response_status(display_response), 200)
-        self._assert_display_error_payload(display_payload)
+        self._assert_display_unauthorized_payload(display_payload)
 
         device = self.env["trmnl.device"].sudo().search(
             [("mac_address", "=", self.UNKNOWN_MAC_ADDRESS)],
@@ -72,7 +72,7 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         display_payload = self._response_json(display_response)
 
         self.assertEqual(self._response_status(display_response), 200)
-        self._assert_display_error_payload(display_payload)
+        self._assert_display_unauthorized_payload(display_payload)
 
         device = self.env["trmnl.device"].sudo().search(
             [("mac_address", "=", self.UNKNOWN_MAC_ADDRESS)],
@@ -97,7 +97,7 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         display_payload = self._response_json(display_response)
 
         self.assertEqual(self._response_status(display_response), 200)
-        self._assert_display_error_payload(display_payload)
+        self._assert_display_unauthorized_payload(display_payload)
 
         refreshed_device = self.env["trmnl.device"].sudo().search(
             [("mac_address", "=", registered_device.mac_address)],
@@ -130,7 +130,7 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         display_payload = self._response_json(display_response)
 
         self.assertEqual(self._response_status(display_response), 200)
-        self._assert_display_error_payload(display_payload)
+        self._assert_display_unauthorized_payload(display_payload)
 
     def test_api_display_accepted_device_returns_display_payload(self):
         """A registered and accepted device should receive the display payload."""
@@ -576,7 +576,7 @@ class TestTrmnlDisplayPolicyPersistenceApi(HttpCase, TrmnlApiHttpCaseMixin):
             payload = self._response_json(response)
 
             self.assertEqual(self._response_status(response), 200)
-            self._assert_display_error_payload(payload)
+            self._assert_display_unauthorized_payload(payload)
 
         self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_ERROR)
 
@@ -655,7 +655,7 @@ class TestTrmnlDisplayPolicyPersistenceApi(HttpCase, TrmnlApiHttpCaseMixin):
         )
         first_payload = self._response_json(first_response)
 
-        self._assert_display_error_payload(first_payload)
+        self._assert_display_unauthorized_payload(first_payload)
         self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_ERROR)
 
         self._set_display_policy(DISPLAY_POLICY_FACTORY_RESET)
@@ -677,5 +677,5 @@ class TestTrmnlDisplayPolicyPersistenceApi(HttpCase, TrmnlApiHttpCaseMixin):
         )
         third_payload = self._response_json(third_response)
 
-        self._assert_display_error_payload(third_payload)
+        self._assert_display_unauthorized_payload(third_payload)
         self.assertEqual(self._get_display_policy(), DISPLAY_POLICY_ERROR)

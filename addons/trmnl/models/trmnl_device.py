@@ -343,7 +343,6 @@ class TrmnlDevice(models.Model):
 
     display_width = fields.Integer(string="Display Width")
     display_height = fields.Integer(string="Display Height")
-    wifi_status = fields.Char(string="Wi-Fi Status")
 
     # ------------------------------------------------------------------
     # ORM overrides

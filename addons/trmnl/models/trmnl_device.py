@@ -8,8 +8,6 @@ from datetime import datetime, timezone
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, ValidationError
 
-from .trmnl_image import DEFAULT_IMAGE_CONFIG_KEY, UNAUTHORIZED_IMAGE_CONFIG_KEY  # noqa: F401
-
 # TRMNL-Displays send a 6-octet, uppercase hex, colon-separated string according to the
 # firmware, e.g.: A4:CF:12:7E:3B:01
 MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
@@ -84,6 +82,7 @@ def _default_image_url(self):
     absolute, device-reachable URL.  Falls back to the static asset path
     when the attachment has not been seeded yet.
     """
+    from .trmnl_image import DEFAULT_IMAGE_CONFIG_KEY
     return (
         self.env["trmnl.image.seeder"].get_image_url(DEFAULT_IMAGE_CONFIG_KEY)
         or DEFAULT_IMAGE_STATIC_PATH

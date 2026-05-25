@@ -29,8 +29,7 @@ update:
 	$(DEV_SCRIPT) update "$(COMPOSE)" "$(DB_SERVICE)" "$(ODOO_SERVICE)" "$(DB_NAME)" "$(MODULE)"
 
 test:
-	$(DEV_SCRIPT) start "$(COMPOSE)" "$(DB_SERVICE)" "$(ODOO_SERVICE)" "$(DB_NAME)" "$(MODULE)"
-	$(COMPOSE) run --rm $(ODOO_SERVICE) odoo -d $(DB_NAME) -u $(MODULE) --stop-after-init --test-enable --test-tags /$(MODULE)
+	$(DEV_SCRIPT) test "$(COMPOSE)" "$(DB_SERVICE)" "$(ODOO_SERVICE)" "$(DB_NAME)" "$(MODULE)"
 
 stop:
 	$(COMPOSE) stop $(ODOO_SERVICE) $(DB_SERVICE)

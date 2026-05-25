@@ -9,10 +9,15 @@ from .trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
     APPROVAL_STATE_TOKEN_MISMATCH,
     APPROVAL_STATE_UNKNOWN_DEVICE,
+    DEFAULT_FILENAME,
+    DEFAULT_IMAGE_STATIC_PATH,
     DISPLAY_POLICY_AUTO_ACCEPT,
     DISPLAY_POLICY_ERROR,
     DISPLAY_POLICY_FACTORY_RESET,
+    UNAUTHORIZED_IMAGE_FILENAME,
+    UNAUTHORIZED_IMAGE_STATIC_PATH,
 )
+from .trmnl_image import DEFAULT_IMAGE_CONFIG_KEY, UNAUTHORIZED_IMAGE_CONFIG_KEY
 
 
 class TrmnlDeviceLifecycleMixin(models.Model):
@@ -27,6 +32,8 @@ class TrmnlDeviceLifecycleMixin(models.Model):
     - Auto-register/adopt path used by the auto-accept policy.
     - Manual accept logic invoked from the accept wizard.
     - Setup and display error/success response builders.
+    - Image field helpers that keep ``filename`` and ``image_url`` in sync with
+      the device's current approval state.
     """
 
     _inherit = "trmnl.device"
@@ -67,6 +74,28 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             "trmnl.display_unknown_device_policy",
             policy,
         )
+
+    # ------------------------------------------------------------------
+    # image field helpers
+    # ------------------------------------------------------------------
+
+    @api.model
+    def _default_image_field_values(self):
+        """Return ``filename`` and ``image_url`` for an accepted/default device state."""
+        image_url = (
+            self.env["trmnl.image.seeder"].get_image_url(DEFAULT_IMAGE_CONFIG_KEY)
+            or DEFAULT_IMAGE_STATIC_PATH
+        )
+        return {"filename": DEFAULT_FILENAME, "image_url": image_url}
+
+    @api.model
+    def _unauthorized_image_field_values(self):
+        """Return ``filename`` and ``image_url`` for an unknown/unauthorized device state."""
+        image_url = (
+            self.env["trmnl.image.seeder"].get_image_url(UNAUTHORIZED_IMAGE_CONFIG_KEY)
+            or UNAUTHORIZED_IMAGE_STATIC_PATH
+        )
+        return {"filename": UNAUTHORIZED_IMAGE_FILENAME, "image_url": image_url}
 
     # ------------------------------------------------------------------
     # /api/setup registration
@@ -114,6 +143,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             create_values["firmware_version"] = firmware_version
 
         create_values.update(token_values)
+        create_values.update(self._default_image_field_values())
         device = self.sudo().create(create_values)
         return device, raw_token, "created"
 
@@ -138,6 +168,8 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         If no record exists, a new one is created with all available telemetry
         from the display headers.
 
+        ``filename`` and ``image_url`` are set to the unauthorized image so
+        that the record faithfully reflects what is being served to the device.
         ``added_at`` is intentionally left unset because the device has not yet
         been accepted.
 
@@ -166,6 +198,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         self._apply_telemetry_to_values(create_values, headers)
         if presented_token:
             create_values.update(self._hash_presented_token(presented_token))
+        create_values.update(self._unauthorized_image_field_values())
 
         return self.sudo().create(create_values)
 
@@ -221,8 +254,9 @@ class TrmnlDeviceLifecycleMixin(models.Model):
     def register_or_adopt_from_display_headers(self, headers, api_token):
         """Register a device from display headers by adopting the presented token.
 
-        Used exclusively by the auto-accept policy path.  ``added_at`` is set
-        to the acceptance timestamp.
+        Used exclusively by the auto-accept policy path.  ``filename`` and
+        ``image_url`` are set to the default image values.  ``added_at`` is
+        set to the acceptance timestamp.
 
         Returns a tuple of (device, record_status).
         """
@@ -246,6 +280,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             }
             self._apply_telemetry_to_values(update_values, headers)
             update_values.update(self._hash_api_token(token_value))
+            update_values.update(self._default_image_field_values())
             device.with_context(trmnl_allow_identity_update=True).write(update_values)
             return device, "updated"
 
@@ -259,6 +294,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         }
         self._apply_telemetry_to_values(create_values, headers)
         create_values.update(self._hash_api_token(token_value))
+        create_values.update(self._default_image_field_values())
         device = self.sudo().create(create_values)
         return device, "created"
 
@@ -271,8 +307,8 @@ class TrmnlDeviceLifecycleMixin(models.Model):
 
         Called from ``TrmnlDeviceAcceptWizard``.  The device must have a stored
         presented token (i.e. it must have attempted at least one display poll
-        since the record was created).  ``added_at`` is set to the acceptance
-        timestamp.
+        since the record was created).  ``filename`` and ``image_url`` are reset
+        to the default image.  ``added_at`` is set to the acceptance timestamp.
         """
         self.ensure_one()
         self._promote_presented_token_to_accepted()
@@ -283,6 +319,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             "added_at": now_value,
             "last_seen_at": now_value,
         }
+        update_values.update(self._default_image_field_values())
 
         self.with_context(trmnl_allow_identity_update=True).write(update_values)
         return self

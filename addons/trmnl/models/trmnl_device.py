@@ -73,7 +73,7 @@ UNAUTHORIZED_IMAGE_FILENAME = "unauthorized_screen.bmp"
 # these relative paths directly; they need absolute URLs built from
 # web.base.url via TrmnlImageSeeder.get_image_url().
 DEFAULT_IMAGE_STATIC_PATH = "/trmnl/static/default_screen.bmp"
-UNAUTHORIZED_IMAGE_STATIC_PATH = "/trmnl/static/unauthorzied_screen.bmp"
+UNAUTHORIZED_IMAGE_STATIC_PATH = "/trmnl/static/unauthorized_screen.bmp"
 
 
 def _default_image_url(self):

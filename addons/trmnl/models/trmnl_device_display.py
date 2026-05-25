@@ -288,15 +288,15 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
         if api_token and policy == DISPLAY_POLICY_AUTO_ACCEPT:
             device._store_api_token(api_token)
-            device.with_context(trmnl_allow_identity_update=True).write(
-                {
-                    "approval_state": APPROVAL_STATE_ACCEPTED,
-                    "registration_source": "display",
-                    "added_at": self._utc_now(),
-                    "last_presented_token_hash": False,
-                    "last_presented_token_salt": False,
-                }
-            )
+            update_values = {
+                "approval_state": APPROVAL_STATE_ACCEPTED,
+                "registration_source": "display",
+                "added_at": self._utc_now(),
+                "last_presented_token_hash": False,
+                "last_presented_token_salt": False,
+            }
+            update_values.update(self._default_image_field_values())
+            device.with_context(trmnl_allow_identity_update=True).write(update_values)
             device._apply_display_telemetry(headers)
             device._record_display_served()
             return DisplayResolutionResult(

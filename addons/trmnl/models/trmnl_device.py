@@ -92,26 +92,26 @@ def _default_image_url(self):
 class TrmnlDevice(models.Model):
     """Represent a TRMNL e-ink display and its server-side state.
 
-        Identity fields (mac_address) are write-protected after creation and may
-        only be mutated via the ``trmnl_allow_identity_update`` context flag.
+    Identity fields (mac_address) are write-protected after creation and may
+    only be mutated via the ``trmnl_allow_identity_update`` context flag.
 
-        Approval states
-        ---------------
-        accepted       — device is registered with a matching API token stored in
-                        the accepted-token slot (``api_token_hash`` /
-                        ``api_token_salt``) and will be served display content
-                        and have its logs stored.
-        token_mismatch — the device was previously accepted but the token it last
-                        presented did not match the accepted-token hash.  Only
-                        reachable from ``accepted``; token validation is never
-                        performed on ``unknown_device`` records.
-        unknown_device — MAC has never been registered via /api/setup; a full
-                        record was created automatically so the admin can act on
-                        it.  Any token presented by the device is stored in the
-                        presented-token slot (``last_presented_token_hash`` /
-                        ``last_presented_token_salt``) only.  The accepted-token
-                        slot is always empty, so token validation is skipped
-                        entirely for records in this state.
+    Approval states
+    ---------------
+    accepted       — device is registered with a matching API token stored in
+                     the accepted-token slot (``api_token_hash`` /
+                     ``api_token_salt``) and will be served display content
+                     and have its logs stored.
+    token_mismatch — the device was previously accepted but the token it last
+                     presented did not match the accepted-token hash.  Only
+                     reachable from ``accepted``; token validation is never
+                     performed on ``unknown_device`` records.
+    unknown_device — MAC has never been registered via /api/setup; a full
+                     record was created automatically so the admin can act on
+                     it.  Any token presented by the device is stored in the
+                     presented-token slot (``last_presented_token_hash`` /
+                     ``last_presented_token_salt``) only.  The accepted-token
+                     slot is always empty, so token validation is skipped
+                     entirely for records in this state.
 
     Refresh rate
     ------------
@@ -254,8 +254,9 @@ class TrmnlDevice(models.Model):
         string="Image Filename",
         default=lambda self: DEFAULT_FILENAME,
         help=(
+            "The filename most recently served to the device. "
             "The device only refreshes the displayed image when the filename changes. "
-            "Managed by the image renderer; read-only in the admin UI."
+            "Managed by the image renderer and lifecycle transitions; read-only in the admin UI."
         ),
     )
 
@@ -266,7 +267,7 @@ class TrmnlDevice(models.Model):
             "Absolute URL returned to the display device. "
             "Built from web.base.url and the /web/image/{id} route of the seeded "
             "ir.attachment record so the device can fetch it over the network. "
-            "Managed by the image renderer; read-only in the admin UI."
+            "Managed by the image renderer and lifecycle transitions; read-only in the admin UI."
         ),
     )
 

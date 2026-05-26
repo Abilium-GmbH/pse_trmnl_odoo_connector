@@ -216,13 +216,6 @@ class TrmnlDevice(models.Model):
 
     first_seen_at = fields.Datetime(string="First Seen At", readonly=True, copy=False)
     last_seen_at = fields.Datetime(string="Last Seen At", readonly=True, copy=False)
-    last_display_at = fields.Datetime(string="Last Display At", readonly=True, copy=False)
-    last_log_at = fields.Datetime(string="Last Log At", readonly=True, copy=False)
-    last_access_denied_at = fields.Datetime(
-        string="Last Access Denied At",
-        readonly=True,
-        copy=False,
-    )
 
     added_at = fields.Datetime(
         string="Added At",
@@ -236,15 +229,6 @@ class TrmnlDevice(models.Model):
             "manually by an administrator."
         ),
     )
-
-    display_request_count = fields.Integer(
-        string="Display Request Count",
-        readonly=True,
-        copy=False,
-    )
-    log_entry_count = fields.Integer(string="Log Entry Count", readonly=True, copy=False)
-    invalid_token_count = fields.Integer(string="Invalid Token Count", readonly=True, copy=False)
-    display_denied_count = fields.Integer(string="Display Denied Count", readonly=True, copy=False)
 
     # ------------------------------------------------------------------
     # device configuration (server → device)

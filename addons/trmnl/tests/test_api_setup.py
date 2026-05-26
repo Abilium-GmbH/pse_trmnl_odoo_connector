@@ -2,6 +2,8 @@
 
 from odoo.tests import HttpCase, tagged
 
+from odoo.addons.trmnl.models.trmnl_device import LAST_API_CALL_SETUP
+
 from .test_api_common import APPROVAL_STATE_ACCEPTED, TrmnlApiHttpCaseMixin
 
 
@@ -25,14 +27,19 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
             },
         )
 
-    def test_api_setup_sets_added_at_on_registration(self):
-        """A successful setup call should set added_at on the device record."""
+    def test_api_setup_sets_added_at_and_last_api_call_on_registration(self):
+        """A successful setup call should set added_at and last_api_call on the device record."""
         setup_context = self._register_device_through_setup()
         registered_device = setup_context["device"]
 
         self.assertTrue(
             registered_device.added_at,
             "added_at must be set when a device is registered via /api/setup.",
+        )
+        self.assertEqual(
+            registered_device.last_api_call,
+            LAST_API_CALL_SETUP,
+            "last_api_call must be 'setup' after device registration.",
         )
 
     def test_api_setup_rejects_existing_mac_address(self):
@@ -118,4 +125,9 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertTrue(
             found_device.added_at,
             "added_at must be set on the re-registered device.",
+        )
+        self.assertEqual(
+            found_device.last_api_call,
+            LAST_API_CALL_SETUP,
+            "last_api_call must be 'setup' after re-registration.",
         )

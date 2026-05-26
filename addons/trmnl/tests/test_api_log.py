@@ -2,6 +2,8 @@
 
 from odoo.tests import HttpCase, tagged
 
+from odoo.addons.trmnl.models.trmnl_device import LAST_API_CALL_LOG
+
 from .test_api_common import (
     APPROVAL_STATE_UNKNOWN_DEVICE,
     DISPLAY_POLICY_ERROR,
@@ -19,8 +21,8 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
     is returned.  No writes are made to the database for non-accepted devices.
     """
 
-    def test_api_log_success_stores_batched_logs_and_updates_device_summary(self):
-        """A valid batched log submission should store both entries."""
+    def test_api_log_success_stores_batched_logs_and_updates_device_telemetry(self):
+        """A valid batched log submission should store both entries and update last_api_call."""
         setup_context = self._register_device_through_setup()
         registered_device = setup_context["device"]
         api_token = setup_context["api_token"]
@@ -104,11 +106,11 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(second_log_entry.log_id, 43)
         self.assertEqual(second_log_entry.retry_attempt, 1)
 
-        self.assertEqual(refreshed_device.log_entry_count, 2)
-        self.assertTrue(refreshed_device.last_log_at)
+        self.assertEqual(refreshed_device.last_api_call, LAST_API_CALL_LOG)
+        self.assertTrue(refreshed_device.last_seen_at)
 
     def test_api_log_empty_payload_returns_204_without_body(self):
-        """An empty log payload should still return HTTP 204."""
+        """An empty log payload should still return HTTP 204 and update last_api_call."""
         setup_context = self._register_device_through_setup()
         registered_device = setup_context["device"]
         api_token = setup_context["api_token"]
@@ -127,7 +129,7 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
             limit=1,
         )
 
-        self.assertEqual(refreshed_device.log_entry_count, 0)
+        self.assertEqual(refreshed_device.last_api_call, LAST_API_CALL_LOG)
 
     def test_api_log_missing_identity_returns_401_without_body(self):
         """A log submission without a device identity should return HTTP 401."""
@@ -194,13 +196,12 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
         """A log call from an unknown_device record should return 401 and store nothing.
 
         The submitted log data is silently dropped — no entries are written and
-        no counters are updated on the device record.  HTTP 401 is returned so
+        no fields are updated on the device record.  HTTP 401 is returned so
         the caller knows the request was rejected without leaking whether the
         rejection was due to state or token validity.
         """
         self._set_display_policy(DISPLAY_POLICY_ERROR)
 
-        # Trigger full record creation via a display call.
         self.url_open(
             "/api/display",
             headers=self._display_unknown_headers(self.UNKNOWN_DEVICE_TOKEN),
@@ -213,9 +214,6 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertTrue(unknown_device)
         self.assertEqual(unknown_device.approval_state, APPROVAL_STATE_UNKNOWN_DEVICE)
 
-        # The unknown device's token is stored only as last_presented_token_hash;
-        # api_token_hash is empty, so find_by_mac_and_token will not match and
-        # the log call is rejected.
         log_response = self._call_json_endpoint(
             "/api/log",
             headers=self._log_headers(self.UNKNOWN_DEVICE_TOKEN, self.UNKNOWN_MAC_ADDRESS),

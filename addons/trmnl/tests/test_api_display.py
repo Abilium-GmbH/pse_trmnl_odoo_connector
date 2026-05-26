@@ -7,6 +7,7 @@ from odoo.tests import HttpCase, tagged
 
 from odoo.addons.trmnl.models.trmnl_device import (
     DEFAULT_REFRESH_RATE,
+    LAST_API_CALL_DISPLAY,
     SECONDS_PER_MINUTE,
 )
 
@@ -52,10 +53,10 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertTrue(device, "A full record should be created for unknown devices.")
         self.assertEqual(device.approval_state, APPROVAL_STATE_UNKNOWN_DEVICE)
         self.assertTrue(device.last_presented_token_hash)
-        # Telemetry from the display headers must be persisted on the new record.
         self.assertTrue(device.firmware_version)
         self.assertTrue(device.first_seen_at)
-        # added_at must not be set yet — the device has not been accepted.
+        self.assertTrue(device.last_seen_at)
+        self.assertEqual(device.last_api_call, LAST_API_CALL_DISPLAY)
         self.assertFalse(
             device.added_at,
             "added_at must not be set until the device is accepted.",
@@ -81,6 +82,7 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertTrue(device)
         self.assertEqual(device.approval_state, APPROVAL_STATE_UNKNOWN_DEVICE)
         self.assertFalse(device.last_presented_token_hash)
+        self.assertEqual(device.last_api_call, LAST_API_CALL_DISPLAY)
 
     def test_api_display_known_device_with_invalid_token_returns_error_image_and_records_mismatch(self):
         """Known devices with a bad token receive the error image and state becomes token_mismatch."""
@@ -106,10 +108,8 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
 
         self.assertTrue(refreshed_device._verify_api_token(api_token))
         self.assertEqual(refreshed_device.approval_state, APPROVAL_STATE_TOKEN_MISMATCH)
-        self.assertEqual(refreshed_device.invalid_token_count, 1)
-        self.assertEqual(refreshed_device.display_denied_count, 0)
-        self.assertEqual(refreshed_device.display_request_count, 0)
         self.assertTrue(refreshed_device.last_presented_token_hash)
+        self.assertEqual(refreshed_device.last_api_call, LAST_API_CALL_DISPLAY)
 
     def test_api_display_missing_id_returns_error_image(self):
         """A display request without a MAC address should return the error image payload."""
@@ -161,7 +161,7 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         )
 
         self._assert_display_success_payload(display_payload, refreshed_device.image_url)
-        self.assertEqual(refreshed_device.display_request_count, 1)
+        self.assertEqual(refreshed_device.last_api_call, LAST_API_CALL_DISPLAY)
 
     def test_api_display_returns_desired_refresh_rate_not_reported_rate(self):
         """The display response must carry the admin-set rate, not the device-reported rate."""
@@ -174,7 +174,6 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         admin_desired_rate = 15 * SECONDS_PER_MINUTE
         registered_device.write({"desired_refresh_rate": admin_desired_rate})
 
-        # Report a different rate from the device side.
         device_reported_rate = 1 * SECONDS_PER_MINUTE
         display_response = self.url_open(
             "/api/display",
@@ -211,7 +210,6 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         first_payload = self._response_json(first_response)
         self.assertEqual(first_payload["refresh_rate"], DEFAULT_REFRESH_RATE)
 
-        # 20 minutes
         new_rate = 20 * SECONDS_PER_MINUTE
         registered_device.write({"desired_refresh_rate": new_rate})
 
@@ -230,7 +228,6 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         registered_device = setup_context["device"]
         api_token = setup_context["api_token"]
 
-        # 25 minutes
         admin_desired_rate = 25 * SECONDS_PER_MINUTE
         registered_device.write({"desired_refresh_rate": admin_desired_rate})
 
@@ -288,7 +285,7 @@ class TestTrmnlDisplayAutoAcceptPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(adopted_device.approval_state, APPROVAL_STATE_ACCEPTED)
         self.assertEqual(adopted_device.registration_source, "display")
         self.assertTrue(adopted_device._verify_api_token(self.UNKNOWN_DEVICE_TOKEN))
-        self.assertEqual(adopted_device.display_request_count, 1)
+        self.assertEqual(adopted_device.last_api_call, LAST_API_CALL_DISPLAY)
         self.assertTrue(
             adopted_device.added_at,
             "added_at must be set when a device is auto-accepted via /api/display.",
@@ -337,10 +334,7 @@ class TestTrmnlDisplayAutoAcceptPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertFalse(refreshed_device._verify_api_token(api_token))
         self.assertEqual(refreshed_device.registration_source, "display")
         self.assertEqual(refreshed_device.approval_state, APPROVAL_STATE_ACCEPTED)
-        self.assertEqual(refreshed_device.display_request_count, 1)
-        self.assertEqual(refreshed_device.invalid_token_count, 0)
-        self.assertEqual(refreshed_device.display_denied_count, 0)
-        # added_at was set during /api/setup and must not be overwritten.
+        self.assertEqual(refreshed_device.last_api_call, LAST_API_CALL_DISPLAY)
         self.assertTrue(
             refreshed_device.added_at,
             "added_at must remain set after token adoption.",

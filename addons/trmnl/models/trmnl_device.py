@@ -211,19 +211,6 @@ class TrmnlDevice(models.Model):
         copy=False,
     )
 
-    registration_source = fields.Selection(
-        selection=[
-            ("setup", "Setup"),
-            ("display", "Display"),
-            ("manual", "Manual"),
-        ],
-        string="Registration Source",
-        default="setup",
-        required=True,
-        index=True,
-        copy=False,
-    )
-
     first_seen_at = fields.Datetime(string="First Seen At", readonly=True, copy=False)
     last_seen_at = fields.Datetime(string="Last Seen At", readonly=True, copy=False)
 

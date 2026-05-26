@@ -296,7 +296,6 @@ class TrmnlDeviceDisplayMixin(models.Model):
             device._store_api_token(api_token)
             update_values = {
                 "approval_state": APPROVAL_STATE_ACCEPTED,
-                "registration_source": "display",
                 "added_at": self._utc_now(),
                 "last_seen_at": fields.Datetime.now(),
                 "last_api_call": LAST_API_CALL_DISPLAY,

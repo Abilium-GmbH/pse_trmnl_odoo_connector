@@ -45,7 +45,6 @@
                 <field name="mac_address"/>
                 <field name="filename"/>
                 <field name="approval_state"/>
-                <field name="registration_source"/>
 
                 <filter
                     string="Accepted"
@@ -64,11 +63,6 @@
                         string="Status"
                         name="group_approval_state"
                         context="{'group_by': 'approval_state'}"
-                    />
-                    <filter
-                        string="Registration Source"
-                        name="group_registration_source"
-                        context="{'group_by': 'registration_source'}"
                     />
                 </group>
             </search>

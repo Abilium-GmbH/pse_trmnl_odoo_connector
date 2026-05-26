@@ -6,7 +6,7 @@ import datetime as dt
 
 from odoo import api, fields, models
 
-from .trmnl_device import APPROVAL_STATE_ACCEPTED
+from .trmnl_device import APPROVAL_STATE_ACCEPTED, LAST_API_CALL_DISPLAY, LAST_API_CALL_LOG
 
 
 class TrmnlDeviceTelemetryMixin(models.Model):
@@ -62,33 +62,14 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         return self
 
     def _record_display_served(self):
-        """Update counters and timestamps for a successful display response."""
+        """Update the last-seen timestamp and last API call for a successful display response."""
         self.ensure_one()
-        now_value = fields.Datetime.now()
         self.with_context(trmnl_allow_identity_update=True).write(
             {
-                "last_display_at": now_value,
-                "last_seen_at": now_value,
-                "display_request_count": (self.display_request_count or 0) + 1,
+                "last_seen_at": fields.Datetime.now(),
+                "last_api_call": LAST_API_CALL_DISPLAY,
             }
         )
-        return self
-
-    def _record_access_denied(self, reason="invalid_token"):
-        """Update counters and timestamps for denied device access."""
-        self.ensure_one()
-        now_value = fields.Datetime.now()
-        update_values = {
-            "last_access_denied_at": now_value,
-            "last_seen_at": now_value,
-        }
-
-        if reason == "invalid_token":
-            update_values["invalid_token_count"] = (self.invalid_token_count or 0) + 1
-        else:
-            update_values["display_denied_count"] = (self.display_denied_count or 0) + 1
-
-        self.with_context(trmnl_allow_identity_update=True).write(update_values)
         return self
 
     # ------------------------------------------------------------------
@@ -161,18 +142,14 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         return {field_name: value for field_name, value in values.items() if value is not False}
 
     @api.model
-    def _update_log_activity(self, device, created_count=0):
-        """Touch the device after a log submission and update counters."""
-        now_value = fields.Datetime.now()
-        update_values = {
-            "last_log_at": now_value,
-            "last_seen_at": now_value,
-        }
-
-        if created_count:
-            update_values["log_entry_count"] = (device.log_entry_count or 0) + created_count
-
-        device.with_context(trmnl_allow_identity_update=True).write(update_values)
+    def _update_log_activity(self, device):
+        """Update last_seen_at and last_api_call after a log submission."""
+        device.with_context(trmnl_allow_identity_update=True).write(
+            {
+                "last_seen_at": fields.Datetime.now(),
+                "last_api_call": LAST_API_CALL_LOG,
+            }
+        )
 
     @api.model
     def ingest_logs_from_payload(self, headers, payload):
@@ -217,5 +194,5 @@ class TrmnlDeviceTelemetryMixin(models.Model):
             log_model.create(log_values)
             created_count += 1
 
-        self._update_log_activity(device, created_count)
+        self._update_log_activity(device)
         return created_count, "stored" if created_count else "ignored"

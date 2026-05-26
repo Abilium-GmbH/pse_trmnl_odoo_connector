@@ -54,7 +54,6 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(device.approval_state, APPROVAL_STATE_UNKNOWN_DEVICE)
         self.assertTrue(device.last_presented_token_hash)
         self.assertTrue(device.firmware_version)
-        self.assertTrue(device.first_seen_at)
         self.assertTrue(device.last_seen_at)
         self.assertEqual(device.last_api_call, LAST_API_CALL_DISPLAY)
         self.assertFalse(

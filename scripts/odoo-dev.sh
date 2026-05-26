@@ -173,11 +173,44 @@ do_watch() {
   done
 }
 
+do_test() {
+  local test_project="trmnl-test"
+  local test_db="odoo_test"
+
+  run_compose --project-name "$test_project" up -d "$DB_SERVICE"
+
+  # wait_for_db targets the default project; inline the wait here against the test project.
+  local timeout_seconds=120
+  local elapsed=0
+  until run_compose --project-name "$test_project" exec -T "$DB_SERVICE" sh -lc \
+    'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1; do
+    sleep 2
+    elapsed=$((elapsed + 2))
+    if (( elapsed >= timeout_seconds )); then
+      run_compose --project-name "$test_project" down -v >/dev/null 2>&1
+      die "Timed out waiting for test Postgres to become ready"
+    fi
+  done
+
+  run_compose --project-name "$test_project" run --rm --no-deps "$ODOO_SERVICE" \
+    odoo -d "$test_db" -i "base,$MODULE" --stop-after-init >/dev/null 2>&1
+
+  local test_exit_code=0
+  run_compose --project-name "$test_project" run --rm --no-deps "$ODOO_SERVICE" \
+    odoo -d "$test_db" -u "$MODULE" --stop-after-init --test-enable --test-tags "/$MODULE" \
+    || test_exit_code=$?
+
+  run_compose --project-name "$test_project" down -v >/dev/null 2>&1
+
+  return "$test_exit_code"
+}
+
 case "$ACTION" in
   start) do_start ;;
   update) do_update ;;
   watch) do_watch ;;
+  test) do_test ;;
   *)
-    die "Unknown action '${ACTION}'. Use: start, update, or watch."
+    die "Unknown action '${ACTION}'. Use: start, update, watch, or test."
     ;;
 esac

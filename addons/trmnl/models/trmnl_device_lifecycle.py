@@ -9,10 +9,17 @@ from .trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
     APPROVAL_STATE_TOKEN_MISMATCH,
     APPROVAL_STATE_UNKNOWN_DEVICE,
+    DEFAULT_FILENAME,
+    DEFAULT_IMAGE_STATIC_PATH,
     DISPLAY_POLICY_AUTO_ACCEPT,
     DISPLAY_POLICY_ERROR,
     DISPLAY_POLICY_FACTORY_RESET,
+    LAST_API_CALL_DISPLAY,
+    LAST_API_CALL_SETUP,
+    UNAUTHORIZED_IMAGE_FILENAME,
+    UNAUTHORIZED_IMAGE_STATIC_PATH,
 )
+from .trmnl_image import DEFAULT_IMAGE_CONFIG_KEY, UNAUTHORIZED_IMAGE_CONFIG_KEY
 
 
 class TrmnlDeviceLifecycleMixin(models.Model):
@@ -20,13 +27,15 @@ class TrmnlDeviceLifecycleMixin(models.Model):
 
     Responsibilities
     ----------------
-    - Display-policy read/write/consume helpers.
+    - Display-policy read/write helpers.
     - Device registration from /api/setup headers.
-    - Stub-record creation for unknown devices arriving via /api/display.
-    - Token-mismatch recording for known devices that present a wrong token.
+    - Full record upsert for unknown devices arriving via /api/display.
+    - Token-mismatch recording for accepted devices that present a wrong token.
     - Auto-register/adopt path used by the auto-accept policy.
     - Manual accept logic invoked from the accept wizard.
     - Setup and display error/success response builders.
+    - Image field helpers that keep ``filename`` and ``image_url`` in sync with
+      the device's current approval state.
     """
 
     _inherit = "trmnl.device"
@@ -69,12 +78,38 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         )
 
     # ------------------------------------------------------------------
+    # image field helpers
+    # ------------------------------------------------------------------
+
+    @api.model
+    def _default_image_field_values(self):
+        """Return ``filename`` and ``image_url`` for an accepted/default device state."""
+        image_url = (
+            self.env["trmnl.image.seeder"].get_image_url(DEFAULT_IMAGE_CONFIG_KEY)
+            or DEFAULT_IMAGE_STATIC_PATH
+        )
+        return {"filename": DEFAULT_FILENAME, "image_url": image_url}
+
+    @api.model
+    def _unauthorized_image_field_values(self):
+        """Return ``filename`` and ``image_url`` for an unknown/unauthorized device state."""
+        image_url = (
+            self.env["trmnl.image.seeder"].get_image_url(UNAUTHORIZED_IMAGE_CONFIG_KEY)
+            or UNAUTHORIZED_IMAGE_STATIC_PATH
+        )
+        return {"filename": UNAUTHORIZED_IMAGE_FILENAME, "image_url": image_url}
+
+    # ------------------------------------------------------------------
     # /api/setup registration
     # ------------------------------------------------------------------
 
     @api.model
     def upsert_from_setup_headers(self, headers):
         """Create a device from setup headers or fail if the MAC already exists.
+
+        A device registered via /api/setup is immediately placed in the
+        ``accepted`` state with a freshly generated API token.  ``added_at``
+        is set to the creation timestamp.
 
         Returns a tuple of (device, raw_token, record_status).
         """
@@ -85,12 +120,11 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         existing_device = self.sudo().search([("mac_address", "=", mac_address)], limit=1)
         if existing_device:
             if existing_device.reset_pending:
-                existing_device.with_context(trmnl_allow_identity_update=True).write({
-                    "reset_pending": False
-                })
                 existing_device.unlink()
             else:
-                raise ValidationError(_("TRMNL device with this MAC address is already registered."))
+                raise ValidationError(
+                    _("TRMNL device with this MAC address is already registered.")
+                )
 
         firmware_version = self._parse_to_string(headers.get("FW-Version"))
         now_value = fields.Datetime.now()
@@ -99,69 +133,111 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         create_values = {
             "mac_address": mac_address,
             "approval_state": APPROVAL_STATE_ACCEPTED,
-            "registration_source": "setup",
-            "first_seen_at": now_value,
             "last_seen_at": now_value,
-            "last_setup_at": now_value,
-            "accepted_at": now_value,
-            "setup_request_count": 1,
+            "added_at": now_value,
+            "last_api_call": LAST_API_CALL_SETUP,
         }
         if firmware_version is not False:
             create_values["firmware_version"] = firmware_version
 
         create_values.update(token_values)
+        create_values.update(self._default_image_field_values())
         device = self.sudo().create(create_values)
         return device, raw_token, "created"
 
     # ------------------------------------------------------------------
-    # /api/display stub-record creation (error policy)
+    # /api/display unknown-device upsert (error policy)
     # ------------------------------------------------------------------
 
     @api.model
     def record_unknown_device_from_display(self, mac_address, presented_token, headers):
-        """Create a minimal stub record for a previously unseen MAC address.
+        """Upsert a full device record for an unknown MAC address.
 
-        Called under the error policy so that the admin can review and
-        manually accept the device from the list view.  The presented token
-        is stored as a hashed value so it can be promoted on manual acceptance.
+        Called under the error policy (and when re-polling an existing
+        ``unknown_device`` record) so that the admin can review and manually
+        accept the device from the list view.
 
-        Returns the newly created device record.
+        If a record for ``mac_address`` already exists in the ``unknown_device``
+        state, it is updated in place (telemetry refreshed, presented token
+        overwritten).  Creating a duplicate record is never correct: the unique
+        MAC constraint would raise, and the admin would lose the previously
+        stored telemetry context.
+
+        If no record exists, a new one is created with all available telemetry
+        from the display headers.
+
+        ``filename`` and ``image_url`` are set to the unauthorized image so
+        that the record faithfully reflects what is being served to the device.
+        ``added_at`` is intentionally left unset because the device has not yet
+        been accepted.
+
+        Returns the created-or-updated device record.
         """
-        firmware_version = self._parse_to_string(headers.get("FW-Version"))
         now_value = fields.Datetime.now()
+        existing_device = self.sudo().search(
+            [("mac_address", "=", mac_address)], limit=1
+        )
+
+        if existing_device:
+            update_values = {
+                "last_seen_at": now_value,
+                "last_api_call": LAST_API_CALL_DISPLAY,
+            }
+            self._apply_telemetry_to_values(update_values, headers)
+            if presented_token:
+                update_values.update(self._hash_presented_token(presented_token))
+            existing_device.with_context(trmnl_allow_identity_update=True).write(update_values)
+            return existing_device
 
         create_values = {
             "mac_address": mac_address,
             "approval_state": APPROVAL_STATE_UNKNOWN_DEVICE,
-            "registration_source": "display",
-            "first_seen_at": now_value,
             "last_seen_at": now_value,
+            "last_api_call": LAST_API_CALL_DISPLAY,
         }
-        if firmware_version is not False:
-            create_values["firmware_version"] = firmware_version
-
+        self._apply_telemetry_to_values(create_values, headers)
         if presented_token:
             create_values.update(self._hash_presented_token(presented_token))
+        create_values.update(self._unauthorized_image_field_values())
 
         return self.sudo().create(create_values)
+
+    @api.model
+    def _apply_telemetry_to_values(self, values, headers):
+        """Merge parsed telemetry from display headers into a values dict in place.
+
+        Only fields whose parsed value is not ``False`` are written, so
+        missing or unparseable headers do not overwrite existing data with
+        empty values.
+        """
+        telemetry_map = {
+            "firmware_version": self._parse_to_string(headers.get("FW-Version")),
+            "refresh_rate": self._parse_to_int(headers.get("Refresh-Rate")),
+            "battery_voltage": self._parse_to_float(headers.get("Battery-Voltage")),
+            "rssi_dbm": self._parse_to_int(headers.get("RSSI")),
+            "display_width": self._parse_to_int(headers.get("Width")),
+            "display_height": self._parse_to_int(headers.get("Height")),
+        }
+        for field_name, parsed_value in telemetry_map.items():
+            if parsed_value is not False:
+                values[field_name] = parsed_value
 
     @api.model
     def record_token_mismatch_from_display(self, device, presented_token, headers):
         """Update a known device record to reflect a token-mismatch display attempt.
 
-        Stores the presented token (hashed) for later manual acceptance and
-        bumps the access-denied counters.
+        Only called for devices in the ``accepted`` or ``token_mismatch`` state.
+        Stores the presented token hashed for later manual acceptance and marks
+        the device as having been last seen via a display call.
         """
         now_value = fields.Datetime.now()
         update_values = {
             "approval_state": APPROVAL_STATE_TOKEN_MISMATCH,
             "last_seen_at": now_value,
-            "last_access_denied_at": now_value,
-            "invalid_token_count": (device.invalid_token_count or 0) + 1,
+            "last_api_call": LAST_API_CALL_DISPLAY,
         }
-        firmware_version = self._parse_to_string(headers.get("FW-Version"))
-        if firmware_version is not False:
-            update_values["firmware_version"] = firmware_version
+
+        self._apply_telemetry_to_values(update_values, headers)
 
         if presented_token:
             update_values.update(self._hash_presented_token(presented_token))
@@ -177,8 +253,11 @@ class TrmnlDeviceLifecycleMixin(models.Model):
     def register_or_adopt_from_display_headers(self, headers, api_token):
         """Register a device from display headers by adopting the presented token.
 
-        Used exclusively by the auto-accept policy path.  Returns a tuple of
-        (device, record_status).
+        Used exclusively by the auto-accept policy path.  ``filename`` and
+        ``image_url`` are set to the default image values.  ``added_at`` is
+        set to the acceptance timestamp.
+
+        Returns a tuple of (device, record_status).
         """
         mac_address = self._normalize_mac_address(headers.get("ID"))
         token_value = self._parse_to_string(api_token)
@@ -186,39 +265,34 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         if not mac_address or not token_value:
             return self.browse(), "missing_identity"
 
-        firmware_version = self._parse_to_string(headers.get("FW-Version"))
         now_value = fields.Datetime.now()
-
         device = self.sudo().search([("mac_address", "=", mac_address)], limit=1)
 
         if device:
             update_values = {
                 "approval_state": APPROVAL_STATE_ACCEPTED,
-                "registration_source": "display",
-                "accepted_at": device.accepted_at or now_value,
+                "added_at": now_value,
                 "last_seen_at": now_value,
+                "last_api_call": LAST_API_CALL_DISPLAY,
                 "last_presented_token_hash": False,
                 "last_presented_token_salt": False,
             }
-            if firmware_version is not False:
-                update_values["firmware_version"] = firmware_version
-
+            self._apply_telemetry_to_values(update_values, headers)
             update_values.update(self._hash_api_token(token_value))
+            update_values.update(self._default_image_field_values())
             device.with_context(trmnl_allow_identity_update=True).write(update_values)
             return device, "updated"
 
         create_values = {
             "mac_address": mac_address,
             "approval_state": APPROVAL_STATE_ACCEPTED,
-            "registration_source": "display",
-            "first_seen_at": now_value,
             "last_seen_at": now_value,
-            "accepted_at": now_value,
+            "added_at": now_value,
+            "last_api_call": LAST_API_CALL_DISPLAY,
         }
-        if firmware_version is not False:
-            create_values["firmware_version"] = firmware_version
-
+        self._apply_telemetry_to_values(create_values, headers)
         create_values.update(self._hash_api_token(token_value))
+        create_values.update(self._default_image_field_values())
         device = self.sudo().create(create_values)
         return device, "created"
 
@@ -231,17 +305,19 @@ class TrmnlDeviceLifecycleMixin(models.Model):
 
         Called from ``TrmnlDeviceAcceptWizard``.  The device must have a stored
         presented token (i.e. it must have attempted at least one display poll
-        since the stub record was created).
+        since the record was created).  ``filename`` and ``image_url`` are reset
+        to the default image.  ``added_at`` is set to the acceptance timestamp.
+        Note: ``last_seen_at`` and ``last_api_call`` are intentionally not
+        modified here — accept is an admin action, not a device-initiated call.
         """
         self.ensure_one()
         self._promote_presented_token_to_accepted()
 
-        now_value = fields.Datetime.now()
         update_values = {
             "approval_state": APPROVAL_STATE_ACCEPTED,
-            "accepted_at": now_value,
-            "last_seen_at": now_value,
+            "added_at": fields.Datetime.now(),
         }
+        update_values.update(self._default_image_field_values())
 
         self.with_context(trmnl_allow_identity_update=True).write(update_values)
         return self

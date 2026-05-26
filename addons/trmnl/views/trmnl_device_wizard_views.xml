@@ -42,7 +42,7 @@
                         <ol>
                             <li>
                                 <strong>Respond with an error (recommended)</strong><br/>
-                                The server returns an error and does not send any data (including image URLs). The device remains unaccepted until an administrator manually approves it.
+                                The server returns an "Unauthorized" error image. The device remains unaccepted until an administrator manually approves it.
                             </li>
                             <li>
                                 <strong>Automatically accept the device</strong><br/>

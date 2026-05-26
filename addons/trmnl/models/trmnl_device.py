@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import re
-import secrets
 from datetime import datetime, timezone
 
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, ValidationError
 
-# TRMNL-Displays send a 6-octet, uppercase hex, colon-separated string accoring to the
+# TRMNL-Displays send a 6-octet, uppercase hex, colon-separated string according to the
 # firmware, e.g.: A4:CF:12:7E:3B:01
 MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
 
@@ -26,10 +25,9 @@ SECONDS_PER_MINUTE: int = 60
 # Refresh rate bounds.
 # Both bounds are expressed in seconds; the UI always displays minutes.
 REFRESH_RATE_MIN_SECONDS: int = 1 * SECONDS_PER_MINUTE  # 1 minute
-REFRESH_RATE_MAX_SECONDS: int = 30 * SECONDS_PER_MINUTE # 30 minutes
-DEFAULT_REFRESH_RATE: int = 1 * SECONDS_PER_MINUTE      # 1 minute
+REFRESH_RATE_MAX_SECONDS: int = 30 * SECONDS_PER_MINUTE  # 30 minutes
+DEFAULT_REFRESH_RATE: int = 1 * SECONDS_PER_MINUTE       # 1 minute
 
-DEFAULT_DISPLAY_ERROR_STATUS = 202
 DISPLAY_POLICY_ERROR = "error"
 DISPLAY_POLICY_AUTO_ACCEPT = "auto_accept"
 DISPLAY_POLICY_FACTORY_RESET = "factory_reset"
@@ -41,11 +39,19 @@ DISPLAY_POLICY_SELECTION = [
 
 # Approval state constants
 #
-# accepted       — device is registered and has a valid, matching API token.
-# token_mismatch — device MAC is known but the token it last presented did not
-#                  match the stored hash.
-# unknown_device — device MAC has never been seen before; a stub record has
+# accepted       — device is registered and has a valid, matching API token
+#                  stored in the accepted-token slot (api_token_hash /
+#                  api_token_salt).
+# token_mismatch — device MAC is known, the device is accepted, but the token
+#                  it last presented did not match the stored accepted-token
+#                  hash.  Only reachable from ``accepted``; never from
+#                  ``unknown_device``.
+# unknown_device — device MAC has not been registered before; a full record has
 #                  been created so the admin can review and manually accept it.
+#                  Any token the device presents is stored in the presented-token
+#                  slot (last_presented_token_hash / last_presented_token_salt)
+#                  only.  The accepted-token slot is always empty for these
+#                  records, so token validation is never performed.
 APPROVAL_STATE_ACCEPTED = "accepted"
 APPROVAL_STATE_TOKEN_MISMATCH = "token_mismatch"
 APPROVAL_STATE_UNKNOWN_DEVICE = "unknown_device"
@@ -54,6 +60,43 @@ APPROVAL_STATE_SELECTION = [
     (APPROVAL_STATE_TOKEN_MISMATCH, "Token Mismatch"),
     (APPROVAL_STATE_UNKNOWN_DEVICE, "Unknown Device"),
 ]
+
+# Last API call options — the three endpoints a device can reach.
+LAST_API_CALL_SETUP = "setup"
+LAST_API_CALL_DISPLAY = "display"
+LAST_API_CALL_LOG = "log"
+LAST_API_CALL_SELECTION = [
+    (LAST_API_CALL_SETUP, "Setup"),
+    (LAST_API_CALL_DISPLAY, "Display"),
+    (LAST_API_CALL_LOG, "Log"),
+]
+
+# Filenames for the two built-in display images.
+DEFAULT_FILENAME = "default_screen.bmp"
+UNAUTHORIZED_IMAGE_FILENAME = "unauthorized_screen.bmp"
+
+# Static asset paths — used only as a last-resort fallback when the
+# ir.attachment seed has not been created yet (e.g. during the very first
+# install before post_init_hook runs).  TRMNL devices must never be served
+# these relative paths directly; they need absolute URLs built from
+# web.base.url via TrmnlImageSeeder.get_image_url().
+DEFAULT_IMAGE_STATIC_PATH = "/trmnl/static/default_screen.bmp"
+UNAUTHORIZED_IMAGE_STATIC_PATH = "/trmnl/static/unauthorized_screen.bmp"
+
+
+def _default_image_url(self):
+    """Resolve the absolute URL for the default display image.
+
+    Used as the ``default=`` callable for the ``image_url`` field so that
+    every newly created device record is immediately populated with an
+    absolute, device-reachable URL.  Falls back to the static asset path
+    when the attachment has not been seeded yet.
+    """
+    from .trmnl_image import DEFAULT_IMAGE_CONFIG_KEY
+    return (
+        self.env["trmnl.image.seeder"].get_image_url(DEFAULT_IMAGE_CONFIG_KEY)
+        or DEFAULT_IMAGE_STATIC_PATH
+    )
 
 
 class TrmnlDevice(models.Model):
@@ -64,13 +107,21 @@ class TrmnlDevice(models.Model):
 
     Approval states
     ---------------
-    accepted       — device is registered with a matching API token and will
-                     be served display content and have its logs stored.
-    token_mismatch — MAC is known but the token last presented by the device
-                     did not match; the admin can manually accept the device to
-                     adopt the presented token.
-    unknown_device — MAC has never been seen via /api/setup; a stub record was
-                     created automatically so the admin can act on it.
+    accepted       — device is registered with a matching API token stored in
+                     the accepted-token slot (``api_token_hash`` /
+                     ``api_token_salt``) and will be served display content
+                     and have its logs stored.
+    token_mismatch — the device was previously accepted but the token it last
+                     presented did not match the accepted-token hash.  Only
+                     reachable from ``accepted``; token validation is never
+                     performed on ``unknown_device`` records.
+    unknown_device — MAC has never been registered via /api/setup; a full
+                     record was created automatically so the admin can act on
+                     it.  Any token presented by the device is stored in the
+                     presented-token slot (``last_presented_token_hash`` /
+                     ``last_presented_token_salt``) only.  The accepted-token
+                     slot is always empty, so token validation is skipped
+                     entirely for records in this state.
 
     Refresh rate
     ------------
@@ -79,6 +130,15 @@ class TrmnlDevice(models.Model):
     ``desired_refresh_rate_minutes`` compute/inverse pair.  Valid range:
     1 minute (``REFRESH_RATE_MIN_SECONDS``) to 30 minutes
     (``REFRESH_RATE_MAX_SECONDS``).
+
+    Image URL
+    ---------
+    ``image_url`` holds an absolute URL built from ``web.base.url`` and the
+    ``/web/image/{id}`` route of the seeded ``ir.attachment`` record.  This
+    URL is reachable by the TRMNL device regardless of whether Odoo is running
+    in a local Docker container or on odoo.sh.  The static asset files under
+    ``static/`` are only used as the seed source during installation
+    and as a last-resort fallback; they are never served directly to devices.
     """
 
     _name = "trmnl.device"
@@ -92,10 +152,6 @@ class TrmnlDevice(models.Model):
 
     BATTERY_MIN_VOLTAGE = 3.0
     BATTERY_MAX_VOLTAGE = 4.2
-    DEFAULT_FILENAME = "abilium_test_screen"
-    DEFAULT_IMAGE_URL = (
-        "https://sampleimg.com/800x480?bg=000000&fg=ffffff&text=Abilium&format=png"
-    )
 
     # ------------------------------------------------------------------
     # identity
@@ -155,40 +211,28 @@ class TrmnlDevice(models.Model):
         copy=False,
     )
 
-    registration_source = fields.Selection(
-        selection=[
-            ("setup", "Setup"),
-            ("display", "Display"),
-            ("manual", "Manual"),
-        ],
-        string="Registration Source",
-        default="setup",
-        required=True,
-        index=True,
-        copy=False,
-    )
-
-    first_seen_at = fields.Datetime(string="First Seen At", readonly=True, copy=False)
     last_seen_at = fields.Datetime(string="Last Seen At", readonly=True, copy=False)
-    last_setup_at = fields.Datetime(string="Last Setup At", readonly=True, copy=False)
-    last_display_at = fields.Datetime(string="Last Display At", readonly=True, copy=False)
-    last_log_at = fields.Datetime(string="Last Log At", readonly=True, copy=False)
-    accepted_at = fields.Datetime(string="Accepted At", readonly=True, copy=False)
-    last_access_denied_at = fields.Datetime(
-        string="Last Access Denied At",
+
+    added_at = fields.Datetime(
+        string="Added At",
         readonly=True,
         copy=False,
+        help=(
+            "When the device was added to the system. "
+            "For devices registered via /api/setup this is the registration timestamp. "
+            "For devices first seen via /api/display this is the timestamp at which "
+            "the device was accepted, either automatically (auto-accept policy) or "
+            "manually by an administrator."
+        ),
     )
 
-    setup_request_count = fields.Integer(string="Setup Request Count", readonly=True, copy=False)
-    display_request_count = fields.Integer(
-        string="Display Request Count",
+    last_api_call = fields.Selection(
+        selection=LAST_API_CALL_SELECTION,
+        string="Last API Call",
         readonly=True,
         copy=False,
+        help="The most recent endpoint the device contacted: setup, display, or log.",
     )
-    log_entry_count = fields.Integer(string="Log Entry Count", readonly=True, copy=False)
-    invalid_token_count = fields.Integer(string="Invalid Token Count", readonly=True, copy=False)
-    display_denied_count = fields.Integer(string="Display Denied Count", readonly=True, copy=False)
 
     # ------------------------------------------------------------------
     # device configuration (server → device)
@@ -196,14 +240,23 @@ class TrmnlDevice(models.Model):
 
     filename = fields.Char(
         string="Image Filename",
-        default=lambda self: self.DEFAULT_FILENAME,
-        help="The device only refreshes the displayed image when the filename changes.",
+        default=lambda self: DEFAULT_FILENAME,
+        help=(
+            "The filename most recently served to the device. "
+            "The device only refreshes the displayed image when the filename changes. "
+            "Managed by the image renderer and lifecycle transitions; read-only in the admin UI."
+        ),
     )
 
     image_url = fields.Char(
         string="Image URL",
-        default=lambda self: self.DEFAULT_IMAGE_URL,
-        help="URL returned to the display.",
+        default=_default_image_url,
+        help=(
+            "Absolute URL returned to the display device. "
+            "Built from web.base.url and the /web/image/{id} route of the seeded "
+            "ir.attachment record so the device can fetch it over the network. "
+            "Managed by the image renderer and lifecycle transitions; read-only in the admin UI."
+        ),
     )
 
     reset_pending = fields.Boolean(
@@ -279,7 +332,6 @@ class TrmnlDevice(models.Model):
 
     display_width = fields.Integer(string="Display Width")
     display_height = fields.Integer(string="Display Height")
-    wifi_status = fields.Char(string="Wi-Fi Status")
 
     # ------------------------------------------------------------------
     # ORM overrides
@@ -413,7 +465,7 @@ class TrmnlDevice(models.Model):
 
     @staticmethod
     def _utc_now():
-        """Return a naive UTC datetime for filename generation."""
+        """Return a naive UTC datetime for use in timestamps."""
         return datetime.now(timezone.utc).replace(tzinfo=None)
 
     @api.model
@@ -459,7 +511,7 @@ class TrmnlDevice(models.Model):
         if len(hex_digits) != 12:
             return False
 
-        mac_address = ":".join(hex_digits[index : index + 2] for index in range(0, 12, 2)).upper()
+        mac_address = ":".join(hex_digits[index: index + 2] for index in range(0, 12, 2)).upper()
         if not MAC_RE.match(mac_address):
             return False
 

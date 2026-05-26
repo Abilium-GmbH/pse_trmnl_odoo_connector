@@ -14,6 +14,8 @@ from .trmnl_device import (
     DISPLAY_POLICY_AUTO_ACCEPT,
     DISPLAY_POLICY_ERROR,
     DISPLAY_POLICY_FACTORY_RESET,
+    LAST_API_CALL_DISPLAY,
+    LAST_API_CALL_SETUP,
     UNAUTHORIZED_IMAGE_FILENAME,
     UNAUTHORIZED_IMAGE_STATIC_PATH,
 )
@@ -135,6 +137,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             "first_seen_at": now_value,
             "last_seen_at": now_value,
             "added_at": now_value,
+            "last_api_call": LAST_API_CALL_SETUP,
         }
         if firmware_version is not False:
             create_values["firmware_version"] = firmware_version
@@ -178,7 +181,10 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         )
 
         if existing_device:
-            update_values = {"last_seen_at": now_value}
+            update_values = {
+                "last_seen_at": now_value,
+                "last_api_call": LAST_API_CALL_DISPLAY,
+            }
             self._apply_telemetry_to_values(update_values, headers)
             if presented_token:
                 update_values.update(self._hash_presented_token(presented_token))
@@ -191,6 +197,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             "registration_source": "display",
             "first_seen_at": now_value,
             "last_seen_at": now_value,
+            "last_api_call": LAST_API_CALL_DISPLAY,
         }
         self._apply_telemetry_to_values(create_values, headers)
         if presented_token:
@@ -224,15 +231,14 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         """Update a known device record to reflect a token-mismatch display attempt.
 
         Only called for devices in the ``accepted`` or ``token_mismatch`` state.
-        Stores the presented token hashed for later manual acceptance and bumps
-        the access-denied counters.
+        Stores the presented token hashed for later manual acceptance and marks
+        the device as having been last seen via a display call.
         """
         now_value = fields.Datetime.now()
         update_values = {
             "approval_state": APPROVAL_STATE_TOKEN_MISMATCH,
             "last_seen_at": now_value,
-            "last_access_denied_at": now_value,
-            "invalid_token_count": (device.invalid_token_count or 0) + 1,
+            "last_api_call": LAST_API_CALL_DISPLAY,
         }
 
         self._apply_telemetry_to_values(update_values, headers)
@@ -272,6 +278,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
                 "registration_source": "display",
                 "added_at": now_value,
                 "last_seen_at": now_value,
+                "last_api_call": LAST_API_CALL_DISPLAY,
                 "last_presented_token_hash": False,
                 "last_presented_token_salt": False,
             }
@@ -288,6 +295,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             "first_seen_at": now_value,
             "last_seen_at": now_value,
             "added_at": now_value,
+            "last_api_call": LAST_API_CALL_DISPLAY,
         }
         self._apply_telemetry_to_values(create_values, headers)
         create_values.update(self._hash_api_token(token_value))
@@ -306,15 +314,15 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         presented token (i.e. it must have attempted at least one display poll
         since the record was created).  ``filename`` and ``image_url`` are reset
         to the default image.  ``added_at`` is set to the acceptance timestamp.
+        Note: ``last_seen_at`` and ``last_api_call`` are intentionally not
+        modified here — accept is an admin action, not a device-initiated call.
         """
         self.ensure_one()
         self._promote_presented_token_to_accepted()
 
-        now_value = fields.Datetime.now()
         update_values = {
             "approval_state": APPROVAL_STATE_ACCEPTED,
-            "added_at": now_value,
-            "last_seen_at": now_value,
+            "added_at": fields.Datetime.now(),
         }
         update_values.update(self._default_image_field_values())
 

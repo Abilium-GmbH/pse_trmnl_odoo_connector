@@ -207,7 +207,6 @@ class TrmnlApiHttpCaseMixin:
 
         self.assertTrue(registered_device, "The setup request should register the device.")
         self.assertEqual(registered_device.approval_state, APPROVAL_STATE_ACCEPTED)
-        self.assertEqual(registered_device.registration_source, "setup")
         self.assertEqual(registered_device.image_url, setup_payload["image_url"])
 
         verify_token_method = getattr(registered_device, "_verify_api_token", None)

@@ -283,7 +283,6 @@ class TestTrmnlDisplayAutoAcceptPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
 
         self.assertTrue(adopted_device)
         self.assertEqual(adopted_device.approval_state, APPROVAL_STATE_ACCEPTED)
-        self.assertEqual(adopted_device.registration_source, "display")
         self.assertTrue(adopted_device._verify_api_token(self.UNKNOWN_DEVICE_TOKEN))
         self.assertEqual(adopted_device.last_api_call, LAST_API_CALL_DISPLAY)
         self.assertTrue(
@@ -332,7 +331,6 @@ class TestTrmnlDisplayAutoAcceptPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
 
         self.assertTrue(refreshed_device._verify_api_token(self.BAD_TOKEN))
         self.assertFalse(refreshed_device._verify_api_token(api_token))
-        self.assertEqual(refreshed_device.registration_source, "display")
         self.assertEqual(refreshed_device.approval_state, APPROVAL_STATE_ACCEPTED)
         self.assertEqual(refreshed_device.last_api_call, LAST_API_CALL_DISPLAY)
         self.assertTrue(

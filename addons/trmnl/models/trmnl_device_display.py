@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from odoo import api, models
+from odoo import api, fields, models
 
 from .trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
@@ -12,6 +12,7 @@ from .trmnl_device import (
     DEFAULT_REFRESH_RATE,
     DISPLAY_POLICY_AUTO_ACCEPT,
     DISPLAY_POLICY_FACTORY_RESET,
+    LAST_API_CALL_DISPLAY,
     UNAUTHORIZED_IMAGE_FILENAME,
     UNAUTHORIZED_IMAGE_STATIC_PATH,
 )
@@ -29,44 +30,44 @@ class DisplayResolutionResult(NamedTuple):
 class TrmnlDeviceDisplayMixin(models.Model):
     """Extend TRMNL devices with display request resolution helpers.
 
-        Response builders read ``desired_refresh_rate`` (the admin-configured
-        value) rather than the telemetry field ``refresh_rate`` (the value last
-        reported by the device), so the server can command a new interval
-        independently of what the device currently uses.
+    Response builders read ``desired_refresh_rate`` (the admin-configured
+    value) rather than the telemetry field ``refresh_rate`` (the value last
+    reported by the device), so the server can command a new interval
+    independently of what the device currently uses.
 
-        State machine contract
-        ----------------------
-        ``unknown_device`` records are handled entirely separately from token
-        validation.  Token checking (and the ``token_mismatch`` state) only ever
-        applies to devices that are currently in the ``accepted`` or
-        ``token_mismatch`` state, both of which imply that the device was
-        previously registered with a known API token stored in the accepted-token
-        slot (``api_token_hash`` / ``api_token_salt``).  A device in the
-        ``unknown_device`` state stores any presented token only in the
-        presented-token slot (``last_presented_token_hash`` /
-        ``last_presented_token_salt``); the accepted-token slot is always empty,
-        so token verification via ``_verify_api_token`` is meaningless and is
-        never attempted.
+    State machine contract
+    ----------------------
+    ``unknown_device`` records are handled entirely separately from token
+    validation.  Token checking (and the ``token_mismatch`` state) only ever
+    applies to devices that are currently in the ``accepted`` or
+    ``token_mismatch`` state, both of which imply that the device was
+    previously registered with a known API token stored in the accepted-token
+    slot (``api_token_hash`` / ``api_token_salt``).  A device in the
+    ``unknown_device`` state stores any presented token only in the
+    presented-token slot (``last_presented_token_hash`` /
+    ``last_presented_token_salt``); the accepted-token slot is always empty,
+    so token verification via ``_verify_api_token`` is meaningless and is
+    never attempted.
 
-        Request resolution follows this decision tree for each incoming poll:
+    Request resolution follows this decision tree for each incoming poll:
 
-        1. MAC address missing
-            → error-image response, no record touched.
-        2. Per-device reset_pending flag set
-            → reset signal, record deleted.
-        3. MAC known, device is ``unknown_device``
-            → _resolve_known_unknown_device_display_request (policy-driven).
-                error:         refresh record, serve error image.
-                auto_accept:   promote record to accepted, serve display payload.
-                factory_reset: delete record, return {"status": 500}.
-        4. MAC unknown (no DB record)
-            → _resolve_unknown_display_request (policy-driven).
-        5. MAC known, device is ``accepted`` or ``token_mismatch``, token valid
-            → serve display (if ``accepted``); serve error image (if
-                ``token_mismatch`` — manual or auto-accept required to restore).
-        6. MAC known, device is ``accepted`` or ``token_mismatch``, token invalid
-            → _resolve_token_mismatch_display_request (policy-driven).
-        """
+    1. MAC address missing
+        → error-image response, no record touched.
+    2. Per-device reset_pending flag set
+        → reset signal, record deleted.
+    3. MAC known, device is ``unknown_device``
+        → _resolve_known_unknown_device_display_request (policy-driven).
+            error:         refresh record, serve error image.
+            auto_accept:   promote record to accepted, serve display payload.
+            factory_reset: delete record, return {"status": 500}.
+    4. MAC unknown (no DB record)
+        → _resolve_unknown_display_request (policy-driven).
+    5. MAC known, device is ``accepted`` or ``token_mismatch``, token valid
+        → serve display (if ``accepted``); serve error image (if
+            ``token_mismatch`` — manual or auto-accept required to restore).
+    6. MAC known, device is ``accepted`` or ``token_mismatch``, token invalid
+        → _resolve_token_mismatch_display_request (policy-driven).
+    """
 
     _inherit = "trmnl.device"
 
@@ -169,7 +170,12 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 # token_mismatch device presenting the correct token: the device
                 # must be explicitly re-accepted (manual or auto-accept) before
                 # it is served display content again.
-                device._record_access_denied(reason=device.approval_state)
+                device.with_context(trmnl_allow_identity_update=True).write(
+                    {
+                        "last_seen_at": fields.Datetime.now(),
+                        "last_api_call": LAST_API_CALL_DISPLAY,
+                    }
+                )
                 return DisplayResolutionResult(
                     device,
                     self.build_display_error_response(),
@@ -292,6 +298,8 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 "approval_state": APPROVAL_STATE_ACCEPTED,
                 "registration_source": "display",
                 "added_at": self._utc_now(),
+                "last_seen_at": fields.Datetime.now(),
+                "last_api_call": LAST_API_CALL_DISPLAY,
                 "last_presented_token_hash": False,
                 "last_presented_token_salt": False,
             }

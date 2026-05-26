@@ -61,6 +61,16 @@ APPROVAL_STATE_SELECTION = [
     (APPROVAL_STATE_UNKNOWN_DEVICE, "Unknown Device"),
 ]
 
+# Last API call options — the three endpoints a device can reach.
+LAST_API_CALL_SETUP = "setup"
+LAST_API_CALL_DISPLAY = "display"
+LAST_API_CALL_LOG = "log"
+LAST_API_CALL_SELECTION = [
+    (LAST_API_CALL_SETUP, "Setup"),
+    (LAST_API_CALL_DISPLAY, "Display"),
+    (LAST_API_CALL_LOG, "Log"),
+]
+
 # Filenames for the two built-in display images.
 DEFAULT_FILENAME = "default_screen.bmp"
 UNAUTHORIZED_IMAGE_FILENAME = "unauthorized_screen.bmp"
@@ -228,6 +238,14 @@ class TrmnlDevice(models.Model):
             "the device was accepted, either automatically (auto-accept policy) or "
             "manually by an administrator."
         ),
+    )
+
+    last_api_call = fields.Selection(
+        selection=LAST_API_CALL_SELECTION,
+        string="Last API Call",
+        readonly=True,
+        copy=False,
+        help="The most recent endpoint the device contacted: setup, display, or log.",
     )
 
     # ------------------------------------------------------------------

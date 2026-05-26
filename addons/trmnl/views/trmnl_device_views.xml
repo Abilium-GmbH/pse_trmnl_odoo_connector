@@ -90,21 +90,21 @@
                 delete="true"
                 default_order="sequence, id"
             >
-                <field name="sequence" widget="handle"/>
-                <field name="device_name"/>
-                <field name="mac_address"/>
+                <field name="sequence" widget="handle" width="1"/>
+                <field name="device_name" width="200"/>
+                <field name="mac_address" width="100"/>
 
-                <field name="approval_state" string="Status" widget="badge"
+                <field name="approval_state" string="Status" widget="badge" width="100"
                     decoration-success="approval_state == 'accepted'"
                     decoration-warning="approval_state == 'token_mismatch'"
                     decoration-danger="approval_state == 'unknown_device'"
                 />
 
-                <field name="filename"/>
-                <field name="last_seen_at"/>
-                <field name="desired_refresh_rate_minutes" string="Refresh Rate (min)"/>
+                <field name="filename" width="100"/>
+                <field name="last_seen_at" width="100"/>
+                <field name="desired_refresh_rate_minutes" string="Refresh Rate (min)" width="100"/>
                 <field name="battery_percentage"/>
-                <field name="rssi_quality" string="Signal Strength"/>
+                <field name="rssi_quality" string="Signal Strength" width="100"/>
             </list>
         </field>
     </record>
@@ -153,7 +153,8 @@
                             <field name="device_name" placeholder="Enter a device name"/>
                         </h1>
                         <div class="text-muted">
-                            <field name="mac_address" readonly="1"/>
+                            <label for="mac_address" string="MAC Address:" class="oe_inline"/>
+                            <field name="mac_address" readonly="1" class="oe_inline"/>
                         </div>
                     </div>
 
@@ -174,11 +175,11 @@
 
                         <group string="Telemetry">
                             <field name="battery_percentage" readonly="1"/>
-                            <field name="rssi_quality" readonly="1"/>
+                            <field name="rssi_quality" readonly="1" string="Signal Strength"/>
                             <field name="last_reported_refresh_rate_minutes" readonly="1" string="Last Reported Refresh Rate (min)"/>
                             <field name="added_at" readonly="1"/>
                             <field name="last_seen_at" readonly="1"/>
-                            <field name="last_display_at" readonly="1"/>
+                            <field name="last_api_call" readonly="1"/>
                         </group>
                     </group>
 
@@ -190,12 +191,12 @@
                                  record itself is deleted. -->
                             <field name="log_ids">
                                 <list create="false" edit="false" delete="true">
-                                    <field name="log_id"/>
-                                    <field name="name"/>
-                                    <field name="created_at"/>
-                                    <field name="wifi_status"/>
-                                    <field name="refresh_rate"/>
-                                    <field name="battery_voltage"/>
+                                    <field name="log_id" width="1"/>
+                                    <field name="name" width="300"/>
+                                    <field name="created_at" width="100"/>
+                                    <field name="wifi_status" width="100"/>
+                                    <field name="refresh_rate" width="100"/>
+                                    <field name="battery_voltage" width="100"/>
                                 </list>
                             </field>
                         </page>

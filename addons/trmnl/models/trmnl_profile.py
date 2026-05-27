@@ -20,7 +20,7 @@ from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Domain
 from odoo.tools.safe_eval import safe_eval
 
-from .trmnl_device import _INTERNAL_HOST_RE
+from .trmnl_device import client_can_reach_host, is_device_reachable_base_url
 
 _logger = logging.getLogger(__name__)
 
@@ -660,17 +660,8 @@ class TrmnlProfile(models.Model):
 
     @staticmethod
     def _is_device_reachable_base_url(url):
-        """Return True if url's host is reachable by a physical LAN device.
-
-        Rejects loopback (localhost / 127.x.x.x / ::1 / 0.0.0.0) and the
-        libvirt KVM virbr0 bridge (192.168.122.x).  Normal LAN ranges —
-        10.x.x.x, 192.168.x.x, 172.x.x.x — are accepted.
-        """
-        try:
-            host = urlparse(url).hostname or ""
-            return bool(host) and not _INTERNAL_HOST_RE.match(host)
-        except Exception:
-            return False
+        """Return True if url's host is reachable by a physical LAN device."""
+        return is_device_reachable_base_url(url)
 
     @api.depends("device_id.last_display_at", "device_id.desired_refresh_rate")
     def _compute_device_next_expected_poll_at(self):
@@ -740,10 +731,8 @@ class TrmnlProfile(models.Model):
                 rec.url_warning = (
                     f"Image URL cannot be generated: web.base.url ({web_url}) is a "
                     f"loopback/internal address that physical devices cannot reach. "
-                    f"This resolves automatically when the device polls for the first time. "
-                    f"If the device has already polled and the warning persists, set "
-                    f"trmnl.public_base_url in Settings → Technical → Parameters → "
-                    f"System Parameters (e.g. http://192.168.1.127:8069)."
+                    f"This resolves automatically when the device polls — the server "
+                    f"uses the poll Host header and corrects stale URLs on the device LAN."
                 )
             else:
                 rec.url_warning = ""
@@ -778,21 +767,62 @@ class TrmnlProfile(models.Model):
             return False
         return (self.preview_renderer_version or "") != current
 
+    @api.model
+    def _resolve_device_base_url(self):
+        """Pick a base URL that the polling TRMNL can actually reach.
+
+        When ``trmnl_poll_base_url`` / ``trmnl_client_ip`` are in the env context
+        (set by ``/api/display``), the poll Host and the device Wi‑Fi subnet are
+        used to skip stale ``trmnl.public_base_url`` values (e.g. 10.x while the
+        device is on 192.168.x).
+
+        Without poll context (form preview, manual render), falls back to
+        ``trmnl.public_base_url`` then ``web.base.url``.
+        """
+        poll_url = (self.env.context.get("trmnl_poll_base_url") or "").strip().rstrip("/")
+        client_ip = (self.env.context.get("trmnl_client_ip") or "").strip()
+
+        params = self.env["ir.config_parameter"].sudo()
+        public_url = params.get_param("trmnl.public_base_url", "").strip().rstrip("/")
+        web_url = params.get_param("web.base.url", "").strip().rstrip("/")
+
+        candidates = []
+        if poll_url:
+            candidates.append(("poll", poll_url))
+        if public_url:
+            candidates.append(("trmnl.public_base_url", public_url))
+        if web_url:
+            candidates.append(("web.base.url", web_url))
+
+        for source, base in candidates:
+            if not self._is_device_reachable_base_url(base):
+                continue
+            host = urlparse(base).hostname or ""
+            if client_ip and host and not client_can_reach_host(client_ip, host):
+                _logger.debug(
+                    "TRMNL skip %s=%r for client %s (different LAN than host %s)",
+                    source,
+                    base,
+                    client_ip,
+                    host,
+                )
+                continue
+            return base, source
+
+        # No client context (unit tests, cron): first reachable configured URL.
+        if not client_ip:
+            for source, base in candidates:
+                if self._is_device_reachable_base_url(base):
+                    return base, source
+
+        return False, None
+
     def _get_display_image_url(self):
         """Return a device-reachable URL for this profile's preview PNG, or False.
 
-        Resolution order:
-        1. trmnl.public_base_url  — admin-set override, always trusted.
-        2. web.base.url           — used when its host is a LAN address
-                                    (any non-loopback, non-virbr0 host).
-
+        Base URL resolution is delegated to :meth:`_resolve_device_base_url`.
         The URL includes a ``?v=<png-hash>`` query so TRMNL firmware that caches
         by URL (not only by filename) still re-downloads after a re-render.
-
-        For most local setups, setting web.base.url to the LAN IP is enough.
-        trmnl.public_base_url is only needed when web.base.url cannot be
-        changed (e.g. shared Odoo instance) or resolves to a container-internal
-        address that the physical device cannot reach.
         """
         if not self.preview_image:
             return False
@@ -800,27 +830,20 @@ class TrmnlProfile(models.Model):
         digest = self._preview_png_digest()
         cache_qs = f"?v={digest}" if digest else ""
 
-        params = self.env["ir.config_parameter"].sudo()
-
-        public_url = params.get_param("trmnl.public_base_url", "").strip().rstrip("/")
-        if public_url:
-            url = f"{public_url}/api/profile/image/{self.id}{cache_qs}"
-            _logger.debug("TRMNL profile id=%s image_url (trmnl.public_base_url): %s", self.id, url)
+        base, source = self._resolve_device_base_url()
+        if base:
+            url = f"{base}/api/profile/image/{self.id}{cache_qs}"
+            _logger.debug("TRMNL profile id=%s image_url (%s): %s", self.id, source, url)
             return url
 
-        web_url = params.get_param("web.base.url", "").strip().rstrip("/")
-        if web_url and self._is_device_reachable_base_url(web_url):
-            url = f"{web_url}/api/profile/image/{self.id}{cache_qs}"
-            _logger.debug("TRMNL profile id=%s image_url (web.base.url): %s", self.id, url)
-            return url
-
+        web_url = self.env["ir.config_parameter"].sudo().get_param("web.base.url", "").strip()
         _logger.warning(
             "TRMNL profile id=%s: cannot generate a device-reachable image URL — "
-            "web.base.url=%r is a loopback/unusable address and "
-            "trmnl.public_base_url is not set. "
-            "Set web.base.url to your LAN IP (e.g. http://192.168.1.127:8069) "
-            "or add trmnl.public_base_url to override it.",
-            self.id, web_url,
+            "web.base.url=%r and trmnl.public_base_url are missing or not reachable "
+            "from the device network. They are set automatically on the first "
+            "successful /api/display poll when the Host header matches the device LAN.",
+            self.id,
+            web_url,
         )
         return False
 

@@ -23,7 +23,6 @@ How calendar rendering reaches the device
 from __future__ import annotations
 
 import calendar
-import io
 from datetime import date, datetime, timedelta
 
 from PIL import Image, ImageDraw
@@ -196,7 +195,7 @@ class TrmnlProfileRenderCalendarMixin(models.Model):
                     label = f"{time_str} {ev_title}".strip() if time_str else ev_title
                     draw.text(
                         (cx + 4, ev_y0 + i * event_line_h),
-                        _trunc_cal(draw, label, f_event, max_lbl_ev),
+                        _canvas.trunc(draw, label, f_event, max_lbl_ev),
                         fill=_canvas.EINK_BLACK,
                         font=f_event,
                     )
@@ -205,7 +204,7 @@ class TrmnlProfileRenderCalendarMixin(models.Model):
                 if overflow > 0:
                     draw.text(
                         (cx + 4, ev_y0 + max_ev * event_line_h),
-                        _trunc_cal(draw, f"+{overflow} more", f_event, max_lbl_ev),
+                        _canvas.trunc(draw, f"+{overflow} more", f_event, max_lbl_ev),
                         fill=_canvas.EINK_INK_SOFT,
                         font=f_event,
                     )
@@ -222,9 +221,7 @@ class TrmnlProfileRenderCalendarMixin(models.Model):
         for cell_box in pad_cells:
             _fill_out_of_month(img, *cell_box)
 
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
+        return _canvas.save_png(img)
 
     # ── Week-view renderer ────────────────────────────────────────────────────
 
@@ -396,20 +393,9 @@ class TrmnlProfileRenderCalendarMixin(models.Model):
                     ev_label = f"{start_dt.strftime('%H:%M')} {ev.get('title', '')}".strip()
                     draw.text(
                         (cx + 3, y_top + 3),
-                        _trunc_cal(draw, ev_label, f_event, cr - cx - 8),
+                        _canvas.trunc(draw, ev_label, f_event, cr - cx - 8),
                         fill=_canvas.EINK_WHITE,
                         font=f_event,
                     )
 
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
-
-
-def _trunc_cal(draw, text: str, font, max_px: int) -> str:
-    """Calendar-local text truncation (preserves exact legacy behaviour)."""
-    if _canvas.text_width(draw, text, font) <= max_px:
-        return text
-    while text and _canvas.text_width(draw, text + "…", font) > max_px:
-        text = text[:-1]
-    return (text + "…") if text else ""
+        return _canvas.save_png(img)

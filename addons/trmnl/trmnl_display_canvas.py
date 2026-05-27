@@ -143,6 +143,13 @@ ACCENT_FILL = {
 # Shared PIL drawing helpers used by list, kanban, calendar, and graph renders
 # ---------------------------------------------------------------------------
 
+def save_png(img: Image.Image) -> bytes:
+    """Serialize a PIL image to PNG bytes."""
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def trunc(draw, text: str, font, max_px: int) -> str:
     """Truncate *text* with an ellipsis so it fits within *max_px* pixels."""
     text = str(text)

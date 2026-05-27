@@ -51,9 +51,18 @@ class DeviceDisplayController(TrmnlApiControllerMixin, http.Controller):
 
         try:
             host_header = headers.get("Host", "")
+            poll_base_url = ""
+            client_ip = (request.httprequest.remote_addr or "").strip()
             if host_header:
                 scheme = "https" if request.httprequest.is_secure else "http"
-                device_model._maybe_auto_set_public_base_url(f"{scheme}://{host_header}")
+                poll_base_url = f"{scheme}://{host_header}"
+                device_model._maybe_auto_set_public_base_url(poll_base_url, client_ip)
+                device_model._sync_public_base_url_from_poll(poll_base_url, client_ip)
+
+            device_model = device_model.with_context(
+                trmnl_poll_base_url=poll_base_url,
+                trmnl_client_ip=client_ip,
+            )
 
             device, payload, record_status = device_model.resolve_display_request(headers)
 

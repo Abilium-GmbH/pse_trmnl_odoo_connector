@@ -9,6 +9,7 @@ import hmac
 import secrets
 
 from odoo import api, models
+from odoo.exceptions import ValidationError
 
 from .trmnl_device import API_TOKEN_BYTES, API_TOKEN_PBKDF2_ITERATIONS
 
@@ -161,7 +162,6 @@ class TrmnlDeviceSecurityMixin(models.Model):
         self.ensure_one()
 
         if not self.last_presented_token_hash or not self.last_presented_token_salt:
-            from odoo.exceptions import ValidationError
             raise ValidationError(
                 "Cannot accept this device: no presented token has been recorded. "
                 "The device must attempt a display poll before it can be accepted."

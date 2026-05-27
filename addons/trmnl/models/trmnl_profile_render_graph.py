@@ -20,7 +20,6 @@ How graph rendering reaches the device
 """
 from __future__ import annotations
 
-import io
 import math
 
 from PIL import Image, ImageDraw
@@ -30,18 +29,14 @@ from odoo import models
 from odoo.addons.trmnl import trmnl_display_canvas as _canvas
 
 # ── Shared chart constants ────────────────────────────────────────────────────
-_HEADER_H = 36       # dark title band shared by both chart types
-_MARGIN_R = 16       # right margin
-_FONT_TITLE = 15
-_FONT_NODATA = 15
+_MARGIN_R = _canvas.MARGIN_X
+_FONT_NODATA = _canvas.FONT_EMPTY
 _BG = _canvas.EINK_WHITE
 _INK = _canvas.EINK_INK
 _SOFT = _canvas.EINK_INK_SOFT
 _RULE = _canvas.EINK_RULE
 _RULE_FAINT = _canvas.EINK_RULE_FAINT
 _STRIPE = _canvas.EINK_ROW_ALT
-_HEADER_BG = _canvas.EINK_HEADER_FILL
-_HEADER_FG = _canvas.EINK_HEADER_TEXT
 
 # ── Bar chart geometry ────────────────────────────────────────────────────────
 _BAR_MARGIN_L = 20
@@ -66,18 +61,6 @@ _AREA_FILL = 248       # under-curve fill colour
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
-
-def _trunc_chart(draw, text: str, font, max_px: int) -> str:
-    text = str(text)
-    if _canvas.text_width(draw, text, font) <= max_px:
-        return text
-    ell = "…"
-    if _canvas.text_width(draw, ell, font) > max_px:
-        return ""
-    while text and _canvas.text_width(draw, text + ell, font) > max_px:
-        text = text[:-1]
-    return (text + ell) if text else ell
-
 
 def _draw_nodata_centered(
     draw,
@@ -169,9 +152,7 @@ class TrmnlProfileRenderGraphMixin(models.Model):
         if not bars:
             _draw_nodata_centered(draw, empty_message, (0, bars_top, w, h), font_nodata)
             draw.rectangle([0, 0, w - 1, h - 1], outline=_RULE_FAINT, width=1)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            return buf.getvalue()
+            return _canvas.save_png(img)
 
         n = len(bars)
         row_h = max(18, bars_h // n)
@@ -195,7 +176,7 @@ class TrmnlProfileRenderGraphMixin(models.Model):
             if row_i > 0:
                 draw.line([(0, y0), (w - 1, y0)], fill=_RULE_FAINT, width=1)
 
-            lbl = _trunc_chart(draw, str(bar.get("label", "")), font_label, _BAR_LABEL_COL_W - 4)
+            lbl = _canvas.trunc(draw, str(bar.get("label", "")), font_label, _BAR_LABEL_COL_W - 4)
             l_bb = draw.textbbox((0, 0), lbl, font=font_label)
             l_h = l_bb[3] - l_bb[1]
             draw.text(
@@ -235,9 +216,7 @@ class TrmnlProfileRenderGraphMixin(models.Model):
                 draw.text((_BAR_MARGIN_L, more_y - m_bb[1]), more_text, fill=_SOFT, font=font_value)
 
         draw.rectangle([0, 0, w - 1, h - 1], outline=_RULE_FAINT, width=1)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
+        return _canvas.save_png(img)
 
     # ── Line chart renderer ───────────────────────────────────────────────────
 
@@ -294,9 +273,7 @@ class TrmnlProfileRenderGraphMixin(models.Model):
                 font_nodata,
             )
             draw.rectangle([0, 0, w - 1, h - 1], outline=_RULE_FAINT, width=1)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            return buf.getvalue()
+            return _canvas.save_png(img)
 
         # Y-axis grid and labels
         max_val = max(p["value"] for p in points)
@@ -365,6 +342,4 @@ class TrmnlProfileRenderGraphMixin(models.Model):
             )
 
         draw.rectangle([0, 0, w - 1, h - 1], outline=_RULE_FAINT, width=1)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
+        return _canvas.save_png(img)

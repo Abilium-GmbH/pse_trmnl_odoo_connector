@@ -21,8 +21,6 @@ How list rendering reaches the device
 """
 from __future__ import annotations
 
-import io
-
 from PIL import Image, ImageDraw
 
 from odoo import models
@@ -75,9 +73,7 @@ class TrmnlProfileRenderListMixin(models.Model):
 
         if not items:
             _canvas.draw_empty_centered(draw, w, top, h, empty_message)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            return buf.getvalue()
+            return _canvas.save_png(img)
 
         body_bottom = h - _OVERFLOW_RESERVE
         max_rows = max(0, (body_bottom - top) // _ROW_H)
@@ -132,9 +128,7 @@ class TrmnlProfileRenderListMixin(models.Model):
         if more > 0:
             _canvas.draw_overflow_footer(draw, w, top + len(visible) * _ROW_H + 2, more)
 
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
+        return _canvas.save_png(img)
 
     # ── Kanban renderer ───────────────────────────────────────────────────────
 
@@ -175,9 +169,7 @@ class TrmnlProfileRenderListMixin(models.Model):
 
         if not columns:
             _canvas.draw_empty_centered(draw, w, y0, h, empty_message)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            return buf.getvalue()
+            return _canvas.save_png(img)
 
         y_body_top = y0 + 4
         y_max = h - _OVERFLOW_RESERVE
@@ -225,6 +217,4 @@ class TrmnlProfileRenderListMixin(models.Model):
         if hidden_cols > 0:
             _canvas.draw_overflow_footer(draw, w, y_max - 2, hidden_cols)
 
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
+        return _canvas.save_png(img)

@@ -6,6 +6,8 @@ import base64
 
 from odoo.tests import TransactionCase, tagged
 
+from odoo.addons.trmnl.models.trmnl_device import client_can_reach_host
+
 
 @tagged("-at_install", "post_install")
 class TestDeviceReachableUrl(TransactionCase):
@@ -50,6 +52,20 @@ class TestDeviceReachableUrl(TransactionCase):
 
     def test_empty_url_rejected(self):
         self.assertFalse(self._ok(""))
+
+
+@tagged("-at_install", "post_install")
+class TestClientCanReachHost(TransactionCase):
+    """LAN reachability heuristic used during /api/display polls."""
+
+    def test_same_192_168_subnet(self):
+        self.assertTrue(client_can_reach_host("192.168.1.239", "192.168.1.127"))
+
+    def test_different_private_networks(self):
+        self.assertFalse(client_can_reach_host("192.168.1.239", "10.55.200.220"))
+
+    def test_hostname_treated_as_reachable(self):
+        self.assertTrue(client_can_reach_host("192.168.1.239", "odoo.local"))
 
 
 @tagged("-at_install", "post_install")
@@ -111,7 +127,7 @@ class TestImageUrlGeneration(TransactionCase):
         self.assertFalse(profile._get_display_image_url())
 
     def test_public_base_url_overrides_web_base_url(self):
-        """trmnl.public_base_url takes priority over web.base.url."""
+        """trmnl.public_base_url takes priority over web.base.url (no poll context)."""
         self._set_params(
             public_base_url="http://10.0.0.99:8069",
             web_base_url="http://192.168.1.127:8069",
@@ -120,6 +136,44 @@ class TestImageUrlGeneration(TransactionCase):
         url = profile._get_display_image_url()
         self.assertIn("10.0.0.99", url)
         self.assertNotIn("192.168.1.127", url)
+
+    def test_poll_context_prefers_same_lan_over_stale_public_base_url(self):
+        """Device on 192.168.x must not get image URLs on an unreachable 10.x host."""
+        self._set_params(
+            public_base_url="http://10.55.200.220:8069",
+            web_base_url="http://192.168.1.127:8069",
+        )
+        profile = self._profile()
+        url = profile.with_context(
+            trmnl_poll_base_url="http://10.55.200.220:8069",
+            trmnl_client_ip="192.168.1.239",
+        )._get_display_image_url()
+        self.assertIn("192.168.1.127", url)
+        self.assertNotIn("10.55.200.220", url)
+
+    def test_poll_host_used_when_on_same_lan_as_device(self):
+        self._set_params(
+            public_base_url="http://10.55.200.220:8069",
+            web_base_url="http://192.168.1.127:8069",
+        )
+        profile = self._profile()
+        url = profile.with_context(
+            trmnl_poll_base_url="http://192.168.1.127:8069",
+            trmnl_client_ip="192.168.1.239",
+        )._get_display_image_url()
+        self.assertIn("192.168.1.127", url)
+
+    def test_sync_public_base_url_fixes_stale_value_on_poll(self):
+        self._set_params(
+            public_base_url="http://10.55.200.220:8069",
+            web_base_url="http://192.168.1.127:8069",
+        )
+        self.env["trmnl.device"]._sync_public_base_url_from_poll(
+            "http://10.55.200.220:8069",
+            "192.168.1.239",
+        )
+        synced = self.env["ir.config_parameter"].sudo().get_param("trmnl.public_base_url")
+        self.assertEqual(synced, "http://192.168.1.127:8069")
 
     # ------------------------------------------------------------------
 

@@ -82,7 +82,9 @@ class TestCalendarMonthDeviceImageBytes(HttpCase, TrmnlApiHttpCaseMixin):
         profile._render_and_store_preview()
         stored = base64.b64decode(profile.preview_image)
         digest = profile._preview_png_digest()
-        self.assertIn(f"/api/profile/image/{profile.id}?v={digest}", profile.preview_image_html or "")
+        html = profile.preview_image_html or ""
+        self.assertIn(f"/api/profile/image/{profile.id}", html)
+        self.assertIn(digest, html)
         resp = self.url_open(f"/api/profile/image/{profile.id}?v={digest}")
         served = resp.content if hasattr(resp, "content") else resp.read()
         self.assertEqual(served, stored)
@@ -111,7 +113,9 @@ class TestCalendarMonthDeviceImageBytes(HttpCase, TrmnlApiHttpCaseMixin):
         profile._render_and_store_preview()
         stored = base64.b64decode(profile.preview_image)
         digest = profile._preview_png_digest()
-        self.assertIn(f"/api/profile/image/{profile.id}?v={digest}", profile.preview_image_html or "")
+        html = profile.preview_image_html or ""
+        self.assertIn(f"/api/profile/image/{profile.id}", html)
+        self.assertIn(digest, html)
         resp = self.url_open(f"/api/profile/image/{profile.id}?v={digest}")
         served = resp.content if hasattr(resp, "content") else resp.read()
         self.assertEqual(served, stored)

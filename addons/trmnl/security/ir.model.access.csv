@@ -1,5 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_trmnl_device_manager,access.trmnl.device.manager,model_trmnl_device,base.group_system,1,1,1,1
+access_trmnl_device,access.trmnl.device,model_trmnl_device,base.group_system,1,1,1,1
 access_trmnl_device_log_manager,access.trmnl.device.log.manager,model_trmnl_device_log,base.group_system,1,0,0,0
 access_trmnl_device_accept_wizard_manager,access.trmnl.device.accept.wizard.manager,model_trmnl_device_accept_wizard,base.group_system,1,1,1,1
 access_trmnl_display_policy_wizard_manager,access.trmnl.display.policy.wizard.manager,model_trmnl_display_policy_wizard,base.group_system,1,1,1,1

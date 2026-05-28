@@ -38,6 +38,14 @@ _FONT_BOLD = (
 )
 
 
+def resolve_canvas_size(
+    width: int | None,
+    content_height: int | None,
+) -> tuple[int, int]:
+    """Return (width, content_height) using TRMNL defaults when values are unset."""
+    return width or DISPLAY_WIDTH, content_height or CONTENT_HEIGHT
+
+
 def load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     """Load a TrueType font; falls back to regular weight then PIL default."""
     for path in (_FONT_BOLD if bold else _FONT_REGULAR):

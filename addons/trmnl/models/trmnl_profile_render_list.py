@@ -59,8 +59,7 @@ class TrmnlProfileRenderListMixin(models.Model):
         _ROW_H = 38
         _OVERFLOW_RESERVE = 20
 
-        w = width or _canvas.DISPLAY_WIDTH
-        h = content_height or _canvas.CONTENT_HEIGHT
+        w, h = _canvas.resolve_canvas_size(width, content_height)
 
         img = Image.new("L", (w, h), _canvas.EINK_WHITE)
         draw = ImageDraw.Draw(img)
@@ -156,8 +155,7 @@ class TrmnlProfileRenderListMixin(models.Model):
         _OVERFLOW_RESERVE = 18
         _MAX_COLUMNS = 5
 
-        w = width or _canvas.DISPLAY_WIDTH
-        h = content_height or _canvas.CONTENT_HEIGHT
+        w, h = _canvas.resolve_canvas_size(width, content_height)
 
         img = Image.new("L", (w, h), _canvas.EINK_WHITE)
         draw = ImageDraw.Draw(img)

@@ -44,7 +44,11 @@ class TestAvailableViewTypes(TransactionCase):
         self.assertIn("list", profile._get_available_view_types())
 
     def test_graph_included_for_model_with_graph_view(self):
-        """graph is available for res.partner, which ships with a graph view in Odoo."""
+        """graph is available for res.partner when the model exposes a graph layout."""
+        from odoo.addons.trmnl.tests.test_common import model_has_graph_view
+
+        if not model_has_graph_view(self.env):
+            self.skipTest("res.partner has no graph layout in this database")
         profile = self._make_profile(self._partner_model)
         self.assertIn("graph", profile._get_available_view_types())
 
@@ -54,6 +58,48 @@ class TestAvailableViewTypes(TransactionCase):
             self.skipTest("calendar.event not installed")
         profile = self._make_profile(self._calendar_model)
         self.assertNotIn("graph", profile._get_available_view_types())
+
+    def test_kanban_not_included_for_calendar_model(self):
+        """calendar.event must not offer kanban when no kanban view is installed."""
+        if not self._calendar_model:
+            self.skipTest("calendar.event not installed")
+        has_kanban = self.env["ir.ui.view"].sudo().search_count(
+            [("model", "=", "calendar.event"), ("type", "=", "kanban")]
+        )
+        if has_kanban:
+            self.skipTest("calendar.event has a kanban view in this installation")
+        profile = self._make_profile(self._calendar_model)
+        self.assertNotIn("kanban", profile._get_available_view_types())
+
+    def test_calendar_model_defaults_to_calendar_layout_on_onchange(self):
+        """Selecting calendar.event should prefer the calendar view type."""
+        if not self._calendar_model:
+            self.skipTest("calendar.event not installed")
+        profile = self.env["trmnl.profile"].sudo().new({
+            "name": "cal default",
+            "device_id": self._device.id,
+            "trmnl_layout": "list",
+            "display_limit": 1,
+            "filter_preset": "none",
+        })
+        profile.app_model_id = self._calendar_model
+        profile._onchange_app_model_id()
+        self.assertEqual(profile.trmnl_layout, "calendar")
+
+    def test_calendar_week_mode_renders_png(self):
+        """Week calendar view mode is selectable and produces preview bytes."""
+        if not self._calendar_model:
+            self.skipTest("calendar.event not installed")
+        profile = self.env["trmnl.profile"].sudo().create({
+            "name": "cal week",
+            "device_id": self._device.id,
+            "app_model_id": self._calendar_model.id,
+            "trmnl_layout": "calendar",
+            "calendar_view_mode": "week",
+            "filter_preset": "none",
+        })
+        profile._render_and_store_preview()
+        self.assertTrue(profile.preview_image)
 
     def test_no_model_returns_all_supported(self):
         """Without a model set, all SUPPORTED_VIEW_TYPES are returned."""
@@ -96,6 +142,44 @@ class TestAvailableViewTypes(TransactionCase):
         selection_keys = [k for k, _ in options]
         self.assertEqual(sorted(selection_keys), sorted(["list", "kanban", "calendar", "graph"]))
         self.assertNotIn("line", selection_keys)
+
+
+@tagged("-at_install", "post_install")
+class TestLayoutFieldFiltering(TransactionCase):
+    """_onchange_trmnl_layout drops display fields outside _LAYOUT_ALLOWED_TTYPES."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._device = cls.env["trmnl.device"].sudo().create({
+            "mac_address": "AA:BB:CC:DD:EE:77",
+            "approval_state": "accepted",
+            "registration_source": "setup",
+        })
+        cls._partner_model = cls.env["ir.model"].sudo().search(
+            [("model", "=", "res.partner")], limit=1
+        )
+
+    def test_onchange_layout_removes_binary_display_field(self):
+        name_field = self.env["ir.model.fields"].sudo().search(
+            [("model", "=", "res.partner"), ("name", "=", "name")], limit=1
+        )
+        image_field = self.env["ir.model.fields"].sudo().search(
+            [("model", "=", "res.partner"), ("name", "=", "image_1920")], limit=1
+        )
+        if not name_field or not image_field:
+            self.skipTest("res.partner name/image_1920 fields not found")
+        profile = self.env["trmnl.profile"].sudo().new({
+            "name": "layout filter",
+            "device_id": self._device.id,
+            "app_model_id": self._partner_model.id,
+            "trmnl_layout": "list",
+            "display_field_ids": [(6, 0, [name_field.id, image_field.id])],
+        })
+        profile._onchange_trmnl_layout()
+        kept_ids = set(profile.display_field_ids.ids)
+        self.assertIn(name_field.id, kept_ids)
+        self.assertNotIn(image_field.id, kept_ids)
 
 
 @tagged("-at_install", "post_install")

@@ -10,17 +10,19 @@
     "images": ["static/description/icon.png"],
     "depends": ["base", "web"],
     "external_dependencies": {"python": ["Pillow"]},
+    "data": [
+        "security/trmnl_groups.xml",
+        "security/ir.model.access.csv",
+        "views/trmnl_device_views.xml",
+        "views/trmnl_device_wizard_views.xml",
+        "views/trmnl_profile_views.xml",
+        "views/trmnl_menu.xml",
+    ],
     "assets": {
         "web.assets_backend": [
             "trmnl/static/src/js/trmnl_layout_select_widget.js",
         ],
     },
-    "data": [
-            "security/trmnl_groups.xml",
-            "security/ir.model.access.csv",
-            "views/trmnl_device_views.xml",
-            "views/trmnl_device_wizard_views.xml",
-            "views/trmnl_profile_views.xml",
-            "views/trmnl_menu.xml",
-            ],
+    "post_init_hook": "post_init_hook",
+    "uninstall_hook": "uninstall_hook",
 }

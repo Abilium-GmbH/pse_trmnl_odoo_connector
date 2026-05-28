@@ -96,6 +96,18 @@ class TestProfileDashboardLayout(TransactionCase):
         status = profile._infer_item_status(task, "project.task", ["name"])
         self.assertEqual(status, "overdue")
 
+    def test_kanban_and_list_preview_bytes_differ(self):
+        """Kanban and list layouts must not produce identical PNG output."""
+        list_profile = self._profile("list")
+        list_profile._render_and_store_preview()
+        kanban_profile = self._profile(
+            "kanban",
+            name="Kanban distinct",
+            kanban_stage_field_id=self._country_field.id,
+        )
+        kanban_profile._render_and_store_preview()
+        self.assertNotEqual(list_profile.preview_image, kanban_profile.preview_image)
+
     def test_kanban_profile_renders_column_layout(self):
         profile = self._profile(
             "kanban",

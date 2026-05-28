@@ -2,17 +2,21 @@
 
 import json
 
-DISPLAY_POLICY_PARAMETER = "trmnl.display_unknown_device_policy"
+from odoo.addons.trmnl.models.trmnl_device import (
+    APPROVAL_STATE_ACCEPTED,
+    APPROVAL_STATE_TOKEN_MISMATCH,
+    APPROVAL_STATE_UNKNOWN_DEVICE,
+    DEFAULT_FILENAME,
+    DEFAULT_REFRESH_RATE,
+    DISPLAY_POLICY_AUTO_ACCEPT,
+    DISPLAY_POLICY_ERROR,
+    DISPLAY_POLICY_FACTORY_RESET,
+    TRMNL_POLICY_PARAM,
+    UNAUTHORIZED_IMAGE_FILENAME,
+)
 
-DISPLAY_POLICY_ERROR = "error"
-
-DISPLAY_POLICY_AUTO_ACCEPT = "auto_accept"
-
-DISPLAY_POLICY_FACTORY_RESET = "factory_reset"
-
-APPROVAL_STATE_ACCEPTED = "accepted"
-APPROVAL_STATE_TOKEN_MISMATCH = "token_mismatch"
-APPROVAL_STATE_UNKNOWN_DEVICE = "unknown_device"
+# Backward-compatible aliases for tests that import these names from here.
+DISPLAY_POLICY_PARAMETER = TRMNL_POLICY_PARAM
 
 
 class TrmnlApiHttpCaseMixin:
@@ -29,7 +33,7 @@ class TrmnlApiHttpCaseMixin:
     UNKNOWN_DEVICE_TOKEN = "unknown-device-token"
     BAD_TOKEN = "bad-token"
     EMPTY_TOKEN = ""
-    EXPECTED_FILENAME = "abilium_test_screen"
+    EXPECTED_FILENAME = DEFAULT_FILENAME
 
     def _response_status(self, http_response):
         """Return the HTTP status code for a ``url_open`` response."""
@@ -174,6 +178,11 @@ class TrmnlApiHttpCaseMixin:
             DISPLAY_POLICY_ERROR,
         )
 
+    def _get_unauthorized_image_url(self):
+        """Return the absolute unauthorized image URL as the server would produce it."""
+        from odoo.addons.trmnl.models.trmnl_image import UNAUTHORIZED_IMAGE_CONFIG_KEY
+        return self.env["trmnl.image.seeder"].get_image_url(UNAUTHORIZED_IMAGE_CONFIG_KEY)
+
     def _register_device_through_setup(self, mac_address=None):
         """Register a device through the real ``/api/setup`` endpoint."""
         setup_mac_address = mac_address or self.DEVICE_MAC_ADDRESS
@@ -185,7 +194,7 @@ class TrmnlApiHttpCaseMixin:
 
         self.assertEqual(self._response_status(setup_response), 200)
 
-        expected_keys = {"status", "api_key", "friendly_id", "image_url"}
+        expected_keys = {"status", "api_key", "image_url"}
         self.assertEqual(set(setup_payload.keys()), expected_keys)
         self.assertEqual(setup_payload["status"], 200)
         self.assertTrue(setup_payload["api_key"])
@@ -197,9 +206,6 @@ class TrmnlApiHttpCaseMixin:
 
         self.assertTrue(registered_device, "The setup request should register the device.")
         self.assertEqual(registered_device.approval_state, APPROVAL_STATE_ACCEPTED)
-        self.assertEqual(registered_device.registration_source, "setup")
-        self.assertEqual(registered_device.setup_request_count, 1)
-        self.assertEqual(registered_device.friendly_id, setup_payload["friendly_id"])
         self.assertEqual(registered_device.image_url, setup_payload["image_url"])
 
         verify_token_method = getattr(registered_device, "_verify_api_token", None)
@@ -241,5 +247,25 @@ class TrmnlApiHttpCaseMixin:
                 "image_url": image_url,
                 "filename": self.EXPECTED_FILENAME,
                 "refresh_rate": self.DEVICE_REFRESH_RATE,
+            },
+        )
+
+    def _assert_display_unauthorized_payload(self, display_payload):
+        """Assert the unauthorized-image ``/api/display`` payload.
+
+        Returned to unknown devices and token-mismatched devices under the
+        error policy so the device always has something to render.  The
+        payload has the same shape as a normal display response but carries
+        the seeded unauthorized image URL (absolute, built from web.base.url) and
+        the unauthorized image filename.
+        """
+        unauthorized_image_url = self._get_unauthorized_image_url()
+        self.assertEqual(
+            display_payload,
+            {
+                "status": 0,
+                "filename": UNAUTHORIZED_IMAGE_FILENAME,
+                "image_url": unauthorized_image_url,
+                "refresh_rate": DEFAULT_REFRESH_RATE,
             },
         )

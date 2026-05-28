@@ -1,3 +1,4 @@
+from . import test_device_screen_size
 from . import test_api_common
 from . import test_api_display
 from . import test_api_log

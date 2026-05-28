@@ -1,271 +1,195 @@
-# PSE-FS2026: Odoo IoT for Digital Signage
+# PSE-FS2026: Odoo IoT für Digital Signage
 
-## Overview
+## Kurzbeschreibung
+Ziel: Entwicklung eines Odoo‑Moduls zur Verwaltung von TRMNL e‑Ink Displays und einer Anbindung an TRMNL, sodass verschiedene Daten aus Odoo (z.B. Kalender, Produktinformationen, Preisschilder, Raumbelegung) dynamisch auf den Displays dargestellt werden können.
 
-This Odoo addon turns Odoo into a first-party TRMNL API server. Instead of relying on the TRMNL cloud, your TRMNL e-ink display connects directly to your Odoo instance. Odoo manages device registration, renders preview images from live Odoo data (calendar events, tasks, CRM leads, etc.), and serves them to the device on every poll.
-
-The TRMNL firmware is unchanged — it uses the same `/api/setup`, `/api/display`, and `/api/log` endpoints it would use against the official TRMNL cloud.
-
-## How It Works
-
-```
-TRMNL Device
-    │  GET /api/display  (every N seconds)
-    ▼
-Odoo (this addon)
-    │  looks up active Profile for the device
-    │  renders Odoo data → 800×480 PNG
-    ▼
-Device downloads PNG and displays it
-```
-
-1. The device registers itself via `/api/setup` → a Device record is created in Odoo
-2. The admin creates a **Profile** linking the device to an Odoo model (Calendar, Tasks, CRM, etc.)
-3. The admin clicks **Render Preview** → Odoo queries the model's data and generates a PNG
-4. The device polls `/api/display` → receives the image URL → downloads and displays the PNG
-5. On every subsequent poll, Odoo re-renders if the configured render interval has elapsed
-
-## Repository Structure
-
+## Repository-Struktur
 ```
 .
 ├── addons/
 │   └── trmnl/
-│       ├── controllers/          # HTTP endpoints (/api/setup, /api/display, /api/log, /api/profile/image)
-│       ├── models/               # Business logic (device lifecycle, auth, rendering pipeline)
-│       │   ├── trmnl_profile.py         # Profile model: fields, domain building, data access helpers
-│       │   └── trmnl_profile_render.py  # Rendering orchestration mixin (inherits trmnl.profile)
-│       ├── views/                # Odoo backend UI (XML)
-│       ├── security/             # Access control
-│       ├── tests/                # Test suite
-│       ├── trmnl_display_canvas.py       # Shared canvas constants, font helpers, footer renderer
-│       ├── trmnl_preview.py              # List renderer (pure Python, PIL)
-│       ├── trmnl_kanban_preview.py       # Kanban renderer (pure Python, PIL)
-│       ├── trmnl_calendar_preview.py     # Calendar month renderer
-│       ├── trmnl_calendar_week_preview.py # Calendar week renderer
-│       └── trmnl_chart_preview.py        # Chart renderers: render_bar_chart, render_line_chart
-├── docs/
-│   └── development.md            # Developer guide (Make commands, API testing)
+│       ├── data/
+│       ├── models/
+│       │   └── providers/
+│       ├── security/
+│       └── views/
+├── data/
 ├── compose.yaml
 ├── Dockerfile
 ├── LICENSE
-├── Makefile
 ├── README.md
 └── requirements.txt
 ```
 
-### Rendering architecture
 
-The rendering pipeline is split into two clearly separated layers:
+## Erste Schritte (Setup PostgreSQL & Odoo)
+### Vorbedingungen
+Vorausgesetzt sind Docker und Docker Compose. Hilfe bei der Installation findet sich unter: https://docs.docker.com/get-started/get-docker/  
 
-**Layer 1 — Odoo model layer** (`models/trmnl_profile.py`, `models/trmnl_profile_render.py`)
-
-All Odoo concerns are handled here. `TrmnlProfile` defines fields, domain building, and generic data access helpers (`_load_records`, `_extract_field_value`). `TrmnlProfileRenderMixin` extends `trmnl.profile` via `_inherit` — making it a full Odoo model — and owns the rendering pipeline: auto-refresh timing, calendar ORM queries, ORM-record → plain-dict conversion, renderer dispatch, footer compositing, and PNG persistence via `write()`.
-
-**Layer 2 — Pure Python drawing utilities** (`trmnl_preview.py`, `trmnl_kanban_preview.py`, `trmnl_calendar_preview.py`, `trmnl_calendar_week_preview.py`, `trmnl_chart_preview.py`, `trmnl_display_canvas.py`)
-
-These are stateless functions. They accept plain Python data structures (string rows for list/kanban, event dicts for calendar, and value dicts for charts) and return PNG bytes. They have no Odoo ORM imports and no side-effects beyond producing image bytes. This keeps PIL rendering logic independently testable without a running Odoo instance.
-
-The boundary is explicit: `TrmnlProfileRenderMixin._dispatch_renderer()` is the single crossing point. It converts ORM records into plain Python values, then calls a Layer 2 function. No ORM records ever cross into Layer 2.
-
-## Prerequisites
-
-- Docker and Docker Compose (or Podman Compose)
-- `make`
-
-The Makefile uses `docker compose` by default. For a local override, create `local.mk` in the repo root:
-
-```makefile
-COMPOSE=podman compose
+---
+### 1. Repository klonen
+HTTP:
 ```
-
-## Getting Started
-
-### 1. Clone the repository
-
-```bash
 git clone https://github.com/Abilium-GmbH/pse_trmnl_odoo_connector.git
-cd pse_trmnl_odoo_connector
+```
+oder SSH:
+```
+git clone git@github.com:Abilium-GmbH/pse_trmnl_odoo_connector.git
+```
+Hinweis: Die folgenden Docker-Compose-Befehle müssen im Root-Verzeichnis des geklonten Repositorys ausgeführt werden, in dem sich die Datei compose.yaml befindet.
+### 2. PostgreSQL starten
+```
+docker compose up -d db
+```
+### 3. Initialisieren der Datenbank
+```
+docker compose run --rm odoo odoo -d odoo -i base --stop-after-init
+```
+### 4. Odoo starten 
+```
+docker compose up -d odoo
+```
+### 5. Odoo Login
+Odoo ist nun über einen beliebigen Webbrowser unter folgender Adresse erreichbar:
+```
+http://localhost:8069
+```
+Ferner ist auch ein Login direkt im Debug-Modus möglich unter:
+```
+http://localhost:8069/odoo/apps?debug=1
+```
+Beim Login fragt Odoo nach E-Mail und Passwort. Beide sind standartmässig auf `admin` gesetzt.  
+
+---
+## TRMNL Display mit Odoo verbinden
+Nach dem erfolgreichen Setup kann ein **TRMNL Display** mit Odoo verbunden und über das Odoo-Backend mit Inhalten gesteuert werden.
+### Voraussetzung
+- Odoo läuft lokal über Docker
+
+- Das Modul TRMNL ist installiert
+
+- Ein TRMNL Gerät ist eingerichtet
+
+- Im TRMNL Dashboard wurde das Plugin Webhook Image (Experimental) erstellt
+
+### 1. TRMNL Webhook URL erstellen
+- 1. Im TRMNL Dashboard anmelden
+- 2. Plugin Webhook Image (Experimental) öffnen
+- 3. Neue Plugin-Instanz erstellen
+- 4. Einen Namen vergeben, z. B Odoo Display
+- 5. Plugin speichern
+Beispiel:
+```
+https://trmnl.com/api/plugin_settings/<id>/image
+```
+Diese URL wird später in Odoo eingetragen.
+
+---
+### 2. TRMNL Modul in Odoo installieren
+- 1. Odoo öffnen
+
+- 2. Zu Apps wechseln
+
+- 3. Nach TRMNL suchen
+
+- 4. Modul installieren
+
+Danach erscheint im Menü ein neuer Bereich:
+```
+TRMNL → Devices
 ```
 
-### 2. Start Odoo
+### 3. TRMNL Device in Odoo anlegen
+- 1. In Odoo öffnen:
 
-```bash
-make
+```
+TRMNL → Devices
 ```
 
-This initializes the database, installs the `trmnl` module, and starts Odoo. On a fresh database this runs automatically.
+- 2. Neues Device erstellen
 
-Odoo is available at [http://localhost:8069](http://localhost:8069). Default credentials: `admin` / `admin`.
+Folgende Felder ausfüllen:
 
-### 3. (Optional) Watch for changes during development
+```
+Display Name
+Device ID
+Webhook URL
+Content Type
+```
+Beispiel:
 
-```bash
-make watch
+```
+Display Name: Office Display
+Device ID: 123
+Webhook URL: https://trmnl.com/api/plugin_settings/.../image
+Content Type: Custom Message
+ ```
+### 4. Custom Message konfigurieren
+Um eine eigene Nachricht anzuzeigen:
+
+- 1. Content Type auswählen:
+
+```
+Custom Message
 ```
 
-Watches `addons/trmnl/` and upgrades the module automatically when files change.
+- 2. Feld Custom Message ausfüllen, z. B.
 
----
-
-## Connecting a TRMNL Device
-
-### Network requirement
-
-The Docker Compose setup binds Odoo to `0.0.0.0:8069`, so it is reachable from both `localhost` (browser on the same machine) and the LAN IP (physical TRMNL device on the same network).
-
-**No manual URL configuration is needed in the typical setup.** When the device polls Odoo for the first time, the server reads the `Host` header and automatically stores the correct URL for serving images back to the device.
-
-If auto-detection does not work (for example, if Odoo sits behind a reverse proxy, or the detected address is a VM bridge IP rather than the host's LAN IP), override it manually:
-
-- Go to **Settings → Technical → Parameters → System Parameters**
-- Set `trmnl.public_base_url` = `http://192.168.1.x:8069` (your actual LAN IP)
-
-### Step 1 — Point the device at Odoo
-
-Configure your TRMNL device to use your Odoo URL as its custom server instead of the TRMNL cloud. Refer to the TRMNL firmware documentation for how to set a custom API server.
-
-### Step 2 — Register the device
-
-Power on the device. It will call `/api/setup` automatically. A **Device** record appears in Odoo under **TRMNL → Devices** with status `Accepted`.
-
-If the device does not appear, check that the Odoo URL is reachable from the device's network.
-
-### Step 3 — Create a Profile
-
-1. Go to **TRMNL → Profiles → New**
-2. Enter a name and select the device
-3. Select an **Odoo Model** (e.g. `calendar.event`, `project.task`, `crm.lead`)
-4. Choose a **View Type** (List, Kanban, Calendar, or Graph)
-5. Select which fields to display, optionally configure filters and sort order
-6. Click **Render Preview**
-
-A preview image appears in the form. The **Device Delivery Status** section shows when the device last polled and when the next poll is expected.
-
-### Step 4 — Wait for the device to poll
-
-The device polls Odoo every N seconds (configured by **Refresh Rate** on the Device record, default 1800s / 30 min). It picks up the new image on its next poll.
-
----
-
-## Supported Layouts
-
-| Layout | Best for | Notes |
-|--------|----------|-------|
-| **List** | Any model | Tabular display; shows selected fields as columns |
-| **Kanban** | Any model | Uses the same list renderer; no separate kanban layout exists |
-| **Calendar (month)** | `calendar.event` | Monthly grid with event listings per day |
-| **Calendar (week)** | `calendar.event` | Work week (Mon–Fri) or full week (Mon–Sun), hourly grid |
-| **Graph** | Any model | Chart renderer family — select Bar or Line via **Graph Type** |
-
-> **Note:** The Kanban option produces the same output as List. It is kept in the UI so that profiles created with layout type "kanban" continue to render without error.
-
-### Graph Layout
-
-The Graph layout is a chart renderer family. After choosing **View Type = Graph**, select a **Graph Type**:
-
-| Graph Type | Best for |
-|------------|----------|
-| **Bar** | Grouping records by a categorical field (e.g. stage, country, assignee) |
-| **Line** | Trend over time (e.g. revenue by month, tasks created per week) |
-
-Both types use Odoo's `read_group()` aggregation and respect Quick Filters and Domain Filters. Chart Title and Measure are shared between all graph types.
-
-#### Bar chart settings
-
-| Setting | Required | Purpose |
-|---------|----------|---------|
-| **Group By** | Yes | Field whose distinct values become bars (char, selection, many2one, date, etc.) |
-| **Measure** | No | Stored numeric field to sum per group. Leave blank to count records |
-| **Sort** | Yes | Value high→low, Value low→high, Label A→Z, Label Z→A |
-| **Max Bars** | Yes | Maximum bars to display (1–20; default 10) |
-
-#### Line chart settings
-
-| Setting | Required | Purpose |
-|---------|----------|---------|
-| **Date Field** | Yes | The `date` or `datetime` field used as the x-axis |
-| **Measure** | No | Stored numeric field to sum per time bucket. Leave blank to count records |
-| **Group By** | Yes | Time granularity: Day, Week, or Month (default Month) |
-| **Max Points** | Yes | Maximum x-axis points (1–52; default 12, takes the most-recent N) |
-
-The line renderer draws a dark header band, x/y axes, a 2 px data line, filled circular point markers, tick-labeled axes with abbreviated y-axis values (e.g. `1.2k`, `3M`), and faint horizontal gridlines. Missing time buckets are zero-filled. An empty result renders a valid "No data to display" image.
-
-> **Note:** The form preview loads the same `/api/profile/image/<id>?v=…` URL the device downloads, so both show identical bytes. List layouts are threshold-binarized to pure black/white; kanban keeps grayscale (column rules, soft overflow text) to match the kanban design sample.
-
----
-
-## Filtering and Data
-
-Each Profile has three independent filter layers applied with AND:
-
-| Setting | Purpose |
-|---------|---------|
-| **Quick Filter** | Preset shortcuts: All, Assigned to Me, Today, This Week, This Month, Overdue |
-| **Domain Filter** | Free-form Odoo domain, e.g. `[('priority', '=', '1')]`. Supports `uid`, `context_today()` |
-| **Sort Order** | Raw `ORDER BY` clause, e.g. `date_deadline asc, name asc` |
-
-**Render Interval** controls how often Odoo re-renders the image during device polls. Zero defaults to 10 minutes. The device's own refresh rate is set separately on the Device record.
-
----
-
-## Device Approval Policies
-
-Configure under **TRMNL → Display Policy**:
-
-| Policy | Behaviour |
-|--------|-----------|
-| **Error** (default) | Unknown devices are recorded as stubs for manual review. Admin can accept them from the device list. |
-| **Auto Accept** | Any device that polls is automatically accepted and served. Convenient for first-time setup. |
-| **Factory Reset** | Unknown or mismatched devices receive a reset signal. |
-
----
-
-## Make Commands
-
-| Command | Description |
-|---------|-------------|
-| `make` / `make start` | Start Odoo and install the module |
-| `make watch` | Start + auto-upgrade on file changes |
-| `make update` | Force module upgrade and restart |
-| `make test` | Run the test suite |
-| `make stop` | Stop containers (keep data) |
-| `make down` | Remove containers (keep volumes) |
-| `make downv` | Remove containers and volumes (deletes all data) |
-| `make restart` | Restart only the Odoo container |
-| `make logs` | Stream Odoo logs |
-| `make shell` | Open a shell inside the Odoo container |
-
----
-
-## Environment Variables
-
-The `compose.yaml` uses a `.env` file for configuration. If no `.env` file is present, default values from `compose.yaml` are used.
-
-To use custom values:
-
-```bash
-cp .env.example .env
-# edit .env as needed
+```
+Willkommen bei Abilium
 ```
 
----
+- 3. Änderungen speichern
 
-## Notes for Linux Users
+### 5. Inhalt an TRMNL senden
+- 1. Im Device-Formular auf
 
-Some distributions (notably Fedora) recommend Podman over Docker. If you encounter issues, add a `local.mk` file:
-
-```makefile
-COMPOSE=podman compose
+```
+Send to TRMNL
 ```
 
-SELinux or AppArmor may also require additional configuration for volume mounts.
+klicken.
 
----
+- 2. Anschließend den Button auf der Rückseite des TRMNL Displays drücken, damit das Gerät den neuen Inhalt lädt.
+
+### 6. Erwartetes Ergebnis
+Das TRMNL Display zeigt nun die Nachricht aus Odoo.
+
+Beispiel:
+
+```
+Office Display
+--------------
+Willkommen bei Abilium
+```
+
+### Weitere Hinweise
+#### Folgenutzung
+Die Dienste können beendet werden mit:
+```
+docker compose down
+```
+Nach dem erstmaligen Setup können die Dienste einfach mit folgendem Befehl gestartet werden:
+```
+docker compose up -d
+```
+#### Umgebungsvariablen (Secrets)
+Das `compose.yaml` verwendet eine `.env`-Datei zur Konfiguration von Umgebungsvariablen. Wenn keine `.env`-Datei vorhanden ist, greifen automatisch die im `compose.yaml` definierten Standardwerte.  
+
+Um eigene Secrets oder Konfigurationswerte zu verwenden:
+
+1. `.env.example` zu `.env` kopieren:
+   ```
+   cp .env.example .env
+   ```
+2. Die gewünschten Werte in der `.env`-Datei anpassen
+#### Distro-spezifische Sonderheiten
+An dieser Stelle sei darauf hingewiesen, dass einzelne Linux-Distros aufgrund ihrer Eigenheiten ein anderes Vorgehen oder die Nutzung anderer Werkzeuge empfehlen können. Insbesondere können Sicherheitsmodule zu Komplikationen führen. So rät beispielsweise Fedora zur Nutzung von Podman anstatt Docker direkt zu verwenden. Es empfiehlt sich, die Dokumentation der jeweiligen Distribution zu konsultieren.
+
+
 
 ## Development Team
-
-- Timur Umut Turgul — Key Account Manager
-- Sascha Friedli — Chief Deliverable Officer
-- Leïla Ayinkamiye — Quality Evangelist
-- Claudio Berger — Master Tracker
+- Timur Umut Turgul — Key Account Manager (Kundenkontakt)
+- Sascha Friedli — Chief Deliverable Officer (Deliverables / Termine)
+- Leïla Ayinkamiye — Quality Evangelist (Testkonzept, Tests)
+- Claudio Berger — Master Tracker (Statusreports, Tracking)

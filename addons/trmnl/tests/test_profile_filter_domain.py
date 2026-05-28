@@ -104,6 +104,27 @@ class TestProfileFilterDomain(TransactionCase):
         records = profile.env["res.partner"].sudo().search(built, limit=5)
         self.assertTrue(records is not None)
 
+    def test_calendar_organizer_many2one_domain_widget_value(self):
+        """Organizer (= user_id) with [id, label] must not raise unhashable type 'list'."""
+        cal_model = self.env["ir.model"].sudo().search(
+            [("model", "=", "calendar.event")], limit=1
+        )
+        if not cal_model:
+            self.skipTest("calendar.event not installed")
+        admin = self.env.ref("base.user_admin")
+        profile = self.env["trmnl.profile"].sudo().create({
+            "name": "Organizer filter",
+            "device_id": self._device.id,
+            "app_model_id": cal_model.id,
+            "trmnl_layout": "calendar",
+            "filter_preset": "none",
+            "filter_domain": str([
+                ("user_id", "=", [admin.id, admin.name]),
+            ]),
+        })
+        profile._render_and_store_preview()
+        self.assertTrue(profile.preview_image)
+
     def test_render_with_many2one_domain_widget_value(self):
         """project_id picked in domain UI is often [id, label] — must flatten."""
         if "project.task" not in self.env:

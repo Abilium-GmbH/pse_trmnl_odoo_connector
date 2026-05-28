@@ -9,6 +9,7 @@ Covers:
 """
 from __future__ import annotations
 
+import base64
 from unittest.mock import patch
 
 from odoo.tests import tagged
@@ -100,7 +101,7 @@ class TestDataStaleness(TransactionCase):
     def test_should_render_true_when_stale(self):
         profile = self._make_profile(self._partner_model)
         profile.write({
-            "preview_image": b"fakepng",
+            "preview_image": base64.b64encode(b"fakepng"),
             "preview_data_stale": True,
         })
         self.assertTrue(profile._should_render_for_device())
@@ -108,9 +109,10 @@ class TestDataStaleness(TransactionCase):
     def test_should_render_false_when_not_stale_and_interval_not_due(self):
         profile = self._make_profile(self._partner_model)
         profile.write({
-            "preview_image": b"fakepng",
+            "preview_image": base64.b64encode(b"fakepng"),
             "preview_data_stale": False,
             "preview_generated_at": "2099-01-01 00:00:00",
+            "preview_renderer_version": profile._get_installed_trmnl_version(),
             "auto_refresh_interval_minutes": 60,
         })
         self.assertFalse(profile._should_render_for_device())

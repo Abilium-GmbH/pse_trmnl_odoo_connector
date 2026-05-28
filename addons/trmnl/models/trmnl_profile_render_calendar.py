@@ -78,8 +78,7 @@ class TrmnlProfileRenderCalendarMixin(models.Model):
         f_daynum = _canvas.load_font(14, bold=True)
         f_event = _canvas.load_font(10)
 
-        w = width or _canvas.DISPLAY_WIDTH
-        h = content_height or _canvas.CONTENT_HEIGHT
+        w, h = _canvas.resolve_canvas_size(width, content_height)
         col_w = w // _COLS
 
         img = Image.new("L", (w, h), _canvas.EINK_WHITE)
@@ -268,8 +267,7 @@ class TrmnlProfileRenderCalendarMixin(models.Model):
         f_time = _canvas.load_font(9)
         f_event = _canvas.load_font(10)
 
-        w = width or _canvas.DISPLAY_WIDTH
-        h = content_height or _canvas.CONTENT_HEIGHT
+        w, h = _canvas.resolve_canvas_size(width, content_height)
         grid_h = h - _HEADER_H
         hour_h_f = grid_h / _HOURS
 

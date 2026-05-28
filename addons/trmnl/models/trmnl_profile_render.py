@@ -236,6 +236,53 @@ class TrmnlProfileRenderMixin(models.Model):
     # calendar ORM loading
     # ------------------------------------------------------------------
 
+    def _append_calendar_my_records_domain(self, domain: list) -> None:
+        """Append ``user_id`` filter when ``filter_preset`` is ``my_records``."""
+        if self.filter_preset != "my_records":
+            return
+        if self.user_ids:
+            domain.append(("user_id", "in", self.user_ids.ids))
+        else:
+            domain.append(("user_id", "=", self.env.uid))
+
+    def _merge_custom_filter_domain(self, domain: list) -> list:
+        """AND the profile's ``filter_domain`` onto *domain* when configured."""
+        raw_custom = (self.filter_domain or "").strip()
+        if not raw_custom or raw_custom == "[]":
+            return domain
+        try:
+            custom_domain = self._eval_filter_domain(raw_custom)
+            if custom_domain:
+                return list(Domain.AND([domain, custom_domain]))
+        except Exception as exc:
+            raise UserError(
+                _("Custom Domain is invalid and could not be applied: %s") % exc
+            ) from exc
+        return domain
+
+    def _calendar_event_search(self, domain: list):
+        """Search ``calendar.event`` with profile archive and limit settings."""
+        limit = self.display_limit or 200
+        env = self.env["calendar.event"].sudo()
+        if self.include_archived:
+            env = env.with_context(active_test=False)
+        return env.search(domain, limit=limit, order="start asc")
+
+    @staticmethod
+    def _measure_field_label(field) -> str:
+        """Human-readable label for a graph/line measure field, or ``Count``."""
+        if field:
+            return field.field_description or field.name
+        return "Count"
+
+    def _device_canvas_dimensions(self) -> tuple[int, int]:
+        """Return (width, height) for the linked device or TRMNL defaults."""
+        self.ensure_one()
+        dev = self.device_id
+        width = (dev.display_width if dev and dev.display_width > 0 else None) or _DEFAULT_W
+        height = (dev.display_height if dev and dev.display_height > 0 else None) or _DEFAULT_H
+        return width, height
+
     def _load_calendar_records(self, year: int, month: int):
         """Load calendar.event records for the displayed month.
 
@@ -247,29 +294,9 @@ class TrmnlProfileRenderMixin(models.Model):
         month_start = date(year, month, 1)
         month_end   = date(year, month, last_day)
         domain = [("start", ">=", month_start), ("start", "<=", month_end)]
-
-        if self.filter_preset == "my_records":
-            if self.user_ids:
-                domain.append(("user_id", "in", self.user_ids.ids))
-            else:
-                domain.append(("user_id", "=", self.env.uid))
-
-        raw_custom = (self.filter_domain or "").strip()
-        if raw_custom and raw_custom != "[]":
-            try:
-                custom_domain = self._eval_filter_domain(raw_custom)
-                if custom_domain:
-                    domain = list(Domain.AND([domain, custom_domain]))
-            except Exception as exc:
-                raise UserError(
-                    _("Custom Domain is invalid and could not be applied: %s") % exc
-                ) from exc
-
-        limit = self.display_limit or 200
-        env = self.env["calendar.event"].sudo()
-        if self.include_archived:
-            env = env.with_context(active_test=False)
-        return env.search(domain, limit=limit, order="start asc")
+        self._append_calendar_my_records_domain(domain)
+        domain = self._merge_custom_filter_domain(domain)
+        return self._calendar_event_search(domain)
 
     def _load_calendar_week_records(self, week_start: date):
         """Load calendar.event records for the displayed week.
@@ -292,28 +319,9 @@ class TrmnlProfileRenderMixin(models.Model):
         query_start = week_start - timedelta(days=1)
         query_end = week_start + timedelta(days=8)  # Mon next week + 1 → strict <
         domain = [("start", ">=", query_start), ("start", "<", query_end)]
-        if self.filter_preset == "my_records":
-            if self.user_ids:
-                domain.append(("user_id", "in", self.user_ids.ids))
-            else:
-                domain.append(("user_id", "=", self.env.uid))
-
-        raw_custom = (self.filter_domain or "").strip()
-        if raw_custom and raw_custom != "[]":
-            try:
-                custom_domain = self._eval_filter_domain(raw_custom)
-                if custom_domain:
-                    domain = list(Domain.AND([domain, custom_domain]))
-            except Exception as exc:
-                raise UserError(
-                    _("Custom Domain is invalid and could not be applied: %s") % exc
-                ) from exc
-
-        limit = self.display_limit or 200
-        env = self.env["calendar.event"].sudo()
-        if self.include_archived:
-            env = env.with_context(active_test=False)
-        return env.search(domain, limit=limit, order="start asc")
+        self._append_calendar_my_records_domain(domain)
+        domain = self._merge_custom_filter_domain(domain)
+        return self._calendar_event_search(domain)
 
     # ------------------------------------------------------------------
     # line chart data loading
@@ -381,9 +389,7 @@ class TrmnlProfileRenderMixin(models.Model):
 
     def _line_measure_label(self) -> str:
         """Return a human-readable measure label for the line chart y-axis."""
-        if self.line_measure_field_id:
-            return self.line_measure_field_id.field_description or self.line_measure_field_id.name
-        return "Count"
+        return self._measure_field_label(self.line_measure_field_id)
 
     def _load_line_data(self, model_name: str) -> list[dict]:
         """Aggregate records into time-series points for the line chart renderer.
@@ -470,14 +476,8 @@ class TrmnlProfileRenderMixin(models.Model):
     # ------------------------------------------------------------------
 
     def _graph_measure_label(self) -> str:
-        """Return a human-readable measure label for the graph renderer.
-
-        Returns the field description when a measure field is configured,
-        otherwise "Count".
-        """
-        if self.graph_measure_field_id:
-            return self.graph_measure_field_id.field_description or self.graph_measure_field_id.name
-        return "Count"
+        """Return a human-readable measure label for the graph renderer."""
+        return self._measure_field_label(self.graph_measure_field_id)
 
     def _load_graph_data(self, model_name: str) -> list[dict]:
         """Aggregate model records and return sorted bar data for the renderer.
@@ -756,9 +756,8 @@ class TrmnlProfileRenderMixin(models.Model):
         ``trmnl_display_canvas`` (Layer 2).
         """
         self.ensure_one()
+        device_w, device_h = self._device_canvas_dimensions()
         dev = self.device_id
-        device_w = (dev.display_width if dev and dev.display_width > 0 else None) or _DEFAULT_W
-        device_h = (dev.display_height if dev and dev.display_height > 0 else None) or _DEFAULT_H
 
         poll_at = dev.last_poll_at
         label = (
@@ -877,9 +876,7 @@ class TrmnlProfileRenderMixin(models.Model):
         else:
             field_names = ["display_name"]
 
-        dev = self.device_id
-        device_w = (dev.display_width if dev and dev.display_width > 0 else None) or _DEFAULT_W
-        device_h = (dev.display_height if dev and dev.display_height > 0 else None) or _DEFAULT_H
+        device_w, device_h = self._device_canvas_dimensions()
         content_h = device_h - _FOOTER_H
 
         # Calendar and graph layouts load their own data inside _dispatch_renderer.

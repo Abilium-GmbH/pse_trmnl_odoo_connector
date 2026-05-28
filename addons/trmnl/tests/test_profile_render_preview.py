@@ -7,6 +7,8 @@ import hashlib
 
 from odoo.tests import TransactionCase, tagged
 
+from .test_common import make_trmnl_device, partner_ir_model
+
 
 @tagged("-at_install", "post_install")
 class TestProfileRenderPreviewButton(TransactionCase):
@@ -16,28 +18,15 @@ class TestProfileRenderPreviewButton(TransactionCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.Profile = cls.env["trmnl.profile"]
-        cls._device = cls.env["trmnl.device"].sudo().create({
-            "mac_address": "AA:BB:CC:DD:EE:99",
-            "approval_state": "accepted",
-            "registration_source": "setup",
-        })
-        cls._partner_model = cls.env["ir.model"].sudo().search(
-            [("model", "=", "res.partner")], limit=1
-        )
-        cls._groupby_field = cls.env["ir.model.fields"].sudo().search(
-            [("model", "=", "res.partner"), ("name", "=", "country_id")], limit=1
-        )
+        cls._device = make_trmnl_device(cls.env, "AA:BB:CC:DD:EE:99")
+        cls._partner_model = partner_ir_model(cls.env)
 
     def _profile(self, **extra):
         values = {
             "name": "render preview test",
             "device_id": self._device.id,
             "app_model_id": self._partner_model.id,
-            "trmnl_layout": "graph",
-            "graph_type": "bar",
-            "graph_groupby_field_id": self._groupby_field.id,
-            "graph_sort_order": "value_desc",
-            "graph_max_groups": 10,
+            "trmnl_layout": "list",
             "filter_preset": "none",
         }
         values.update(extra)

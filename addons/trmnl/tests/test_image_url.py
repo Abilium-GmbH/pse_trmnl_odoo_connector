@@ -6,20 +6,18 @@ import base64
 
 from odoo.tests import TransactionCase, tagged
 
-from odoo.addons.trmnl.models.trmnl_device import client_can_reach_host
+from odoo.addons.trmnl.models.trmnl_device import (
+    client_can_reach_host,
+    is_device_reachable_base_url,
+)
 
 
 @tagged("-at_install", "post_install")
 class TestDeviceReachableUrl(TransactionCase):
-    """_is_device_reachable_base_url: LAN IPs accepted, loopback rejected."""
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.Profile = cls.env["trmnl.profile"]
+    """is_device_reachable_base_url: LAN IPs accepted, loopback rejected."""
 
     def _ok(self, url):
-        return self.Profile._is_device_reachable_base_url(url)
+        return is_device_reachable_base_url(url)
 
     def test_lan_192_168_accepted(self):
         self.assertTrue(self._ok("http://192.168.1.127:8069"))
@@ -190,7 +188,7 @@ class TestImageUrlGeneration(TransactionCase):
         profile = self._profile()
         profile._compute_url_warning()
         self.assertTrue(profile.url_warning)
-        self.assertIn("192.168.1", profile.url_warning)
+        self.assertIn("loopback/internal", profile.url_warning)
 
     def test_no_warning_when_public_base_url_set(self):
         """url_warning is empty when trmnl.public_base_url is configured."""

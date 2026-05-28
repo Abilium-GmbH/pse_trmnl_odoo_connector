@@ -133,8 +133,7 @@ class TrmnlProfileRenderGraphMixin(models.Model):
         ``width`` / ``content_height`` come from the linked device record;
         falls back to 800×CONTENT_HEIGHT when not yet reported.
         """
-        w = width or _canvas.DISPLAY_WIDTH
-        h = content_height or _canvas.CONTENT_HEIGHT
+        w, h = _canvas.resolve_canvas_size(width, content_height)
 
         img = Image.new("L", (w, h), _BG)
         draw = ImageDraw.Draw(img)
@@ -240,8 +239,7 @@ class TrmnlProfileRenderGraphMixin(models.Model):
         ``width`` / ``content_height`` come from the linked device record;
         falls back to 800×CONTENT_HEIGHT when not yet reported.
         """
-        w = width or _canvas.DISPLAY_WIDTH
-        h = content_height or _canvas.CONTENT_HEIGHT
+        w, h = _canvas.resolve_canvas_size(width, content_height)
 
         img = Image.new("L", (w, h), _BG)
         draw = ImageDraw.Draw(img)
@@ -304,7 +302,7 @@ class TrmnlProfileRenderGraphMixin(models.Model):
         for i, (p, px) in enumerate(zip(points, xs)):
             draw.line([(px, chart_bot), (px, chart_bot + 3)], fill=_RULE, width=1)
             if i % stride == 0 or i == n - 1:
-                lbl = _trunc_chart(draw, p["label"], font_axis, max_lw + 6)
+                lbl = _canvas.trunc(draw, p["label"], font_axis, max_lw + 6)
                 lb = draw.textbbox((0, 0), lbl, font=font_axis)
                 lw = lb[2] - lb[0]
                 draw.text((px - lw // 2, chart_bot + 6 - lb[1]), lbl, fill=_INK, font=font_axis)

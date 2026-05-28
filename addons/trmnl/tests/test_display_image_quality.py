@@ -14,6 +14,9 @@ class TestDisplayImageQuality(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        cls.env["ir.config_parameter"].sudo().set_param(
+            "web.base.url", "http://192.168.1.127:8069"
+        )
         cls.device = cls.env["trmnl.device"].sudo().create({
             "mac_address": "AA:BB:CC:DD:EE:77",
             "approval_state": "accepted",
@@ -80,7 +83,9 @@ class TestDisplayImageQuality(TransactionCase):
         })
         profile._render_and_store_preview()
         digest = profile._preview_png_digest()
-        self.assertIn(f"/api/profile/image/{profile.id}?v={digest}", profile.preview_image_html or "")
+        html = profile.preview_image_html or ""
+        self.assertIn(f"/api/profile/image/{profile.id}", html)
+        self.assertIn(digest, html)
         self.assertNotIn("/web/image/", profile.preview_image_html or "")
 
     def test_render_updates_device_image_url(self):

@@ -2,8 +2,17 @@
 
 from __future__ import annotations
 
+import unittest
+
 from odoo.exceptions import UserError, ValidationError
 from odoo.tests import TransactionCase, tagged
+
+from .test_common import (
+    ir_model_field,
+    make_trmnl_device,
+    model_has_graph_view,
+    partner_ir_model,
+)
 
 
 @tagged("-at_install", "post_install")
@@ -13,17 +22,11 @@ class TestGraphDataLoading(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls._device = cls.env["trmnl.device"].sudo().create({
-            "mac_address": "AA:BB:CC:DD:EE:77",
-            "approval_state": "accepted",
-            "registration_source": "setup",
-        })
-        cls._partner_model = cls.env["ir.model"].sudo().search(
-            [("model", "=", "res.partner")], limit=1
-        )
-        cls._groupby_field = cls.env["ir.model.fields"].sudo().search(
-            [("model", "=", "res.partner"), ("name", "=", "country_id")], limit=1
-        )
+        if not model_has_graph_view(cls.env):
+            raise unittest.SkipTest("res.partner has no graph view in this database")
+        cls._device = make_trmnl_device(cls.env, "AA:BB:CC:DD:EE:77")
+        cls._partner_model = partner_ir_model(cls.env)
+        cls._groupby_field = ir_model_field(cls.env, "res.partner", "country_id")
 
     def _profile(self, **vals):
         base = {
@@ -196,14 +199,10 @@ class TestGraphSelection(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls._device = cls.env["trmnl.device"].sudo().create({
-            "mac_address": "AA:BB:CC:DD:EE:78",
-            "approval_state": "accepted",
-            "registration_source": "setup",
-        })
-        cls._partner_model = cls.env["ir.model"].sudo().search(
-            [("model", "=", "res.partner")], limit=1
-        )
+        if not model_has_graph_view(cls.env):
+            raise unittest.SkipTest("res.partner has no graph view in this database")
+        cls._device = make_trmnl_device(cls.env, "AA:BB:CC:DD:EE:78")
+        cls._partner_model = partner_ir_model(cls.env)
 
     def test_selection_field_labels_resolved(self):
         """Groupby a selection field: bar labels are the human-readable selection labels."""
@@ -238,17 +237,11 @@ class TestGraphRendering(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls._device = cls.env["trmnl.device"].sudo().create({
-            "mac_address": "AA:BB:CC:DD:EE:79",
-            "approval_state": "accepted",
-            "registration_source": "setup",
-        })
-        cls._partner_model = cls.env["ir.model"].sudo().search(
-            [("model", "=", "res.partner")], limit=1
-        )
-        cls._groupby_field = cls.env["ir.model.fields"].sudo().search(
-            [("model", "=", "res.partner"), ("name", "=", "country_id")], limit=1
-        )
+        if not model_has_graph_view(cls.env):
+            raise unittest.SkipTest("res.partner has no graph view in this database")
+        cls._device = make_trmnl_device(cls.env, "AA:BB:CC:DD:EE:79")
+        cls._partner_model = partner_ir_model(cls.env)
+        cls._groupby_field = ir_model_field(cls.env, "res.partner", "country_id")
 
     def _profile(self, **vals):
         base = {

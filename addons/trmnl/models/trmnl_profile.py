@@ -658,11 +658,6 @@ class TrmnlProfile(models.Model):
     # computed delivery-status fields
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _is_device_reachable_base_url(url):
-        """Return True if url's host is reachable by a physical LAN device."""
-        return is_device_reachable_base_url(url)
-
     @api.depends("device_id.last_display_at", "device_id.desired_refresh_rate")
     def _compute_device_next_expected_poll_at(self):
         for rec in self:
@@ -719,15 +714,12 @@ class TrmnlProfile(models.Model):
     @api.depends("preview_image", "preview_generated_at")
     def _compute_url_warning(self):
         for rec in self:
-            if not rec.preview_image:
-                rec.url_warning = ""
-                continue
             params = rec.env["ir.config_parameter"].sudo()
             if params.get_param("trmnl.public_base_url", "").strip():
                 rec.url_warning = ""
                 continue
             web_url = params.get_param("web.base.url", "").strip()
-            if not rec._is_device_reachable_base_url(web_url):
+            if not is_device_reachable_base_url(web_url):
                 rec.url_warning = (
                     f"Image URL cannot be generated: web.base.url ({web_url}) is a "
                     f"loopback/internal address that physical devices cannot reach. "
@@ -795,7 +787,7 @@ class TrmnlProfile(models.Model):
             candidates.append(("web.base.url", web_url))
 
         for source, base in candidates:
-            if not self._is_device_reachable_base_url(base):
+            if not is_device_reachable_base_url(base):
                 continue
             host = urlparse(base).hostname or ""
             if client_ip and host and not client_can_reach_host(client_ip, host):
@@ -812,7 +804,7 @@ class TrmnlProfile(models.Model):
         # No client context (unit tests, cron): first reachable configured URL.
         if not client_ip:
             for source, base in candidates:
-                if self._is_device_reachable_base_url(base):
+                if is_device_reachable_base_url(base):
                     return base, source
 
         return False, None

@@ -7,32 +7,22 @@ graph_type='line'), all profiles use trmnl_layout='graph'.
 from __future__ import annotations
 
 import io
+import unittest
 from datetime import date
 
 from odoo.exceptions import ValidationError
 from odoo.tests import TransactionCase, tagged
 
+from .test_common import (
+    ir_model_field,
+    make_trmnl_device,
+    model_has_graph_view,
+    partner_ir_model,
+)
 
-# ---------------------------------------------------------------------------
-# Shared setup helpers
-# ---------------------------------------------------------------------------
-
-def _make_device(env, mac):
-    return env["trmnl.device"].sudo().create({
-        "mac_address": mac,
-        "approval_state": "accepted",
-        "registration_source": "setup",
-    })
-
-
-def _partner_model(env):
-    return env["ir.model"].sudo().search([("model", "=", "res.partner")], limit=1)
-
-
-def _field(env, model, name):
-    return env["ir.model.fields"].sudo().search(
-        [("model", "=", model), ("name", "=", name)], limit=1
-    )
+_make_device = make_trmnl_device
+_partner_model = partner_ir_model
+_field = ir_model_field
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +36,8 @@ class TestLineAsGraphSubtype(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        if not model_has_graph_view(cls.env):
+            raise unittest.SkipTest("res.partner has no graph view in this database")
         cls._device = _make_device(cls.env, "AA:BB:CC:DD:EF:01")
         cls._partner_model = _partner_model(cls.env)
         cls._date_field = _field(cls.env, "res.partner", "create_date")
@@ -102,6 +94,8 @@ class TestLineValidation(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        if not model_has_graph_view(cls.env):
+            raise unittest.SkipTest("res.partner has no graph view in this database")
         cls._device = _make_device(cls.env, "AA:BB:CC:DD:EF:02")
         cls._partner_model = _partner_model(cls.env)
         cls._date_field = _field(cls.env, "res.partner", "create_date")
@@ -255,6 +249,8 @@ class TestLineDataLoading(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        if not model_has_graph_view(cls.env):
+            raise unittest.SkipTest("res.partner has no graph view in this database")
         cls._device = _make_device(cls.env, "AA:BB:CC:DD:EF:03")
         cls._partner_model = _partner_model(cls.env)
         cls._date_field = _field(cls.env, "res.partner", "create_date")
@@ -378,6 +374,8 @@ class TestLineRendering(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        if not model_has_graph_view(cls.env):
+            raise unittest.SkipTest("res.partner has no graph view in this database")
         cls._device = _make_device(cls.env, "AA:BB:CC:DD:EF:04")
         cls._partner_model = _partner_model(cls.env)
         cls._date_field = _field(cls.env, "res.partner", "create_date")

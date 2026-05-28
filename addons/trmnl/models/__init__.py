@@ -1,4 +1,5 @@
 from . import trmnl_device
+from . import trmnl_image
 from . import trmnl_device_security
 from . import trmnl_device_lifecycle
 from . import trmnl_device_telemetry

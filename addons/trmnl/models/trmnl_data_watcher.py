@@ -28,7 +28,7 @@ Performance notes
 """
 from __future__ import annotations
 
-from odoo import models
+from odoo import api, models
 
 
 class TrmnlDataWatcher(models.AbstractModel):
@@ -60,17 +60,29 @@ class TrmnlDataWatcher(models.AbstractModel):
             return
         cr._trmnl_pending.add(self._name)
 
+        ir_model = self.env["ir.model"].sudo().search(
+            [("model", "=", self._name)],
+            limit=1,
+        )
+        if not ir_model:
+            return
+
         profiles = self.env["trmnl.profile"].sudo().search([
             ("active", "=", True),
-            ("app_model_id.model", "=", self._name),
+            ("app_model_id", "=", ir_model.id),
         ])
         if profiles:
             profiles.write({"preview_data_stale": True})
+
+        # Allow further create/write/unlink on the same model in this transaction
+        # (e.g. create a partner, clear stale, then update that partner).
+        cr._trmnl_pending.discard(self._name)
 
     # ------------------------------------------------------------------
     # ORM overrides
     # ------------------------------------------------------------------
 
+    @api.model_create_multi
     def create(self, vals_list):
         records = super().create(vals_list)
         records._trmnl_invalidate_profiles()

@@ -1,7 +1,7 @@
 # Repo-local, override-friendly COMPOSE setup.
 # Dev lifecycle targets run docker compose directly (no helper script).
 
-SHELL := /usr/bin/env bash
+SHELL := /bin/bash
 .DEFAULT_GOAL := start
 
 # For optional overrides
@@ -18,6 +18,7 @@ MODULE_DIR := $(CURDIR)/addons/$(MODULE)
 
 # Shared bootstrap / update / watch logic (from former scripts/odoo-dev.sh).
 .ONESHELL:
+.SILENT: start update watch
 start update watch:
 	set -euo pipefail
 	ACTION="$@"
@@ -88,12 +89,12 @@ start update watch:
 	install_modules() {
 		local modules="$$1"
 		printf 'Installing %s into database "%s"...\n' "$$modules" "$$DB_NAME"
-		run_compose run --rm --no-deps "$$ODOO_SERVICE" odoo -d "$$DB_NAME" -i "$$modules" --stop-after-init
+		run_compose run --rm --no-deps "$$ODOO_SERVICE" odoo --http-interface=0.0.0.0 -d "$$DB_NAME" -i "$$modules" --stop-after-init
 	}
 
 	upgrade_module() {
 		printf 'Upgrading module "%s" in database "%s"...\n' "$$MODULE" "$$DB_NAME"
-		run_compose run --rm --no-deps "$$ODOO_SERVICE" odoo -d "$$DB_NAME" -u "$$MODULE" --stop-after-init
+		run_compose run --rm --no-deps "$$ODOO_SERVICE" odoo --http-interface=0.0.0.0 -d "$$DB_NAME" -u "$$MODULE" --stop-after-init
 	}
 
 	ensure_bootstrapped() {
@@ -192,7 +193,7 @@ start update watch:
 bootstrap: start
 
 test: start
-	$(COMPOSE) run --rm $(ODOO_SERVICE) odoo -d $(DB_NAME) -u $(MODULE) --stop-after-init --test-enable --test-tags /$(MODULE)
+	$(COMPOSE) run --rm $(ODOO_SERVICE) odoo --http-interface=0.0.0.0 -d $(DB_NAME) -u $(MODULE) --stop-after-init --test-enable --test-tags /$(MODULE)
 
 stop:
 	$(COMPOSE) stop $(ODOO_SERVICE) $(DB_SERVICE)

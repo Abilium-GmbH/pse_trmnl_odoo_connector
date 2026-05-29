@@ -219,7 +219,14 @@ class TrmnlDeviceTelemetryMixin(models.Model):
                 [("device_id", "=", device.id), ("log_id", "in", candidate_log_ids)]
             ).mapped("log_id")
         )
-        new_values = [v for v in valid_values if v["log_id"] not in existing_log_ids]
+        seen_log_ids = set(existing_log_ids)
+        new_values = []
+        for values in valid_values:
+            log_id = values["log_id"]
+            if log_id in seen_log_ids:
+                continue
+            seen_log_ids.add(log_id)
+            new_values.append(values)
 
         if new_values:
             log_model.create(new_values)

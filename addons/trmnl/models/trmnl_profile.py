@@ -177,7 +177,7 @@ class TrmnlProfile(models.Model):
 
     graph_groupby_field_id = fields.Many2one(
         "ir.model.fields",
-        string="Group By",
+        string="Graph Group By",
         domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['char', 'text', 'selection', 'many2one', 'date', 'datetime', 'boolean', 'integer'])]",
         help="Field to group records by. Each distinct value becomes one bar.",
     )
@@ -220,7 +220,7 @@ class TrmnlProfile(models.Model):
         ("day",   "Day"),
         ("week",  "Week"),
         ("month", "Month"),
-    ], string="Group By", default="month", required=True)
+    ], string="Line Date Group By", default="month", required=True)
     line_max_points = fields.Integer(
         string="Max Points",
         default=12,
@@ -258,7 +258,7 @@ class TrmnlProfile(models.Model):
         help="Odoo module version used for the last render; stale values trigger re-render on device poll.",
     )
     preview_image_html = fields.Html(
-        string="Preview",
+        string="Preview Display",
         compute="_compute_preview_image_html",
         sanitize=False,
         readonly=True,

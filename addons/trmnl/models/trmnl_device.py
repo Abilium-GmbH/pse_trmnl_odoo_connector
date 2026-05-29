@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import secrets
 from datetime import datetime, timezone
 
 from urllib.parse import urlparse
@@ -313,6 +314,7 @@ class TrmnlDevice(models.Model):
         string="Registration Source",
         readonly=True,
         copy=False,
+        index=True,
     )
 
     last_seen_at = fields.Datetime(string="Last Seen At", readonly=True, copy=False)
@@ -342,6 +344,36 @@ class TrmnlDevice(models.Model):
         readonly=True,
         copy=False,
         help="The most recent endpoint the device contacted: setup, display, or log.",
+    )
+
+    display_request_count = fields.Integer(
+        string="Display Request Count",
+        readonly=True,
+        copy=False,
+        default=0,
+    )
+    log_entry_count = fields.Integer(
+        string="Log Entry Count",
+        readonly=True,
+        copy=False,
+        default=0,
+    )
+    invalid_token_count = fields.Integer(
+        string="Invalid Token Count",
+        readonly=True,
+        copy=False,
+        default=0,
+    )
+    display_denied_count = fields.Integer(
+        string="Display Denied Count",
+        readonly=True,
+        copy=False,
+        default=0,
+    )
+    last_access_denied_at = fields.Datetime(
+        string="Last Access Denied At",
+        readonly=True,
+        copy=False,
     )
 
     # ------------------------------------------------------------------

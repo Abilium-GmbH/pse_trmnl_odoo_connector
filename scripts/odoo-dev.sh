@@ -79,12 +79,12 @@ module_state() {
 install_modules() {
   local modules="$1"
   printf 'Installing %s into database "%s"...\n' "$modules" "$DB_NAME"
-  run_compose run --rm --no-deps "$ODOO_SERVICE" odoo -d "$DB_NAME" -i "$modules" --stop-after-init
+  run_compose run --rm --no-deps "$ODOO_SERVICE" odoo --http-interface=0.0.0.0 -d "$DB_NAME" -i "$modules" --stop-after-init
 }
 
 upgrade_module() {
   printf 'Upgrading module "%s" in database "%s"...\n' "$MODULE" "$DB_NAME"
-  run_compose run --rm --no-deps "$ODOO_SERVICE" odoo -d "$DB_NAME" -u "$MODULE" --stop-after-init
+  run_compose run --rm --no-deps "$ODOO_SERVICE" odoo --http-interface=0.0.0.0 -d "$DB_NAME" -u "$MODULE" --stop-after-init
 }
 
 ensure_bootstrapped() {
@@ -193,11 +193,11 @@ do_test() {
   done
 
   run_compose --project-name "$test_project" run --rm --no-deps "$ODOO_SERVICE" \
-    odoo -d "$test_db" -i "base,$MODULE" --stop-after-init >/dev/null 2>&1
+    odoo --http-interface=0.0.0.0 -d "$test_db" -i "base,$MODULE" --stop-after-init >/dev/null 2>&1
 
   local test_exit_code=0
   run_compose --project-name "$test_project" run --rm --no-deps "$ODOO_SERVICE" \
-    odoo -d "$test_db" -u "$MODULE" --stop-after-init --test-enable --test-tags "/$MODULE" \
+    odoo --http-interface=0.0.0.0 -d "$test_db" -u "$MODULE" --stop-after-init --test-enable --test-tags "/$MODULE" \
     || test_exit_code=$?
 
   run_compose --project-name "$test_project" down -v >/dev/null 2>&1

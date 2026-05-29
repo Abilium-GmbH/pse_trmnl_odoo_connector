@@ -105,7 +105,7 @@
                         <!-- Bar chart fields -->
                         <field
                             name="graph_groupby_field_id"
-                            string="Group By"
+                            string="Graph Group By"
                             domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['char', 'text', 'selection', 'many2one', 'date', 'datetime', 'boolean', 'integer'])]"
                             help="Field to group records by. Each distinct value becomes one bar."
                             invisible="graph_type != 'bar'"
@@ -134,7 +134,7 @@
                             help="Stored numeric field to sum per time bucket. Leave empty to count records."
                             invisible="graph_type != 'line'"
                         />
-                        <field name="line_date_groupby" string="Group By" invisible="graph_type != 'line'"/>
+                        <field name="line_date_groupby" string="Line Date Group By" invisible="graph_type != 'line'"/>
                         <field name="line_max_points" string="Max Points" invisible="graph_type != 'line'"/>
                         <!-- Shared -->
                         <field name="graph_title" string="Chart Title"/>

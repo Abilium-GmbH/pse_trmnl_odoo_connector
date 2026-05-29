@@ -40,9 +40,7 @@ class TrmnlDeviceActionWizardMixin(models.AbstractModel):
         """Derive a human-readable label from the linked device."""
         for wizard in self:
             device = wizard.device_id
-            wizard.device_display_name = (
-                device.device_name or device.friendly_id or device.mac_address
-            )
+            wizard.device_display_name = device.device_name or device.mac_address
 
     @staticmethod
     def _redirect_to_device_list():

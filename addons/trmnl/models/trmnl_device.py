@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import secrets
 from datetime import datetime, timezone
 
 from urllib.parse import urlparse
@@ -627,6 +626,7 @@ class TrmnlDevice(models.Model):
             return False
 
         return mac_address
+
 
     @api.model
     def _is_trmnl_api_debug_enabled(self):

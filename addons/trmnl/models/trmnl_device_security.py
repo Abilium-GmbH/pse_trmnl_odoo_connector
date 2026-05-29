@@ -17,20 +17,21 @@ from .trmnl_device import API_TOKEN_BYTES, API_TOKEN_PBKDF2_ITERATIONS
 class TrmnlDeviceSecurityMixin(models.Model):
     """Extend TRMNL devices with API token handling helpers.
 
-    Two distinct token slots are managed here:
+        Two distinct token slots are managed here:
 
-    api_token_hash / api_token_salt
-        The accepted, authoritative token for the device.  Written during
-        /api/setup, on auto-accept via /api/display, or when an admin
-        manually accepts the device via the accept wizard.
+        api_token_hash / api_token_salt
+            The accepted, authoritative token for the device.  Written during
+            /api/setup, on auto-accept via /api/display, or when an admin
+            manually accepts the device via the accept wizard.  Always empty for
+            records in the ``unknown_device`` state.
 
-    last_presented_token_hash / last_presented_token_salt
-        The most-recent token that the device presented in a /api/display
-        call but that did not match the accepted token.  Stored so that an
-        admin can promote it to the accepted token via the accept wizard.
-        Uses the same PBKDF2 scheme so the raw token is never persisted in
-        plain text.
-    """
+        last_presented_token_hash / last_presented_token_salt
+            The most-recent token that the device presented in a /api/display
+            call but that has not yet been promoted to the accepted slot.  Stored
+            so that an admin can promote it to the accepted token via the accept
+            wizard.  Uses the same PBKDF2 scheme so the raw token is never
+            persisted in plain text.
+        """
 
     _inherit = "trmnl.device"
 

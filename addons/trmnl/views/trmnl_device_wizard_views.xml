@@ -42,7 +42,7 @@
                         <ol>
                             <li>
                                 <strong>Respond with an error (recommended)</strong><br/>
-                                The server returns an error and does not send any data (including image URLs). The device remains unaccepted until an administrator manually approves it.
+                                The server returns an "Unauthorized" error image. The device remains unaccepted until an administrator manually approves it.
                             </li>
                             <li>
                                 <strong>Automatically accept the device</strong><br/>
@@ -50,7 +50,7 @@
                             </li>
                             <li>
                                 <strong>Send a reset command</strong><br/>
-                                The server sends a response that triggers a factory reset on the device, which erases stored Wi-Fi credentials and API settings. The device will need to be reconfigured before it can call the server again.
+                                The server sends a response that triggers a factory reset on the device. This erases the stored Wi-Fi credentials and resets the API key. The device will need to be reconfigured before it can call the server again.
                             </li>
                         </ol>
                     </div>
@@ -74,7 +74,7 @@
                         <field name="device_display_name" readonly="1"/>
                     </group>
                     <p class="text-muted">
-                        Remove this device record. We recommend resetting it first — this triggers a one-time factory reset on the device's next display call; otherwise the device will continue to contact the server.
+                        Remove this device record. We recommend resetting it first — this triggers a factory reset on the device's next display call; otherwise the device will continue to contact the server.
                     </p>
                 </sheet>
                 <footer>
@@ -97,7 +97,7 @@
                         <field name="device_display_name" readonly="1"/>
                     </group>
                     <p class="text-muted">
-                        Resetting this device will arm a one-time factory reset response and remove the device record.
+                        The server sends a response that triggers a factory reset on the device. This erases the stored Wi-Fi credentials, resets the API key and removes the device record. The device will need to be reconfigured before it can call the server again.
                     </p>
                 </sheet>
                 <footer>

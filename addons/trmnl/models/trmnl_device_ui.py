@@ -42,9 +42,8 @@ class TrmnlDeviceUiExtension(models.Model):
         comodel_name="trmnl.device.log",
         inverse_name="device_id",
         string="Logs",
-        readonly=True,
         copy=False,
-        help="Read-only log entries collected from this device.",
+        help="Log entries collected from this device.",
     )
     last_reported_refresh_rate_minutes = fields.Integer(
         string="Last Reported Refresh Rate (min)",
@@ -123,7 +122,7 @@ class TrmnlDeviceUiExtension(models.Model):
         )
         action = {
             "type": "ir.actions.act_window",
-            "name": self.device_name or self.friendly_id,
+            "name": self.device_name or self.mac_address,
             "res_model": "trmnl.device",
             "res_id": self.id,
             "view_mode": "form",
@@ -184,7 +183,7 @@ class TrmnlDeviceUiExtension(models.Model):
                 continue
 
             if not device.last_presented_token_hash:
-                label = device.device_name or device.friendly_id or device.mac_address
+                label = device.device_name or device.mac_address
                 skipped_names.append(label)
                 continue
 
@@ -202,7 +201,11 @@ class TrmnlDeviceUiExtension(models.Model):
             )
 
     def action_bulk_remove(self):
-        """Delete all selected device records immediately."""
+        """Delete all selected device records immediately.
+
+        Associated log entries are removed automatically by the database
+        cascade on ``trmnl.device.log.device_id``.
+        """
         self.unlink()
 
     def action_bulk_reset(self):

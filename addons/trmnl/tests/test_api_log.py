@@ -2,6 +2,8 @@
 
 from odoo.tests import HttpCase, tagged
 
+from odoo.addons.trmnl.models.trmnl_device import LAST_API_CALL_LOG
+
 from .test_api_common import (
     APPROVAL_STATE_UNKNOWN_DEVICE,
     DISPLAY_POLICY_ERROR,
@@ -11,10 +13,16 @@ from .test_api_common import (
 
 @tagged("-at_install", "post_install")
 class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
-    """Verify the ``/api/log`` endpoint stores and rejects requests correctly."""
+    """Verify the ``/api/log`` endpoint stores and rejects requests correctly.
 
-    def test_api_log_success_stores_batched_logs_and_updates_device_summary(self):
-        """A valid batched log submission should store both entries."""
+    Log entries are only persisted for devices in the ``accepted`` state.
+    For devices in any other state (``unknown_device``, ``token_mismatch``,
+    or missing identity) the submitted data is silently dropped and HTTP 401
+    is returned.  No writes are made to the database for non-accepted devices.
+    """
+
+    def test_api_log_success_stores_batched_logs_and_updates_device_telemetry(self):
+        """A valid batched log submission should store both entries and update last_api_call."""
         setup_context = self._register_device_through_setup()
         registered_device = setup_context["device"]
         api_token = setup_context["api_token"]
@@ -98,11 +106,11 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(second_log_entry.log_id, 43)
         self.assertEqual(second_log_entry.retry_attempt, 1)
 
-        self.assertEqual(refreshed_device.log_entry_count, 2)
-        self.assertTrue(refreshed_device.last_log_at)
+        self.assertEqual(refreshed_device.last_api_call, LAST_API_CALL_LOG)
+        self.assertTrue(refreshed_device.last_seen_at)
 
     def test_api_log_empty_payload_returns_204_without_body(self):
-        """An empty log payload should still return HTTP 204."""
+        """An empty log payload should still return HTTP 204 and update last_api_call."""
         setup_context = self._register_device_through_setup()
         registered_device = setup_context["device"]
         api_token = setup_context["api_token"]
@@ -121,7 +129,7 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
             limit=1,
         )
 
-        self.assertEqual(refreshed_device.log_entry_count, 0)
+        self.assertEqual(refreshed_device.last_api_call, LAST_API_CALL_LOG)
 
     def test_api_log_missing_identity_returns_401_without_body(self):
         """A log submission without a device identity should return HTTP 401."""
@@ -184,25 +192,28 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(self._response_status(log_response), 401)
         self.assertEqual(self._response_text(log_response), "")
 
-    def test_api_log_unknown_device_stub_returns_401_and_stores_no_logs(self):
-        """A log call from an unknown_device stub should return 401 and store nothing."""
+    def test_api_log_unknown_device_record_returns_401_and_data_is_silently_dropped(self):
+        """A log call from an unknown_device record should return 401 and store nothing.
+
+        The submitted log data is silently dropped — no entries are written and
+        no fields are updated on the device record.  HTTP 401 is returned so
+        the caller knows the request was rejected without leaking whether the
+        rejection was due to state or token validity.
+        """
         self._set_display_policy(DISPLAY_POLICY_ERROR)
 
-        # Trigger stub creation via a display call.
         self.url_open(
             "/api/display",
             headers=self._display_unknown_headers(self.UNKNOWN_DEVICE_TOKEN),
         )
 
-        stub_device = self.env["trmnl.device"].sudo().search(
+        unknown_device = self.env["trmnl.device"].sudo().search(
             [("mac_address", "=", self.UNKNOWN_MAC_ADDRESS)],
             limit=1,
         )
-        self.assertTrue(stub_device)
-        self.assertEqual(stub_device.approval_state, APPROVAL_STATE_UNKNOWN_DEVICE)
+        self.assertTrue(unknown_device)
+        self.assertEqual(unknown_device.approval_state, APPROVAL_STATE_UNKNOWN_DEVICE)
 
-        # The stub's token is stored hashed; the raw token can't verify against
-        # api_token_hash (which is empty), so the log call is rejected.
         log_response = self._call_json_endpoint(
             "/api/log",
             headers=self._log_headers(self.UNKNOWN_DEVICE_TOKEN, self.UNKNOWN_MAC_ADDRESS),
@@ -213,6 +224,6 @@ class TestTrmnlLogApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(self._response_text(log_response), "")
 
         log_entries = self.env["trmnl.device.log"].sudo().search(
-            [("device_id", "=", stub_device.id)]
+            [("device_id", "=", unknown_device.id)]
         )
         self.assertEqual(len(log_entries), 0)

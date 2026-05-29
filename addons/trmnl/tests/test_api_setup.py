@@ -2,6 +2,8 @@
 
 from odoo.tests import HttpCase, tagged
 
+from odoo.addons.trmnl.models.trmnl_device import LAST_API_CALL_SETUP
+
 from .test_api_common import APPROVAL_STATE_ACCEPTED, TrmnlApiHttpCaseMixin
 
 
@@ -21,9 +23,23 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
             {
                 "status": 200,
                 "api_key": api_token,
-                "friendly_id": registered_device.friendly_id,
                 "image_url": registered_device.image_url,
             },
+        )
+
+    def test_api_setup_sets_added_at_and_last_api_call_on_registration(self):
+        """A successful setup call should set added_at and last_api_call on the device record."""
+        setup_context = self._register_device_through_setup()
+        registered_device = setup_context["device"]
+
+        self.assertTrue(
+            registered_device.added_at,
+            "added_at must be set when a device is registered via /api/setup.",
+        )
+        self.assertEqual(
+            registered_device.last_api_call,
+            LAST_API_CALL_SETUP,
+            "last_api_call must be 'setup' after device registration.",
         )
 
     def test_api_setup_rejects_existing_mac_address(self):
@@ -46,7 +62,6 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertTrue(stored_device)
         self.assertTrue(stored_device._verify_api_token(api_token))
         self.assertEqual(stored_device.approval_state, APPROVAL_STATE_ACCEPTED)
-        self.assertEqual(stored_device.setup_request_count, 1)
 
     def test_api_setup_missing_id_returns_404(self):
         """Missing device identity should return the setup error payload."""
@@ -76,7 +91,9 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertEqual(setup_payload, {"status": 404})
 
     def test_api_setup_with_reset_pending_reregisters_device(self):
-        """A setup call from a MAC with reset_pending True should clear the flag and issue a fresh registration."""
+        """A setup call from a MAC with reset_pending True should clear the flag and
+        issue a fresh registration.
+        """
         setup_context = self._register_device_through_setup()
         registered_device = setup_context["device"]
         old_device_id = registered_device.id
@@ -105,3 +122,12 @@ class TestTrmnlSetupApi(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertFalse(found_device.reset_pending)
         self.assertEqual(found_device.approval_state, APPROVAL_STATE_ACCEPTED)
         self.assertTrue(found_device._verify_api_token(setup_payload["api_key"]))
+        self.assertTrue(
+            found_device.added_at,
+            "added_at must be set on the re-registered device.",
+        )
+        self.assertEqual(
+            found_device.last_api_call,
+            LAST_API_CALL_SETUP,
+            "last_api_call must be 'setup' after re-registration.",
+        )

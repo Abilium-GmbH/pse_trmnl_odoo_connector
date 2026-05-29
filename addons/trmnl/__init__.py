@@ -3,7 +3,7 @@ from . import models
 
 
 def post_init_hook(env):
-    """Seed built-in TRMNL display images."""
+    """Seed the built-in TRMNL display images as public attachments."""
     env["trmnl.image.seeder"].seed_images()
 
 

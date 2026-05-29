@@ -6,7 +6,7 @@ import datetime as dt
 
 from odoo import api, fields, models
 
-from .trmnl_device import APPROVAL_STATE_ACCEPTED
+from .trmnl_device import APPROVAL_STATE_ACCEPTED, LAST_API_CALL_DISPLAY, LAST_API_CALL_LOG
 
 
 class TrmnlDeviceTelemetryMixin(models.Model):
@@ -18,7 +18,8 @@ class TrmnlDeviceTelemetryMixin(models.Model):
     different interval without the device overwriting it on the next poll.
 
     Log ingestion only stores entries for devices in the ``accepted`` state.
-    All other devices receive a 401 response without any data being persisted.
+    Submissions from devices in any other state are ignored; the
+    caller receives HTTP 401.
     """
 
     _inherit = "trmnl.device"
@@ -60,14 +61,15 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         return self
 
     def _record_display_served(self):
-        """Update counters and timestamps for a successful display response."""
+        """Update the last-seen timestamp and last API call for a successful display response."""
         self.ensure_one()
         now_value = fields.Datetime.now()
-        self.write(
+        self.with_context(trmnl_allow_identity_update=True).write(
             {
                 "last_display_at": now_value,
                 "last_poll_at": now_value,
                 "last_seen_at": now_value,
+                "last_api_call": LAST_API_CALL_DISPLAY,
                 "display_request_count": (self.display_request_count or 0) + 1,
             }
         )
@@ -166,20 +168,23 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         update_values = {
             "last_log_at": now_value,
             "last_seen_at": now_value,
+            "last_api_call": LAST_API_CALL_LOG,
         }
 
         if created_count:
             update_values["log_entry_count"] = (device.log_entry_count or 0) + created_count
 
-        device.write(update_values)
+        device.with_context(trmnl_allow_identity_update=True).write(update_values)
 
     @api.model
     def ingest_logs_from_payload(self, headers, payload):
         """Create log entries from the raw JSON payload sent by the device.
 
-        Only devices in the ``accepted`` state have their logs stored.  Any
-        other state (unknown_device, token_mismatch, or missing identity)
-        results in an ``unauthorized`` status so the controller can return 401.
+        Only devices in the ``accepted`` state have their logs stored.  For
+        devices in any other state (unknown_device, token_mismatch, or missing
+        identity) the submitted data is silently dropped and ``"unauthorized"``
+        is returned so the controller can send HTTP 401.  No writes are made
+        to the database for non-accepted devices.
         """
         mac_address = self._normalize_mac_address(headers.get("ID"))
         token_value = self._parse_to_string(headers.get("Access-Token"))
@@ -220,5 +225,5 @@ class TrmnlDeviceTelemetryMixin(models.Model):
             log_model.create(new_values)
         created_count = len(new_values)
 
-        self._update_log_activity(device, created_count)
+        self._update_log_activity(device)
         return created_count, "stored" if created_count else "ignored"

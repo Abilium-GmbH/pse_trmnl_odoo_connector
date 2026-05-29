@@ -41,12 +41,10 @@
         <field name="model">trmnl.device</field>
         <field name="arch" type="xml">
             <search string="TRMNL Devices">
-                <field name="friendly_id"/>
                 <field name="device_name"/>
                 <field name="mac_address"/>
                 <field name="filename"/>
                 <field name="approval_state"/>
-                <field name="registration_source"/>
 
                 <filter
                     string="Accepted"
@@ -65,11 +63,6 @@
                         string="Status"
                         name="group_approval_state"
                         context="{'group_by': 'approval_state'}"
-                    />
-                    <filter
-                        string="Registration Source"
-                        name="group_registration_source"
-                        context="{'group_by': 'registration_source'}"
                     />
                 </group>
             </search>
@@ -91,22 +84,21 @@
                 delete="true"
                 default_order="sequence, id"
             >
-                <field name="sequence" widget="handle"/>
-                <field name="friendly_id"/>
-                <field name="device_name"/>
-                <field name="mac_address"/>
+                <field name="sequence" widget="handle" width="1"/>
+                <field name="device_name" width="200"/>
+                <field name="mac_address" width="100"/>
 
-                <field name="approval_state" string="Status" widget="badge"
+                <field name="approval_state" string="Status" widget="badge" width="100"
                     decoration-success="approval_state == 'accepted'"
                     decoration-warning="approval_state == 'token_mismatch'"
                     decoration-danger="approval_state == 'unknown_device'"
                 />
 
-                <field name="filename"/>
-                <field name="last_seen_at"/>
-                <field name="desired_refresh_rate_minutes" string="Refresh Rate (min)"/>
+                <field name="filename" width="100"/>
+                <field name="last_seen_at" width="100"/>
+                <field name="desired_refresh_rate_minutes" string="Refresh Rate (min)" width="100"/>
                 <field name="battery_percentage"/>
-                <field name="rssi_quality" string="Signal Strength"/>
+                <field name="rssi_quality" string="Signal Strength" width="100"/>
             </list>
         </field>
     </record>
@@ -152,11 +144,10 @@
                     <div class="oe_title">
                         <label for="device_name" class="oe_edit_only"/>
                         <h1>
-                            <field name="device_name" placeholder="Admin-facing device name"/>
+                            <field name="device_name" placeholder="Enter a device name"/>
                         </h1>
                         <div class="text-muted">
-                            <field name="friendly_id" readonly="1" class="oe_inline"/>
-                            <span invisible="not friendly_id"> · </span>
+                            <label for="mac_address" string="MAC Address:" class="oe_inline"/>
                             <field name="mac_address" readonly="1" class="oe_inline"/>
                         </div>
                     </div>
@@ -165,7 +156,7 @@
 
                     <group>
                         <group string="Configuration">
-                            <field name="image_url"/>
+                            <field name="image_url" readonly="1"/>
 
                             <label for="desired_refresh_rate_minutes" string="Refresh Rate"/>
                             <div class="o_field_widget">
@@ -178,23 +169,28 @@
 
                         <group string="Telemetry">
                             <field name="battery_percentage" readonly="1"/>
-                            <field name="rssi_quality" readonly="1"/>
+                            <field name="rssi_quality" readonly="1" string="Signal Strength"/>
                             <field name="last_reported_refresh_rate_minutes" readonly="1" string="Last Reported Refresh Rate (min)"/>
+                            <field name="added_at" readonly="1"/>
                             <field name="last_seen_at" readonly="1"/>
-                            <field name="last_display_at" readonly="1"/>
+                            <field name="last_api_call" readonly="1"/>
                         </group>
                     </group>
 
                     <notebook>
                         <page string="Logs">
-                            <field name="log_ids" readonly="1" mode="list">
-                                <list create="false" edit="false" delete="false">
-                                    <field name="log_id"/>
-                                    <field name="name"/>
-                                    <field name="created_at"/>
-                                    <field name="wifi_status"/>
-                                    <field name="refresh_rate"/>
-                                    <field name="battery_voltage"/>
+                            <!-- Administrators can select and delete individual log entries
+                                 using the standard list-view checkboxes and the Delete action.
+                                 Log entries are also removed automatically when the device
+                                 record itself is deleted. -->
+                            <field name="log_ids">
+                                <list create="false" edit="false" delete="true">
+                                    <field name="log_id" width="1"/>
+                                    <field name="name" width="300"/>
+                                    <field name="created_at" width="100"/>
+                                    <field name="wifi_status" width="100"/>
+                                    <field name="refresh_rate" width="100"/>
+                                    <field name="battery_voltage" width="100"/>
                                 </list>
                             </field>
                         </page>

@@ -10,6 +10,10 @@ class TrmnlDeviceLog(models.Model):
     ``/api/log`` request.  The ``created_at`` field is stored as a UTC
     ``Datetime`` so that Odoo's web client can automatically convert it to
     the viewing user's local timezone for display.
+
+    Individual log entries can be deleted by administrators directly from the
+    device form view.  Deleting a device record removes all associated log
+    entries automatically via the database cascade on ``device_id``.
     """
 
     _name = "trmnl.device.log"
@@ -22,6 +26,8 @@ class TrmnlDeviceLog(models.Model):
         "The same log ID may only be stored once per device.",
     )
 
+    # ondelete="cascade" ensures log entries are removed automatically
+    # when the parent device record is deleted.
     device_id = fields.Many2one(
         comodel_name="trmnl.device",
         string="Device",

@@ -55,7 +55,7 @@ class TestCalendarMonthDeviceImageBytes(HttpCase, TrmnlApiHttpCaseMixin):
         self.assertTrue(stored.startswith(b"\x89PNG"))
 
         digest = profile._preview_png_digest()
-        url = f"/api/profile/image/{profile.id}?v={digest}"
+        url = self._profile_image_path(profile.id, ctx["api_token"], version=digest)
         resp = self.url_open(url)
         self.assertEqual(self._response_status(resp), 200)
         served = resp.content if hasattr(resp, "content") else resp.read()
@@ -85,7 +85,9 @@ class TestCalendarMonthDeviceImageBytes(HttpCase, TrmnlApiHttpCaseMixin):
         html = profile.preview_image_html or ""
         self.assertIn(f"/api/profile/image/{profile.id}", html)
         self.assertIn(digest, html)
-        resp = self.url_open(f"/api/profile/image/{profile.id}?v={digest}")
+        resp = self.url_open(
+            self._profile_image_path(profile.id, ctx["api_token"], version=digest)
+        )
         served = resp.content if hasattr(resp, "content") else resp.read()
         self.assertEqual(served, stored)
         payload = self._response_json(
@@ -94,7 +96,9 @@ class TestCalendarMonthDeviceImageBytes(HttpCase, TrmnlApiHttpCaseMixin):
                 headers=self._display_headers(ctx["api_token"], ctx["device"].mac_address),
             )
         )
-        self.assertIn(f"/api/profile/image/{profile.id}", payload.get("image_url") or "")
+        image_url = payload.get("image_url") or ""
+        self.assertIn(f"/api/profile/image/{profile.id}", image_url)
+        self.assertIn("access_token=", image_url)
 
     def test_list_profile_form_preview_uses_same_api_bytes(self):
         """List layout: form preview URL and device download share one PNG."""
@@ -116,7 +120,9 @@ class TestCalendarMonthDeviceImageBytes(HttpCase, TrmnlApiHttpCaseMixin):
         html = profile.preview_image_html or ""
         self.assertIn(f"/api/profile/image/{profile.id}", html)
         self.assertIn(digest, html)
-        resp = self.url_open(f"/api/profile/image/{profile.id}?v={digest}")
+        resp = self.url_open(
+            self._profile_image_path(profile.id, ctx["api_token"], version=digest)
+        )
         served = resp.content if hasattr(resp, "content") else resp.read()
         self.assertEqual(served, stored)
 

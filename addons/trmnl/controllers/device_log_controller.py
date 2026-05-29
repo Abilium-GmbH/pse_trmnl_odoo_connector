@@ -61,10 +61,11 @@ class DeviceLogController(TrmnlApiControllerMixin, http.Controller):
             if record_status in {"missing_identity", "unauthorized"}:
                 return request.make_response("", status=401)
             return request.make_response("", status=204)
-        except Exception as exc:  # keep protocol responses stable
-            _logger.warning(
-                "TRMNL /api/log failed for mac=%s: %s",
+        except Exception as exc:
+            response = self._handle_api_exception(
+                "/api/log",
                 masked_mac_address,
                 exc,
+                request.make_response("", status=401),
             )
-            return request.make_response("", status=401)
+            return response

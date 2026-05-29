@@ -63,6 +63,9 @@ Beim Login fragt Odoo nach E-Mail und Passwort. Beide sind standartmässig auf `
 ---
 ## TRMNL Display mit Odoo verbinden
 Nach dem erfolgreichen Setup kann ein **TRMNL Display** mit Odoo verbunden und über das Odoo-Backend mit Inhalten gesteuert werden.
+
+**Aktualisierungsintervall:** Standardmässig pollt das Gerät alle **15 Minuten**. Das Intervall kann pro Gerät in Odoo unter **TRMNL → Devices** im Feld **Refresh Rate (min)** angepasst werden (1–30 Minuten).
+
 ### Voraussetzung
 - Odoo läuft lokal über Docker
 

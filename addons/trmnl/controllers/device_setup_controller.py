@@ -59,10 +59,10 @@ class DeviceSetupController(TrmnlApiControllerMixin, http.Controller):
                 safe = {k: ("***" if k == "api_key" else v) for k, v in payload.items()}
                 _logger.info("TRMNL API DEBUG /api/setup payload=%s", safe)
             return self._json_response(payload, status=200)
-        except Exception as exc:  # keep protocol responses stable
-            _logger.warning(
-                "TRMNL /api/setup failed for mac=%s: %s",
+        except Exception as exc:
+            return self._handle_api_exception(
+                "/api/setup",
                 masked_mac_address,
                 exc,
+                self._json_response(device_model.build_setup_error_response(), status=200),
             )
-            return self._json_response(device_model.build_setup_error_response(), status=200)

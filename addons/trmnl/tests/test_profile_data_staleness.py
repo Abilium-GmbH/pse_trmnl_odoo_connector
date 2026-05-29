@@ -10,6 +10,7 @@ Covers:
 from __future__ import annotations
 
 import base64
+import datetime as dt
 from unittest.mock import patch
 
 from odoo.tests import tagged
@@ -176,3 +177,47 @@ class TestDataStaleness(TransactionCase):
 
         self.env["res.partner"].sudo().create({"name": "No model test"})
         self.assertFalse(profile.preview_data_stale)
+
+
+@tagged("-at_install", "post_install")
+class TestIsAutoRefreshDue(TransactionCase):
+    """Unit tests for TrmnlProfile._is_auto_refresh_due()."""
+
+    def setUp(self):
+        super().setUp()
+        self.device = self.env["trmnl.device"].sudo().create({
+            "mac_address": "AA:BB:CC:DD:EE:01",
+            "approval_state": "accepted",
+            "registration_source": "setup",
+        })
+
+    def _profile(self, **kwargs):
+        vals = {
+            "name": "Test Profile",
+            "device_id": self.device.id,
+            "auto_refresh_interval_minutes": 10,
+        }
+        vals.update(kwargs)
+        return self.env["trmnl.profile"].sudo().create(vals)
+
+    def test_no_generated_at_returns_true(self):
+        profile = self._profile(preview_generated_at=False)
+        self.assertTrue(profile._is_auto_refresh_due())
+
+    def test_fresh_preview_returns_false(self):
+        now = dt.datetime(2026, 5, 11, 12, 0, 0)
+        profile = self._profile(
+            auto_refresh_interval_minutes=10,
+            preview_generated_at=now - dt.timedelta(minutes=5),
+        )
+        with patch("odoo.fields.Datetime.now", return_value=now):
+            self.assertFalse(profile._is_auto_refresh_due())
+
+    def test_stale_preview_returns_true(self):
+        now = dt.datetime(2026, 5, 11, 12, 0, 0)
+        profile = self._profile(
+            auto_refresh_interval_minutes=10,
+            preview_generated_at=now - dt.timedelta(minutes=15),
+        )
+        with patch("odoo.fields.Datetime.now", return_value=now):
+            self.assertTrue(profile._is_auto_refresh_due())

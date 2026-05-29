@@ -13,14 +13,18 @@ import hashlib
 import logging
 from calendar import monthrange
 from datetime import date, timedelta
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Domain
 from odoo.tools.safe_eval import safe_eval
 
-from .trmnl_device import client_can_reach_host, is_device_reachable_base_url
+from .trmnl_device import (
+    _INTERNAL_HOST_RE,
+    client_can_reach_host,
+    is_device_reachable_base_url,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -697,10 +701,13 @@ class TrmnlProfile(models.Model):
                 else ""
             )
             version = f"{ts}-{digest}" if ts and digest else digest or ts
-            cache_qs = f"?v={version}" if version else ""
+            query = rec._build_profile_image_query(version=version or None)
+            path_suffix = f"?{query}" if query else ""
             # Same endpoint the device downloads — avoids /web/image processing
             # or cache differences vs /api/profile/image/<id>.
-            url = f"/api/profile/image/{rec.id}{cache_qs}"
+            # Backend form preview: no access_token in URL; controller allows
+            # authenticated Settings users without a device token.
+            url = f"/api/profile/image/{rec.id}{path_suffix}"
             rec.preview_image_html = (
                 f'<img src="{url}" alt="Preview" '
                 f'style="max-width:100%;height:auto;display:block;"/>'
@@ -801,6 +808,13 @@ class TrmnlProfile(models.Model):
                 continue
             return base, source
 
+        # Reverse-proxy / HttpCase: client appears as loopback while the device
+        # reaches Odoo via a configured LAN base URL.
+        if client_ip in ("127.0.0.1", "::1") or _INTERNAL_HOST_RE.match(client_ip or ""):
+            for source, base in candidates:
+                if is_device_reachable_base_url(base):
+                    return base, source
+
         # No client context (unit tests, cron): first reachable configured URL.
         if not client_ip:
             for source, base in candidates:
@@ -809,22 +823,35 @@ class TrmnlProfile(models.Model):
 
         return False, None
 
+    def _build_profile_image_query(self, *, version=None):
+        """Build query string for ``/api/profile/image`` (cache bust + device token)."""
+        params = {}
+        if version:
+            params["v"] = version
+        access_token = (self.env.context.get("trmnl_access_token") or "").strip()
+        if access_token:
+            params["access_token"] = access_token
+        return urlencode(params) if params else ""
+
     def _get_display_image_url(self):
         """Return a device-reachable URL for this profile's preview PNG, or False.
 
         Base URL resolution is delegated to :meth:`_resolve_device_base_url`.
         The URL includes a ``?v=<png-hash>`` query so TRMNL firmware that caches
         by URL (not only by filename) still re-downloads after a re-render.
+        Device polls also append ``access_token`` so the PNG endpoint is not
+        anonymously enumerable.
         """
         if not self.preview_image:
             return False
 
         digest = self._preview_png_digest()
-        cache_qs = f"?v={digest}" if digest else ""
+        query = self._build_profile_image_query(version=digest)
+        path_suffix = f"?{query}" if query else ""
 
         base, source = self._resolve_device_base_url()
         if base:
-            url = f"{base}/api/profile/image/{self.id}{cache_qs}"
+            url = f"{base}/api/profile/image/{self.id}{path_suffix}"
             _logger.debug("TRMNL profile id=%s image_url (%s): %s", self.id, source, url)
             return url
 

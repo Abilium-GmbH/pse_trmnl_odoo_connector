@@ -195,6 +195,7 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         filename = payload.get("filename") or ""
         self.assertIn(f"/api/profile/image/{profile.id}", image_url)
         self.assertIn("?v=", image_url)
+        self.assertIn("access_token=", image_url)
         self.assertTrue(filename)
         self.assertNotEqual(filename, self.EXPECTED_FILENAME)
 

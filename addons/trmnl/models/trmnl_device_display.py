@@ -78,6 +78,20 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
     _inherit = "trmnl.device"
 
+    _POLL_CONTEXT_KEYS = ("trmnl_poll_base_url", "trmnl_client_ip", "trmnl_access_token")
+
+    def _poll_context(self):
+        """Return poll-scoped context keys for profile URL/render helpers."""
+        return {
+            key: self.env.context[key]
+            for key in self._POLL_CONTEXT_KEYS
+            if key in self.env.context
+        }
+
+    def _profile_model_for_poll(self):
+        """``trmnl.profile`` model accessor with device poll context applied."""
+        return self.env["trmnl.profile"].sudo().with_context(**self._poll_context())
+
     # ------------------------------------------------------------------
     # response builders
     # ------------------------------------------------------------------
@@ -138,7 +152,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
         self.ensure_one()
         device_ref = f"device_id={self.id} mac={self.mac_address or '?'}"
         try:
-            profile = self.env["trmnl.profile"].sudo().search(
+            profile = self._profile_model_for_poll().search(
                 [("device_id", "=", self.id), ("active", "=", True)],
                 limit=1,
                 order="sequence asc, id asc",
@@ -216,7 +230,14 @@ class TrmnlDeviceDisplayMixin(models.Model):
             "TRMNL display: using device fallback image_url=%r filename=%r for %s",
             self.image_url or "", self.filename or "", device_ref,
         )
-        return self.image_url or "", self.filename or ""
+        fallback_url = self.image_url or ""
+        if profile and fallback_url and "/api/profile/image/" in fallback_url:
+            digest = profile._preview_png_digest()
+            query = profile._build_profile_image_query(version=digest)
+            if query and "access_token=" not in fallback_url:
+                parsed = _urlparse(fallback_url)
+                fallback_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{query}"
+        return fallback_url, self.filename or ""
 
     def build_reset_response(self):
         """Build the display payload that instructs the device to factory-reset.
@@ -348,6 +369,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
     def _display_serve_accepted(self, device, headers, record_status):
         """Apply poll telemetry and return the normal display payload."""
+        device = device.with_context(**self._poll_context())
         device._apply_display_telemetry(headers)
         device._record_display_served()
         return DisplayResolutionResult(
@@ -359,10 +381,13 @@ class TrmnlDeviceDisplayMixin(models.Model):
     @api.model
     def resolve_display_request(self, headers):
         """Resolve a TRMNL display poll using the configured device policy."""
+        api_token = self._parse_to_string(headers.get("Access-Token"))
+        if api_token:
+            self = self.with_context(trmnl_access_token=api_token)
+
         debug = self._is_trmnl_api_debug_enabled()
         policy = self._get_display_request_policy()
         mac_address = self._normalize_mac_address(headers.get("ID"))
-        api_token = self._parse_to_string(headers.get("Access-Token"))
 
         if debug:
             _logger.info(
@@ -433,6 +458,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
                     "not_accepted",
                 )
 
+            device = device.with_context(**self._poll_context())
             device._apply_display_telemetry(headers)
             device._record_display_served()
             if debug:

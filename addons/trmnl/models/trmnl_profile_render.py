@@ -65,6 +65,7 @@ from odoo.addons.trmnl.trmnl_display_canvas import (
 # trmnl_profile_render_graph.  Their methods are available on self because
 # all three inherit from trmnl.profile via _inherit.
 
+from .trmnl_device import DEFAULT_REFRESH_RATE
 from .trmnl_profile import _LAYOUT_LABELS
 
 _logger = logging.getLogger(__name__)
@@ -792,7 +793,7 @@ class TrmnlProfileRenderMixin(models.Model):
         record._render_and_store_preview()
 
         last_poll = record.device_id.last_poll_at
-        rate = record.device_id.desired_refresh_rate or 1800
+        rate = record.device_id.desired_refresh_rate or DEFAULT_REFRESH_RATE
 
         if last_poll:
             next_poll = last_poll + timedelta(seconds=rate)

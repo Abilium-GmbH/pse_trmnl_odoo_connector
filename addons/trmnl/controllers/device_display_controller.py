@@ -59,9 +59,11 @@ class DeviceDisplayController(TrmnlApiControllerMixin, http.Controller):
                 device_model._maybe_auto_set_public_base_url(poll_base_url, client_ip)
                 device_model._sync_public_base_url_from_poll(poll_base_url, client_ip)
 
+            access_token = headers.get("Access-Token") or ""
             device_model = device_model.with_context(
                 trmnl_poll_base_url=poll_base_url,
                 trmnl_client_ip=client_ip,
+                trmnl_access_token=access_token,
             )
 
             device, payload, record_status = device_model.resolve_display_request(headers)
@@ -97,10 +99,10 @@ class DeviceDisplayController(TrmnlApiControllerMixin, http.Controller):
                 {k: (v[:60] + "…" if isinstance(v, str) and len(v) > 60 else v) for k, v in payload.items()},
             )
             return self._json_response(payload, status=200)
-        except Exception as exc:  # keep protocol responses stable
-            _logger.warning(
-                "TRMNL /api/display failed for mac=%s: %s",
+        except Exception as exc:
+            return self._handle_api_exception(
+                "/api/display",
                 masked_mac_address,
                 exc,
+                self._json_response(device_model.build_display_error_response(), status=200),
             )
-            return self._json_response(device_model.build_display_error_response(), status=200)

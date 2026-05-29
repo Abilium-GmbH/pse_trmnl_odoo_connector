@@ -110,7 +110,7 @@ SECONDS_PER_MINUTE: int = 60
 # Both bounds are expressed in seconds; the UI always displays minutes.
 REFRESH_RATE_MIN_SECONDS: int = 1 * SECONDS_PER_MINUTE  # 1 minute
 REFRESH_RATE_MAX_SECONDS: int = 30 * SECONDS_PER_MINUTE  # 30 minutes
-DEFAULT_REFRESH_RATE: int = 1 * SECONDS_PER_MINUTE       # 1 minute
+DEFAULT_REFRESH_RATE: int = 15 * SECONDS_PER_MINUTE      # 15 minutes
 
 DISPLAY_POLICY_ERROR = "error"
 DISPLAY_POLICY_AUTO_ACCEPT = "auto_accept"

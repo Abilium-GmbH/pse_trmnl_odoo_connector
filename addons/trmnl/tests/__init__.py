@@ -6,7 +6,6 @@ from . import test_api_setup
 from . import test_calendar_device_image
 from . import test_device_image_sync
 from . import test_device_refresh_rate
-from . import test_profile_auto_refresh
 from . import test_profile_filter_domain
 from . import test_profile_render_preview
 from . import test_poll_timestamp

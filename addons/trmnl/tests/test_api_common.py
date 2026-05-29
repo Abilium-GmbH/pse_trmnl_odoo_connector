@@ -1,6 +1,7 @@
 """Shared utilities for TRMNL API HTTP response tests."""
 
 import json
+from urllib.parse import urlencode
 
 from odoo.addons.trmnl.models.trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
@@ -24,7 +25,7 @@ class TrmnlApiHttpCaseMixin:
 
     DEVICE_MAC_ADDRESS = "AA:BB:CC:DD:EE:FF"
     DEVICE_FIRMWARE_VERSION = "1.5.2"
-    DEVICE_REFRESH_RATE = 60    # 1 minute — matches DEFAULT_REFRESH_RATE
+    DEVICE_REFRESH_RATE = 900   # 15 minutes — matches DEFAULT_REFRESH_RATE
     DEVICE_BATTERY_VOLTAGE = "4.1"
     DEVICE_RSSI = "-69"
     DEVICE_WIDTH = "800"
@@ -83,6 +84,16 @@ class TrmnlApiHttpCaseMixin:
             "Width": self.DEVICE_WIDTH,
             "Height": self.DEVICE_HEIGHT,
         }
+
+    def _profile_image_path(self, profile_id, api_token, *, version=None):
+        """Build the profile image URL path including device auth token."""
+        params = {}
+        if version:
+            params["v"] = version
+        if api_token:
+            params["access_token"] = api_token
+        query = urlencode(params)
+        return f"/api/profile/image/{profile_id}?{query}" if query else f"/api/profile/image/{profile_id}"
 
     def _display_headers_with_rate(self, token, mac, refresh_rate):
         """Return display request headers with the device-reported refresh rate."""

@@ -9,7 +9,7 @@
     "application": True,
     "images": ["static/description/icon.png"],
     "depends": ["base", "web"],
-    "external_dependencies": {"python": ["Pillow", "requests"]},
+    "external_dependencies": {"python": ["Pillow"]},
     "data": [
         "security/trmnl_groups.xml",
         "security/ir.model.access.csv",

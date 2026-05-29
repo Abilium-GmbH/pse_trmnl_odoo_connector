@@ -107,10 +107,12 @@ class TrmnlImageSeeder(models.AbstractModel):
 
     @api.model
     def remove_images(self):
-        """Delete the seeded attachments and their config parameter entries.
+        """Delete the seeded attachments and all trmnl.* config parameter entries.
 
         Called from the module ``uninstall_hook`` to leave the database in a
-        clean state after removal.
+        clean state after removal. Deletes both seeded ir.attachment records
+        and all ir.config_parameter keys under the trmnl.* namespace, including
+        the display policy key written by _set_display_request_policy.
         """
         attachment_model = self.env["ir.attachment"].sudo()
         config_model = self.env["ir.config_parameter"].sudo()
@@ -121,7 +123,8 @@ class TrmnlImageSeeder(models.AbstractModel):
                 existing_attachment = attachment_model.browse(int(existing_id))
                 if existing_attachment.exists():
                     existing_attachment.unlink()
-                config_model.set_param(image_spec["config_key"], False)
+
+        config_model.search([("key", "like", "trmnl.%")]).unlink()
 
     @api.model
     def get_image_url(self, config_key):

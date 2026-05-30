@@ -16,8 +16,6 @@ from .trmnl_device import (
     DISPLAY_POLICY_FACTORY_RESET,
     LAST_API_CALL_DISPLAY,
     LAST_API_CALL_SETUP,
-    REGISTRATION_SOURCE_DISPLAY,
-    REGISTRATION_SOURCE_SETUP,
     UNAUTHORIZED_IMAGE_FILENAME,
     UNAUTHORIZED_IMAGE_STATIC_PATH,
     TRMNL_POLICY_PARAM,
@@ -140,7 +138,6 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         create_values = {
             "mac_address": mac_address,
             "approval_state": APPROVAL_STATE_ACCEPTED,
-            "registration_source": REGISTRATION_SOURCE_SETUP,
             "last_seen_at": now_value,
             "added_at": now_value,
             "last_api_call": LAST_API_CALL_SETUP,
@@ -200,7 +197,6 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         create_values = {
             "mac_address": mac_address,
             "approval_state": APPROVAL_STATE_UNKNOWN_DEVICE,
-            "registration_source": REGISTRATION_SOURCE_DISPLAY,
             "last_seen_at": now_value,
             "last_api_call": LAST_API_CALL_DISPLAY,
         }
@@ -280,7 +276,6 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         if device:
             update_values = {
                 "approval_state": APPROVAL_STATE_ACCEPTED,
-                "registration_source": REGISTRATION_SOURCE_DISPLAY,
                 "added_at": now_value,
                 "last_seen_at": now_value,
                 "last_api_call": LAST_API_CALL_DISPLAY,
@@ -296,7 +291,6 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         create_values = {
             "mac_address": mac_address,
             "approval_state": APPROVAL_STATE_ACCEPTED,
-            "registration_source": REGISTRATION_SOURCE_DISPLAY,
             "last_seen_at": now_value,
             "added_at": now_value,
             "last_api_call": LAST_API_CALL_DISPLAY,

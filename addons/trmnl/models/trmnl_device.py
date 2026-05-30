@@ -74,13 +74,6 @@ APPROVAL_STATE_SELECTION = [
     (APPROVAL_STATE_UNKNOWN_DEVICE, "Unknown Device"),
 ]
 
-REGISTRATION_SOURCE_SETUP = "setup"
-REGISTRATION_SOURCE_DISPLAY = "display"
-REGISTRATION_SOURCE_SELECTION = [
-    (REGISTRATION_SOURCE_SETUP, "Setup"),
-    (REGISTRATION_SOURCE_DISPLAY, "Display"),
-]
-
 # Last API call options — the three endpoints a device can reach.
 LAST_API_CALL_SETUP = "setup"
 LAST_API_CALL_DISPLAY = "display"
@@ -230,22 +223,12 @@ class TrmnlDevice(models.Model):
         index=True,
         copy=False,
     )
-    registration_source = fields.Selection(
-        selection=REGISTRATION_SOURCE_SELECTION,
-        string="Registration Source",
-        readonly=True,
-        copy=False,
-        index=True,
-    )
 
     last_seen_at = fields.Datetime(string="Last Seen At", readonly=True, copy=False)
-
-    last_setup_at = fields.Datetime(string="Last Setup At", readonly=True, copy=False)
     last_display_at = fields.Datetime(string="Last Display At", readonly=True, copy=False)
     last_poll_at = fields.Datetime(string="Last Poll At", readonly=True, copy=False)
-    last_log_at = fields.Datetime(string="Last Log At", readonly=True, copy=False)
     accepted_at = fields.Datetime(string="Accepted At", readonly=True, copy=False)
-
+    
     added_at = fields.Datetime(
         string="Added At",
         readonly=True,
@@ -265,36 +248,6 @@ class TrmnlDevice(models.Model):
         readonly=True,
         copy=False,
         help="The most recent endpoint the device contacted: setup, display, or log.",
-    )
-
-    display_request_count = fields.Integer(
-        string="Display Request Count",
-        readonly=True,
-        copy=False,
-        default=0,
-    )
-    log_entry_count = fields.Integer(
-        string="Log Entry Count",
-        readonly=True,
-        copy=False,
-        default=0,
-    )
-    invalid_token_count = fields.Integer(
-        string="Invalid Token Count",
-        readonly=True,
-        copy=False,
-        default=0,
-    )
-    display_denied_count = fields.Integer(
-        string="Display Denied Count",
-        readonly=True,
-        copy=False,
-        default=0,
-    )
-    last_access_denied_at = fields.Datetime(
-        string="Last Access Denied At",
-        readonly=True,
-        copy=False,
     )
 
     # ------------------------------------------------------------------

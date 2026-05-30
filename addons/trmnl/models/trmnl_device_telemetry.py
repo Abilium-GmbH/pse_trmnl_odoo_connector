@@ -70,7 +70,6 @@ class TrmnlDeviceTelemetryMixin(models.Model):
                 "last_poll_at": now_value,
                 "last_seen_at": now_value,
                 "last_api_call": LAST_API_CALL_DISPLAY,
-                "display_request_count": (self.display_request_count or 0) + 1,
             }
         )
         return self
@@ -83,12 +82,6 @@ class TrmnlDeviceTelemetryMixin(models.Model):
             "last_access_denied_at": now_value,
             "last_seen_at": now_value,
         }
-
-        if reason == "invalid_token":
-            update_values["invalid_token_count"] = (self.invalid_token_count or 0) + 1
-        else:
-            update_values["display_denied_count"] = (self.display_denied_count or 0) + 1
-
         self.write(update_values)
         return self
 
@@ -166,14 +159,9 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         """Touch the device after a log submission and update counters."""
         now_value = fields.Datetime.now()
         update_values = {
-            "last_log_at": now_value,
             "last_seen_at": now_value,
             "last_api_call": LAST_API_CALL_LOG,
         }
-
-        if created_count:
-            update_values["log_entry_count"] = (device.log_entry_count or 0) + created_count
-
         device.write(update_values)
 
     @api.model

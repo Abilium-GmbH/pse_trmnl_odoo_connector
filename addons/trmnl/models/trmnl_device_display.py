@@ -301,12 +301,15 @@ class TrmnlDeviceDisplayMixin(models.Model):
                     client_ip,
                 )
                 return
-            params.set_param("trmnl.public_base_url", candidate_url.rstrip("/"))
-            _logger.info(
-                "TRMNL auto-set trmnl.public_base_url=%r from device Host header "
-                "(web.base.url is not device-reachable)",
-                candidate_url,
-            )
+            new_value = candidate_url.rstrip("/")
+            current = params.get_param("trmnl.public_base_url", "").strip().rstrip("/")
+            if current != new_value:
+                params.set_param("trmnl.public_base_url", new_value)
+                _logger.info(
+                    "TRMNL auto-set trmnl.public_base_url=%r from device Host header "
+                    "(web.base.url is not device-reachable)",
+                    new_value,
+                )
         except Exception as exc:
             _logger.debug(
                 "TRMNL could not auto-set public_base_url from %r: %s",

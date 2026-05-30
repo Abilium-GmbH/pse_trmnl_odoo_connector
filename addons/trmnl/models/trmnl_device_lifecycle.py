@@ -127,7 +127,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             # server and setup is the correct way to claim it.
             # Also allow when reset_pending is set (admin-initiated factory reset).
             if existing_device.reset_pending or existing_device.approval_state == APPROVAL_STATE_UNKNOWN_DEVICE:
-                existing_device.with_context(trmnl_allow_identity_update=True).unlink()
+                existing_device.unlink()
             else:
                 raise ValidationError(
                     _("TRMNL device with this MAC address is already registered.")

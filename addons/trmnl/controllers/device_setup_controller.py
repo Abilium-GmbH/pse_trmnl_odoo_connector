@@ -60,6 +60,7 @@ class DeviceSetupController(TrmnlApiControllerMixin, http.Controller):
                 _logger.info("TRMNL API DEBUG /api/setup payload=%s", safe)
             return self._json_response(payload, status=200)
         except Exception as exc:
+            debug = device_model._is_trmnl_api_debug_enabled()
             return self._handle_api_exception(
                 "/api/setup",
                 masked_mac_address,

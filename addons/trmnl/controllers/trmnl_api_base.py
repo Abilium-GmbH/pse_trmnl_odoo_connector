@@ -41,13 +41,7 @@ class TrmnlApiControllerMixin:
         )
 
     @staticmethod
-    def _handle_api_exception(endpoint, masked_mac, exc, error_response):
-        """Log API failures; map validation errors to protocol errors.
-
-        Programming errors are always logged with a traceback.  When
-        ``trmnl.api_debug`` is enabled, unexpected exceptions are re-raised
-        so developers see the root cause immediately.
-        """
+    def _handle_api_exception(endpoint, masked_mac, exc, error_response, *, debug=False):
         if isinstance(exc, (ValidationError, UserError)):
             _logger.info(
                 "TRMNL %s rejected mac=%s: %s",
@@ -64,7 +58,7 @@ class TrmnlApiControllerMixin:
             exc,
             exc_info=True,
         )
-        device_model = request.env["trmnl.device"].sudo()
-        if device_model._is_trmnl_api_debug_enabled():
+        if debug:
             raise
         return error_response
+

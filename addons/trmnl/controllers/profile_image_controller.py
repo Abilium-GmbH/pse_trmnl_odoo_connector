@@ -85,6 +85,7 @@ class ProfileImageController(http.Controller):
                 headers.append(("ETag", f'"{digest}"'))
             return request.make_response(png_bytes, headers=headers)
         except Exception as exc:
+            debug = device_model._is_trmnl_api_debug_enabled()
             _logger.warning(
                 "TRMNL profile image serve failed profile_id=%s: %s",
                 profile_id,

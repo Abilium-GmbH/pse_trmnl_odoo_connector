@@ -100,6 +100,7 @@ class DeviceDisplayController(TrmnlApiControllerMixin, http.Controller):
             )
             return self._json_response(payload, status=200)
         except Exception as exc:
+            debug = device_model._is_trmnl_api_debug_enabled()
             return self._handle_api_exception(
                 "/api/display",
                 masked_mac_address,

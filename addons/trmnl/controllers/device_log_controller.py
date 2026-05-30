@@ -62,6 +62,7 @@ class DeviceLogController(TrmnlApiControllerMixin, http.Controller):
                 return request.make_response("", status=401)
             return request.make_response("", status=204)
         except Exception as exc:
+            debug = device_model._is_trmnl_api_debug_enabled()
             response = self._handle_api_exception(
                 "/api/log",
                 masked_mac_address,

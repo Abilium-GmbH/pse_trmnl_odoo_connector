@@ -737,16 +737,13 @@ class TrmnlProfileRenderMixin(models.Model):
     def _get_footer_device_label(self):
         """Human-readable device label for the footer.
 
-        Priority: admin ``device_name``, then ``friendly_id``, then
-        ``mac_address``.
+        Priority: admin ``device_name``, then ``mac_address``.
         """
         self.ensure_one()
         device = self.device_id
         name = (device.device_name or "").strip()
         if name:
             return name
-        if device.friendly_id:
-            return device.friendly_id
         return device.mac_address or "TRMNL"
 
     def _finalize_display_image(self, png_bytes):

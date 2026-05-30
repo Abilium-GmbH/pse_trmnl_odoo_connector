@@ -150,7 +150,6 @@ class TrmnlDeviceLifecycleMixin(models.Model):
 
         create_values.update(token_values)
         create_values.update(self._default_image_field_values())
-        create_values.setdefault("friendly_id", self._generate_unique_friendly_id())
         device = self.sudo().create(create_values)
         return device, raw_token, "created"
 
@@ -291,9 +290,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             self._apply_telemetry_to_values(update_values, headers)
             update_values.update(self._hash_api_token(token_value))
             update_values.update(self._default_image_field_values())
-            if not device.friendly_id:
-                update_values["friendly_id"] = self._generate_unique_friendly_id()
-            device.with_context(trmnl_allow_identity_update=True).write(update_values)
+            device.write(update_values)
             return device, "updated"
 
         create_values = {
@@ -307,7 +304,6 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         self._apply_telemetry_to_values(create_values, headers)
         create_values.update(self._hash_api_token(token_value))
         create_values.update(self._default_image_field_values())
-        create_values.setdefault("friendly_id", self._generate_unique_friendly_id())
         device = self.sudo().create(create_values)
         return device, "created"
 

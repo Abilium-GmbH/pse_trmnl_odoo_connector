@@ -186,14 +186,6 @@ class TrmnlDevice(models.Model):
         help="Canonical MAC address used as the device identity.",
     )
 
-    friendly_id = fields.Char(
-        string="Friendly ID",
-        readonly=True,
-        copy=False,
-        index=True,
-        help="Short human-readable identifier shown on device previews when no device name is set.",
-    )
-
     api_token_hash = fields.Char(
         string="API Token Hash",
         readonly=True,
@@ -594,13 +586,3 @@ class TrmnlDevice(models.Model):
         """Return True when verbose TRMNL API tracing is enabled (System Parameters)."""
         raw = self.env["ir.config_parameter"].sudo().get_param(TRMNL_API_DEBUG_PARAM, "")
         return str(raw).strip().lower() in ("1", "true", "yes", "on")
-
-    @api.model
-    def _generate_unique_friendly_id(self):
-        """Generate a short unique friendly identifier."""
-        for attempt in range(25):
-            friendly_id = f"TRMNL-{secrets.token_hex(3).upper()}"
-            if not self.sudo().search([("friendly_id", "=", friendly_id)], limit=1):
-                return friendly_id
-
-        raise ValidationError("Unable to generate a unique friendly ID.")

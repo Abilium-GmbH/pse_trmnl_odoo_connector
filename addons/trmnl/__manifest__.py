@@ -10,7 +10,6 @@
     "depends": ["base", "web"],
     "external_dependencies": {"python": ["Pillow"]},
     "data": [
-        "security/trmnl_groups.xml",
         "security/ir.model.access.csv",
         "views/trmnl_device_views.xml",
         "views/trmnl_device_wizard_views.xml",

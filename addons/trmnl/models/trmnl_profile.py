@@ -827,7 +827,12 @@ class TrmnlProfile(models.Model):
         params = {}
         if version:
             params["v"] = version
-        access_token = (self.env.context.get("trmnl_access_token") or "").strip()
+        try:
+            from odoo.http import request as http_request
+            access_token = (http_request.httprequest.environ.get("trmnl.access_token") or "").strip()
+        except RuntimeError:
+            # Outside an HTTP request context (cron, tests, manual render).
+            access_token = ""
         if access_token:
             params["access_token"] = access_token
         return urlencode(params) if params else ""

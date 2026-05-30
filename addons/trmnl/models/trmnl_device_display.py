@@ -80,7 +80,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
     _inherit = "trmnl.device"
 
-    _POLL_CONTEXT_KEYS = ("trmnl_poll_base_url", "trmnl_client_ip", "trmnl_access_token")
+    _POLL_CONTEXT_KEYS = ("trmnl_poll_base_url", "trmnl_client_ip")
 
     def _poll_context(self):
         """Return poll-scoped context keys for profile URL/render helpers."""
@@ -388,9 +388,6 @@ class TrmnlDeviceDisplayMixin(models.Model):
     def resolve_display_request(self, headers):
         """Resolve a TRMNL display poll using the configured device policy."""
         api_token = self._parse_to_string(headers.get("Access-Token"))
-        if api_token:
-            self = self.with_context(trmnl_access_token=api_token)
-
         debug = self._is_trmnl_api_debug_enabled()
         policy = self._get_display_request_policy()
         mac_address = self._normalize_mac_address(headers.get("ID"))

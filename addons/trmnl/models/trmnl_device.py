@@ -6,7 +6,11 @@ import re
 import secrets
 from datetime import datetime, timezone
 
-from urllib.parse import urlparse
+from odoo.addons.trmnl.trmnl_net import (
+    INTERNAL_HOST_RE as _INTERNAL_HOST_RE,
+    client_can_reach_host,
+    is_device_reachable_base_url,
+)
 
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, ValidationError
@@ -20,81 +24,6 @@ MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
 TRMNL_POLICY_PARAM = "trmnl.display_unknown_device_policy"
 # When set to 1/true/yes/on, TRMNL HTTP controllers log extra request/branch detail.
 TRMNL_API_DEBUG_PARAM = "trmnl.api_debug"
-
-# Hosts/IPs that are not reachable by a physical device on the LAN: loopback
-# addresses and the libvirt/KVM virbr0 bridge (192.168.122.x).
-#
-# Normal LAN ranges — 10.x.x.x, 192.168.x.x, 172.x.x.x — are intentionally
-# NOT blocked.  A configured LAN IP is a valid device target regardless of
-# whether it falls inside RFC-1918 space.  Note: Docker bridge IPs
-# (commonly 172.17.0.x) overlap with legitimate corporate LAN ranges and
-# cannot be excluded reliably by pattern alone; set trmnl.public_base_url
-# explicitly when web.base.url resolves to a container-internal address.
-_INTERNAL_HOST_RE = re.compile(
-    r"^("
-    r"localhost"
-    r"|0\.0\.0\.0"
-    r"|127(?:\.\d+){3}"
-    r"|::1"
-    r"|192\.168\.122\.\d+"
-    r")$",
-    re.IGNORECASE,
-)
-
-_IPV4_RE = re.compile(
-    r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$"
-)
-
-
-def _ipv4_octets(host_or_ip):
-    """Return (a, b, c, d) for a dotted IPv4 string, else None."""
-    if not host_or_ip:
-        return None
-    match = _IPV4_RE.match(str(host_or_ip).strip())
-    if not match:
-        return None
-    octets = tuple(int(g) for g in match.groups())
-    if any(o < 0 or o > 255 for o in octets):
-        return None
-    return octets
-
-
-def _private_subnet_key(octets):
-    """Grouping key for RFC1918-style LAN reachability heuristics."""
-    if octets[0] == 10:
-        return ("10", octets[1], octets[2])
-    if octets[0] == 192 and octets[1] == 168:
-        return ("192.168", octets[2])
-    if octets[0] == 172 and 16 <= octets[1] <= 31:
-        return ("172", octets[1])
-    return octets[:3]
-
-
-def client_can_reach_host(client_ip, host):
-    """True when a TRMNL on client_ip can plausibly reach host (IPv4 LAN heuristic).
-
-    Non-IPv4 hostnames are treated as reachable (DNS / mDNS setups).
-    """
-    client = _ipv4_octets(client_ip)
-    if not client:
-        return True
-    target = _ipv4_octets(host)
-    if not target:
-        return True
-    return _private_subnet_key(client) == _private_subnet_key(target)
-
-
-def is_device_reachable_base_url(url):
-    """Return True if url's host is reachable by a physical LAN device.
-
-    Rejects loopback (localhost / 127.x.x.x / ::1 / 0.0.0.0) and the
-    libvirt KVM virbr0 bridge (192.168.122.x).
-    """
-    try:
-        host = urlparse(url).hostname or ""
-        return bool(host) and not _INTERNAL_HOST_RE.match(host)
-    except Exception:
-        return False
 
 # PBKDF2-HMAC-SHA256 iteration count chosen per
 # OWASP Password Storage Cheat Sheet (2026).

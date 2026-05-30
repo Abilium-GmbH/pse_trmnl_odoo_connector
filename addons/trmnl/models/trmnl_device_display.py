@@ -17,11 +17,13 @@ from .trmnl_device import (
     LAST_API_CALL_DISPLAY,
     UNAUTHORIZED_IMAGE_FILENAME,
     UNAUTHORIZED_IMAGE_STATIC_PATH,
-    _INTERNAL_HOST_RE,
+)
+from .trmnl_image import UNAUTHORIZED_IMAGE_CONFIG_KEY
+from odoo.addons.trmnl.trmnl_net import (
+    INTERNAL_HOST_RE as _INTERNAL_HOST_RE,
     client_can_reach_host,
     is_device_reachable_base_url,
 )
-from .trmnl_image import UNAUTHORIZED_IMAGE_CONFIG_KEY
 
 _logger = logging.getLogger(__name__)
 

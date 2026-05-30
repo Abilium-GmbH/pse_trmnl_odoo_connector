@@ -19,9 +19,8 @@ from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Domain
 from odoo.tools.safe_eval import safe_eval
-
-from .trmnl_device import (
-    _INTERNAL_HOST_RE,
+from odoo.addons.trmnl.trmnl_net import (
+    INTERNAL_HOST_RE as _INTERNAL_HOST_RE,
     client_can_reach_host,
     is_device_reachable_base_url,
 )

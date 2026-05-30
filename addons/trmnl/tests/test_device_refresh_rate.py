@@ -60,9 +60,9 @@ class TestDeviceRefreshRateCompute(TrmnlMacAddressMixin, TransactionCase):
         self.assertEqual(device.desired_refresh_rate_minutes, 1)
 
     def test_compute_displays_minutes_for_default_rate(self):
-        """The default rate (900 s = 15 min) should display as 15 minutes."""
+        """The default rate (60 s = 1 min) should display as 1 minute."""
         device = self._create_device(DEFAULT_REFRESH_RATE)
-        self.assertEqual(device.desired_refresh_rate_minutes, 15)
+        self.assertEqual(device.desired_refresh_rate_minutes, 1)
 
     def test_compute_displays_minutes_for_mid_range_rate(self):
         """15 minutes (900 s) should display as 15 minutes."""

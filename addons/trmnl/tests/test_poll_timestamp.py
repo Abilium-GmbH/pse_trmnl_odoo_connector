@@ -70,7 +70,7 @@ class TestFormatPollTimestamp(TransactionCase):
 
 @tagged("-at_install", "post_install")
 class TestGetFooterDeviceLabel(TransactionCase):
-    """Footer device label: device_name → friendly_id → MAC."""
+    """Footer device label: device_name → MAC."""
 
     def _profile(self, device):
         return self.env["trmnl.profile"].sudo().create({
@@ -86,26 +86,6 @@ class TestGetFooterDeviceLabel(TransactionCase):
         })
         device.write({"device_name": "  Lobby Unit  "})
         self.assertEqual(self._profile(device)._get_footer_device_label(), "Lobby Unit")
-
-    def test_friendly_id_without_device_name(self):
-        device = self.env["trmnl.device"].sudo().create({
-            "mac_address": "AA:BB:CC:DD:EE:A2",
-            "approval_state": "accepted",
-            "registration_source": "setup",
-        })
-        device.with_context(trmnl_allow_identity_update=True).write({"friendly_id": "hallway"})
-        self.assertEqual(self._profile(device)._get_footer_device_label(), "hallway")
-
-    def test_mac_when_no_name_or_friendly(self):
-        # unknown_device stubs may exist without friendly_id (see trmnl.device.create).
-        device = self.env["trmnl.device"].sudo().create({
-            "mac_address": "CC:CC:CC:CC:CC:CC",
-            "approval_state": "unknown_device",
-            "registration_source": "display",
-        })
-        self.assertFalse(device.friendly_id)
-        self.assertEqual(self._profile(device)._get_footer_device_label(), "CC:CC:CC:CC:CC:CC")
-
 
 @tagged("-at_install", "post_install")
 class TestFinalizeDisplayImage(TransactionCase):

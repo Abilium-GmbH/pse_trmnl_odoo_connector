@@ -559,7 +559,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 "last_presented_token_salt": False,
             }
             update_values.update(self._default_image_field_values())
-            device.with_context(trmnl_allow_identity_update=True).write(update_values)
+            device.write(update_values)
             return self._display_serve_accepted(device, headers, "token_adopted")
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:

@@ -91,7 +91,7 @@ class TrmnlDeviceSecurityMixin(models.Model):
         """Persist a raw token as the accepted token on the current record."""
         self.ensure_one()
         token_values = self._hash_api_token(raw_token)
-        self.with_context(trmnl_allow_identity_update=True).write(token_values)
+        self.write(token_values)
         return self
 
     @api.model
@@ -168,7 +168,7 @@ class TrmnlDeviceSecurityMixin(models.Model):
                 "The device must attempt a display poll before it can be accepted."
             )
 
-        self.with_context(trmnl_allow_identity_update=True).write({
+        self.write({
             "api_token_hash": self.last_presented_token_hash,
             "api_token_salt": self.last_presented_token_salt,
             "last_presented_token_hash": False,

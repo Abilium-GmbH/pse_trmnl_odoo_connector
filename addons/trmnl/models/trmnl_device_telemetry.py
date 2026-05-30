@@ -64,7 +64,7 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         """Update the last-seen timestamp and last API call for a successful display response."""
         self.ensure_one()
         now_value = fields.Datetime.now()
-        self.with_context(trmnl_allow_identity_update=True).write(
+        self.write(
             {
                 "last_display_at": now_value,
                 "last_poll_at": now_value,
@@ -174,7 +174,7 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         if created_count:
             update_values["log_entry_count"] = (device.log_entry_count or 0) + created_count
 
-        device.with_context(trmnl_allow_identity_update=True).write(update_values)
+        device.write(update_values)
 
     @api.model
     def ingest_logs_from_payload(self, headers, payload):

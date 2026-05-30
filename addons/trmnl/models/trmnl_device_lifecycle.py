@@ -194,7 +194,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             self._apply_telemetry_to_values(update_values, headers)
             if presented_token:
                 update_values.update(self._hash_presented_token(presented_token))
-            existing_device.with_context(trmnl_allow_identity_update=True).write(update_values)
+            existing_device.write(update_values)
             return existing_device
 
         create_values = {
@@ -251,7 +251,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         if presented_token:
             update_values.update(self._hash_presented_token(presented_token))
 
-        device.with_context(trmnl_allow_identity_update=True).write(update_values)
+        device.write(update_values)
         return device
 
     # ------------------------------------------------------------------
@@ -330,7 +330,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         }
         update_values.update(self._default_image_field_values())
 
-        self.with_context(trmnl_allow_identity_update=True).write(update_values)
+        self.write(update_values)
         return self
 
     # ------------------------------------------------------------------

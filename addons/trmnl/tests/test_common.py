@@ -8,7 +8,6 @@ def make_trmnl_device(env, mac_address, **extra):
     values = {
         "mac_address": mac_address,
         "approval_state": "accepted",
-        "registration_source": "setup",
     }
     values.update(extra)
     return env["trmnl.device"].sudo().create(values)

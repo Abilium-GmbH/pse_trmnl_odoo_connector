@@ -25,7 +25,6 @@ class TestProfileDashboardLayout(TransactionCase):
         cls._device = cls.env["trmnl.device"].sudo().create({
             "mac_address": "AA:BB:CC:DD:EE:88",
             "approval_state": "accepted",
-            "registration_source": "setup",
         })
         cls._partner_model = cls.env["ir.model"].sudo().search(
             [("model", "=", "res.partner")], limit=1

@@ -19,7 +19,6 @@ class TestAvailableViewTypes(TransactionCase):
         cls._device = cls.env["trmnl.device"].sudo().create({
             "mac_address": "AA:BB:CC:DD:EE:22",
             "approval_state": "accepted",
-            "registration_source": "setup",
         })
         cls._partner_model = cls.env["ir.model"].sudo().search(
             [("model", "=", "res.partner")], limit=1
@@ -154,7 +153,6 @@ class TestLayoutFieldFiltering(TransactionCase):
         cls._device = cls.env["trmnl.device"].sudo().create({
             "mac_address": "AA:BB:CC:DD:EE:77",
             "approval_state": "accepted",
-            "registration_source": "setup",
         })
         cls._partner_model = cls.env["ir.model"].sudo().search(
             [("model", "=", "res.partner")], limit=1
@@ -192,7 +190,6 @@ class TestDynamicLayoutSelection(TransactionCase):
         cls._device = cls.env["trmnl.device"].sudo().create({
             "mac_address": "AA:BB:CC:DD:EE:33",
             "approval_state": "accepted",
-            "registration_source": "setup",
         })
         cls._partner_model = cls.env["ir.model"].sudo().search(
             [("model", "=", "res.partner")], limit=1

@@ -82,7 +82,6 @@ class TestGetFooterDeviceLabel(TransactionCase):
         device = self.env["trmnl.device"].sudo().create({
             "mac_address": "AA:BB:CC:DD:EE:A1",
             "approval_state": "accepted",
-            "registration_source": "setup",
         })
         device.write({"device_name": "  Lobby Unit  "})
         self.assertEqual(self._profile(device)._get_footer_device_label(), "Lobby Unit")
@@ -96,7 +95,6 @@ class TestFinalizeDisplayImage(TransactionCase):
         self.device = self.env["trmnl.device"].sudo().create({
             "mac_address": "AA:BB:CC:DD:EE:02",
             "approval_state": "accepted",
-            "registration_source": "setup",
         })
 
     def _profile(self, **kwargs):

@@ -20,7 +20,6 @@ class TestDisplayImageQuality(TransactionCase):
         cls.device = cls.env["trmnl.device"].sudo().create({
             "mac_address": "AA:BB:CC:DD:EE:77",
             "approval_state": "accepted",
-            "registration_source": "setup",
         })
         cls.profile = cls.env["trmnl.profile"].sudo().create({
             "name": "Quality test",

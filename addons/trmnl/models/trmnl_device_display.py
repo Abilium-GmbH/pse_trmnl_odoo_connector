@@ -238,8 +238,9 @@ class TrmnlDeviceDisplayMixin(models.Model):
             query = profile._build_profile_image_query(version=digest)
             if query and "access_token=" not in fallback_url:
                 parsed = _urlparse(fallback_url)
-                fallback_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{query}"
-        return fallback_url, self.filename or ""
+                existing_query = parsed.query
+                merged_query = f"{existing_query}&{query}" if existing_query else query
+                fallback_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{merged_query}"
 
     def build_reset_response(self):
         """Build the display payload that instructs the device to factory-reset.

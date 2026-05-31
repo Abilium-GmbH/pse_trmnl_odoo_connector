@@ -16,12 +16,13 @@
         action="trmnl_device_action_devices"
         sequence="10"
     />
+    
     <menuitem
-    id="trmnl_menu_profiles"
-    name="Profiles"
-    parent="trmnl_menu_root"
-    action="trmnl_profile_action_profiles"
-    sequence="15"
+        id="trmnl_menu_profiles"
+        name="Profiles"
+        parent="trmnl_menu_root"
+        action="trmnl_profile_action_profiles"
+        sequence="15"
     />
 
     <record id="trmnl_display_policy_wizard_action" model="ir.actions.act_window">

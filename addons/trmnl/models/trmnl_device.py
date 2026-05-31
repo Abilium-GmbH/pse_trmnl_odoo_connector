@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 import re
+import secrets
 from datetime import datetime, timezone
+
+from odoo.addons.trmnl.trmnl_net import (
+    INTERNAL_HOST_RE as _INTERNAL_HOST_RE,
+    client_can_reach_host,
+    is_device_reachable_base_url,
+)
 
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, ValidationError
@@ -11,6 +18,12 @@ from odoo.exceptions import AccessError, ValidationError
 # TRMNL-Displays send a 6-octet, uppercase hex, colon-separated string according to the
 # firmware, e.g.: A4:CF:12:7E:3B:01
 MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
+
+# System parameter key for the display-request policy.  Defined once here so
+# lifecycle, UI, and wizard code all reference the same string.
+TRMNL_POLICY_PARAM = "trmnl.display_unknown_device_policy"
+# When set to 1/true/yes/on, TRMNL HTTP controllers log extra request/branch detail.
+TRMNL_API_DEBUG_PARAM = "trmnl.api_debug"
 
 # PBKDF2-HMAC-SHA256 iteration count chosen per
 # OWASP Password Storage Cheat Sheet (2026).
@@ -25,8 +38,8 @@ SECONDS_PER_MINUTE: int = 60
 # Refresh rate bounds.
 # Both bounds are expressed in seconds; the UI always displays minutes.
 REFRESH_RATE_MIN_SECONDS: int = 1 * SECONDS_PER_MINUTE  # 1 minute
-REFRESH_RATE_MAX_SECONDS: int = 30 * SECONDS_PER_MINUTE  # 30 minutes
-DEFAULT_REFRESH_RATE: int = 1 * SECONDS_PER_MINUTE       # 1 minute
+REFRESH_RATE_MAX_SECONDS: int = 30 * SECONDS_PER_MINUTE # 30 minutes
+DEFAULT_REFRESH_RATE: int = 1 * SECONDS_PER_MINUTE      # 1 minute
 
 DISPLAY_POLICY_ERROR = "error"
 DISPLAY_POLICY_AUTO_ACCEPT = "auto_accept"
@@ -211,7 +224,21 @@ class TrmnlDevice(models.Model):
         copy=False,
     )
 
-    last_seen_at = fields.Datetime(string="Last Seen At", readonly=True, copy=False)
+    last_seen_at = fields.Datetime(
+        string="Last Seen At",
+        readonly=True, 
+        copy=False,
+        help="The last time the device contacted any endpoint.",
+    )
+
+    last_poll_at = fields.Datetime(
+        string="Last Poll At",
+        readonly=True,
+        copy=False,
+        help="The last time the device got a successful /api/display response.",
+    )
+
+    accepted_at = fields.Datetime(string="Accepted At", readonly=True, copy=False)
 
     added_at = fields.Datetime(
         string="Added At",
@@ -431,23 +458,23 @@ class TrmnlDevice(models.Model):
     # helpers
     # ------------------------------------------------------------------
 
-    @api.model
-    def _voltage_to_percentage(self, voltage):
+    @staticmethod
+    def _voltage_to_percentage(voltage):
         """Convert a voltage to a battery percentage."""
         if voltage is False or voltage is None:
             return False
 
-        if voltage <= self.BATTERY_MIN_VOLTAGE:
+        if voltage <= TrmnlDevice.BATTERY_MIN_VOLTAGE:
             return 0.0
 
-        if voltage >= self.BATTERY_MAX_VOLTAGE:
+        if voltage >= TrmnlDevice.BATTERY_MAX_VOLTAGE:
             return 100.0
 
-        span = self.BATTERY_MAX_VOLTAGE - self.BATTERY_MIN_VOLTAGE
-        return int(((voltage - self.BATTERY_MIN_VOLTAGE) / span) * 100.0)
+        span = TrmnlDevice.BATTERY_MAX_VOLTAGE - TrmnlDevice.BATTERY_MIN_VOLTAGE
+        return int(((voltage - TrmnlDevice.BATTERY_MIN_VOLTAGE) / span) * 100.0)
 
-    @api.model
-    def _rssi_to_quality(self, rssi_dbm):
+    @staticmethod
+    def _rssi_to_quality(rssi_dbm):
         """Translate an RSSI reading into a coarse quality bucket."""
         if rssi_dbm is False or rssi_dbm is None:
             return "unknown"
@@ -468,8 +495,31 @@ class TrmnlDevice(models.Model):
         """Return a naive UTC datetime for use in timestamps."""
         return datetime.now(timezone.utc).replace(tzinfo=None)
 
+    def _compute_display_name(self):
+        """Render a human-readable label for UI widgets and form titles.
+
+        Returns ``device_name`` when set, falling back to ``mac_address``.
+        ``_rec_name`` remains ``mac_address`` so ORM-level behaviour (search,
+        groupby, CSV export) is unaffected; only the UI rendering changes.
+        """
+        for device in self:
+            device.display_name = device.device_name or device.mac_address
+
     @api.model
-    def _parse_to_string(self, value):
+    def _name_search(self, name="", domain=None, operator="ilike", limit=100, order=None):
+        """Search by device_name or mac_address so Many2one pickers match both."""
+        if name:
+            domain = list(domain or [])
+            domain = [
+                "|",
+                ("device_name", operator, name),
+                ("mac_address", operator, name),
+            ] + domain
+            return self._search(domain, limit=limit, order=order)
+        return super()._name_search(name=name, domain=domain, operator=operator, limit=limit, order=order)
+
+    @staticmethod
+    def _parse_to_string(value):
         """Normalize a value into a stripped string."""
         if value in (None, False, ""):
             return False
@@ -477,8 +527,8 @@ class TrmnlDevice(models.Model):
         value_text = str(value).strip()
         return value_text or False
 
-    @api.model
-    def _parse_to_int(self, value):
+    @staticmethod
+    def _parse_to_int(value):
         """Normalize a value into an integer."""
         if value in (None, False, ""):
             return False
@@ -488,8 +538,8 @@ class TrmnlDevice(models.Model):
         except (TypeError, ValueError):
             return False
 
-    @api.model
-    def _parse_to_float(self, value):
+    @staticmethod
+    def _parse_to_float(value):
         """Normalize a value into a float."""
         if value in (None, False, ""):
             return False
@@ -499,8 +549,8 @@ class TrmnlDevice(models.Model):
         except (TypeError, ValueError):
             return False
 
-    @api.model
-    def _normalize_mac_address(self, value):
+    @staticmethod
+    def _normalize_mac_address(value):
         """Return a canonical uppercase colon-separated MAC address."""
         if value in (None, False, ""):
             return False
@@ -516,3 +566,10 @@ class TrmnlDevice(models.Model):
             return False
 
         return mac_address
+
+
+    @api.model
+    def _is_trmnl_api_debug_enabled(self):
+        """Return True when verbose TRMNL API tracing is enabled (System Parameters)."""
+        raw = self.env["ir.config_parameter"].sudo().get_param(TRMNL_API_DEBUG_PARAM, "")
+        return str(raw).strip().lower() in ("1", "true", "yes", "on")

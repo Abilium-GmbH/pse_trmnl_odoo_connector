@@ -9,6 +9,7 @@ from .trmnl_device import (
     APPROVAL_STATE_ACCEPTED,
     DISPLAY_POLICY_ERROR,
     DISPLAY_POLICY_SELECTION,
+    TRMNL_POLICY_PARAM,
 )
 
 
@@ -29,17 +30,6 @@ class TrmnlDeviceActionWizardMixin(models.AbstractModel):
         ondelete="cascade",
         readonly=True,
     )
-    device_display_name = fields.Char(
-        string="Device Display Name",
-        compute="_compute_device_display_name",
-        readonly=True,
-    )
-
-    def _compute_device_display_name(self):
-        """Derive a human-readable label from the linked device."""
-        for wizard in self:
-            device = wizard.device_id
-            wizard.device_display_name = device.device_name or device.mac_address
 
     @staticmethod
     def _redirect_to_device_list():
@@ -220,7 +210,7 @@ class TrmnlDisplayPolicyWizard(models.TransientModel):
             current_policy = (
                 self.env["ir.config_parameter"]
                 .sudo()
-                .get_param("trmnl.display_unknown_device_policy", DISPLAY_POLICY_ERROR)
+                .get_param(TRMNL_POLICY_PARAM, DISPLAY_POLICY_ERROR)
             )
             result["policy"] = current_policy
         return result

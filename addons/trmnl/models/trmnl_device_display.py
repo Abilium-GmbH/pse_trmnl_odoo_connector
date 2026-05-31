@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from typing import NamedTuple
+from urllib.parse import urlparse as _urlparse
 
 from odoo import api, fields, models
 
@@ -17,6 +19,13 @@ from .trmnl_device import (
     UNAUTHORIZED_IMAGE_STATIC_PATH,
 )
 from .trmnl_image import UNAUTHORIZED_IMAGE_CONFIG_KEY
+from odoo.addons.trmnl.trmnl_net import (
+    INTERNAL_HOST_RE as _INTERNAL_HOST_RE,
+    client_can_reach_host,
+    is_device_reachable_base_url,
+)
+
+_logger = logging.getLogger(__name__)
 
 
 class DisplayResolutionResult(NamedTuple):
@@ -71,6 +80,20 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
     _inherit = "trmnl.device"
 
+    _POLL_CONTEXT_KEYS = ("trmnl_poll_base_url", "trmnl_client_ip")
+
+    def _poll_context(self):
+        """Return poll-scoped context keys for profile URL/render helpers."""
+        return {
+            key: self.env.context[key]
+            for key in self._POLL_CONTEXT_KEYS
+            if key in self.env.context
+        }
+
+    def _profile_model_for_poll(self):
+        """``trmnl.profile`` model accessor with device poll context applied."""
+        return self.env["trmnl.profile"].sudo().with_context(**self._poll_context())
+
     # ------------------------------------------------------------------
     # response builders
     # ------------------------------------------------------------------
@@ -100,12 +123,124 @@ class TrmnlDeviceDisplayMixin(models.Model):
     def build_display_response(self):
         """Build the normal display payload for an accepted device."""
         self.ensure_one()
-        return {
-            "status": 0,
-            "filename": self.filename or "",
-            "image_url": self.image_url or "",
-            "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
-        }
+
+        try:
+            image_url, filename = self._resolve_display_image()
+            return {
+                "status": 0,
+                "filename": filename,
+                "image_url": image_url,
+                "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
+            }
+        except Exception:
+            _logger.exception(
+                "TRMNL display: build_display_response failed for device id=%s — "
+                "returning device fallback fields only",
+                self.id,
+            )
+            return {
+                "status": 0,
+                "filename": self.filename or "",
+                "image_url": self.image_url or "",
+                "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
+            }
+
+    def _resolve_display_image(self):
+        """Return (image_url, filename) from the active profile or device fallback.
+
+        Renders the profile image on first call if it has not been generated yet.
+        Falls back to device.image_url / device.filename on any error.
+        """
+        self.ensure_one()
+        device_ref = f"device_id={self.id} mac={self.mac_address or '?'}"
+        try:
+            profile = self._profile_model_for_poll().search(
+                [("device_id", "=", self.id), ("active", "=", True)],
+                limit=1,
+                order="sequence asc, id asc",
+            )
+
+            if not profile:
+                _logger.info("TRMNL display: no active profile for %s — using device fallback", device_ref)
+                return self.image_url or "", self.filename or ""
+
+            _logger.debug(
+                "TRMNL display: active profile id=%s name=%r sequence=%s has_preview=%s | %s",
+                profile.id,
+                profile.name,
+                profile.sequence,
+                bool(profile.preview_image),
+                device_ref,
+            )
+
+            will_render = profile._should_render_for_device()
+            renderer_stale = profile._is_preview_renderer_stale()
+
+            _logger.debug(
+                "TRMNL display: refresh decision profile id=%s will_render=%s "
+                "renderer_stale=%s",
+                profile.id,
+                will_render,
+                renderer_stale,
+            )
+
+            if will_render:
+                _logger.info("TRMNL display: rendering profile id=%s", profile.id)
+                profile._render_and_store_preview()
+                profile.invalidate_recordset()
+                _logger.info(
+                    "TRMNL display: render done profile id=%s generated_at=%s",
+                    profile.id,
+                    profile.preview_generated_at,
+                )
+
+            image_url = profile._get_display_image_url()
+            filename = profile._get_display_filename()
+            _logger.debug(
+                "TRMNL display: resolved profile id=%s image_url=%r filename=%r",
+                profile.id,
+                image_url,
+                filename,
+            )
+
+            if image_url and filename:
+                _logger.info(
+                    "TRMNL display: serving profile image profile id=%s url=%r filename=%r",
+                    profile.id,
+                    image_url,
+                    filename,
+                )
+                if self.image_url != image_url or self.filename != filename:
+                    self.sudo().write({"image_url": image_url, "filename": filename})
+                return image_url, filename
+
+            _logger.warning(
+                "TRMNL display: profile id=%s image_url=%r or filename=%r is empty "
+                "— no device-reachable base URL could be resolved. Falling back to "
+                "device default image.",
+                profile.id,
+                image_url,
+                filename,
+            )
+        except Exception as exc:
+            _logger.warning(
+                "TRMNL display: exception resolving profile image for %s: %s",
+                device_ref, exc, exc_info=True,
+            )
+
+        _logger.info(
+            "TRMNL display: using device fallback image_url=%r filename=%r for %s",
+            self.image_url or "", self.filename or "", device_ref,
+        )
+        fallback_url = self.image_url or ""
+        if profile and fallback_url and "/api/profile/image/" in fallback_url:
+            digest = profile._preview_png_digest()
+            query = profile._build_profile_image_query(version=digest)
+            if query and "access_token=" not in fallback_url:
+                parsed = _urlparse(fallback_url)
+                existing_query = parsed.query
+                merged_query = f"{existing_query}&{query}" if existing_query else query
+                fallback_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{merged_query}"
 
     def build_reset_response(self):
         """Build the display payload that instructs the device to factory-reset.
@@ -125,16 +260,150 @@ class TrmnlDeviceDisplayMixin(models.Model):
         }
 
     # ------------------------------------------------------------------
+    # public base URL auto-detection
+    # ------------------------------------------------------------------
+
+    @api.model
+    def _maybe_auto_set_public_base_url(self, candidate_url, client_ip=None):
+        """Auto-set trmnl.public_base_url from the device's Host header when needed.
+
+        Skips when the Host is on a different private network than the device
+        (e.g. Host 10.x while the device polls from 192.168.x). Does nothing if
+        trmnl.public_base_url is already set, or if web.base.url is already
+        device-reachable on the same LAN as the client.
+        """
+        params = self.env["ir.config_parameter"].sudo()
+        if params.get_param("trmnl.public_base_url"):
+            return
+
+        web_url = params.get_param("web.base.url", "").strip()
+        if web_url:
+            try:
+                web_host = _urlparse(web_url).hostname or ""
+                if web_host and not _INTERNAL_HOST_RE.match(web_host):
+                    if not client_ip or client_can_reach_host(client_ip, web_host):
+                        _logger.debug(
+                            "TRMNL skip auto-set: web.base.url=%r is already device-reachable",
+                            web_url,
+                        )
+                        return
+            except Exception:
+                pass
+
+        try:
+            host = _urlparse(candidate_url).hostname or ""
+            if not host or _INTERNAL_HOST_RE.match(host):
+                return
+            if client_ip and not client_can_reach_host(client_ip, host):
+                _logger.info(
+                    "TRMNL skip auto-set: Host %r is not on the same LAN as device %s",
+                    candidate_url,
+                    client_ip,
+                )
+                return
+            new_value = candidate_url.rstrip("/")
+            current = params.get_param("trmnl.public_base_url", "").strip().rstrip("/")
+            if current != new_value:
+                params.set_param("trmnl.public_base_url", new_value)
+                _logger.info(
+                    "TRMNL auto-set trmnl.public_base_url=%r from device Host header "
+                    "(web.base.url is not device-reachable)",
+                    new_value,
+                )
+        except Exception as exc:
+            _logger.debug(
+                "TRMNL could not auto-set public_base_url from %r: %s",
+                candidate_url, exc,
+            )
+
+    @api.model
+    def _sync_public_base_url_from_poll(self, poll_base_url, client_ip=None):
+        """Align trmnl.public_base_url with how devices actually reach Odoo.
+
+        Corrects stale values (e.g. a VPN/campus 10.x address saved earlier while
+        TRMNL devices poll over 192.168.x).
+        """
+        Profile = self.env["trmnl.profile"]
+        poll = (poll_base_url or "").strip().rstrip("/")
+        if not poll or not is_device_reachable_base_url(poll):
+            return
+
+        host = _urlparse(poll).hostname or ""
+        if client_ip and host and not client_can_reach_host(client_ip, host):
+            base, _source = Profile.with_context(
+                trmnl_poll_base_url="",
+                trmnl_client_ip=client_ip,
+            )._resolve_device_base_url()
+            if not base:
+                return
+            poll = base.rstrip("/")
+            host = _urlparse(poll).hostname or ""
+            if client_ip and host and not client_can_reach_host(client_ip, host):
+                return
+
+        params = self.env["ir.config_parameter"].sudo()
+        current = params.get_param("trmnl.public_base_url", "").strip().rstrip("/")
+        if current != poll:
+            params.set_param("trmnl.public_base_url", poll)
+            _logger.info(
+                "TRMNL synced trmnl.public_base_url to %r from device poll (was %r)",
+                poll,
+                current or "(unset)",
+            )
+
+    # ------------------------------------------------------------------
     # request resolution
     # ------------------------------------------------------------------
+
+    def _display_factory_reset_result(self, device=None):
+        """Delete *device* when given and return the firmware factory-reset payload."""
+        if device:
+            device.unlink()
+        return DisplayResolutionResult(
+            self.browse(),
+            {"status": 500},
+            "factory_reset",
+        )
+
+    def _display_error_policy_result(self, device, record_status):
+        """Return the seeded unauthorized-image payload for policy ``error``."""
+        return DisplayResolutionResult(
+            device,
+            self.build_display_error_response(),
+            record_status,
+        )
+
+    def _display_serve_accepted(self, device, headers, record_status):
+        """Apply poll telemetry and return the normal display payload."""
+        device = device.with_context(**self._poll_context())
+        device._apply_display_telemetry(headers)
+        device._record_display_served()
+        return DisplayResolutionResult(
+            device,
+            device.build_display_response(),
+            record_status,
+        )
 
     @api.model
     def resolve_display_request(self, headers):
         """Resolve a TRMNL display poll using the configured device policy."""
-        mac_address = self._normalize_mac_address(headers.get("ID"))
         api_token = self._parse_to_string(headers.get("Access-Token"))
+        debug = self._is_trmnl_api_debug_enabled()
+        policy = self._get_display_request_policy()
+        mac_address = self._normalize_mac_address(headers.get("ID"))
+
+        if debug:
+            _logger.info(
+                "TRMNL API DEBUG display: policy=%r host=%r token_header=%s mac_normalized=%s",
+                policy,
+                (headers or {}).get("Host"),
+                bool(api_token),
+                bool(mac_address),
+            )
 
         if not mac_address:
+            if debug:
+                _logger.info("TRMNL API DEBUG display: outcome=missing_identity")
             return DisplayResolutionResult(
                 self.browse(),
                 self.build_display_error_response(),
@@ -145,6 +414,8 @@ class TrmnlDeviceDisplayMixin(models.Model):
 
         # Per-device reset handling (runs before any other checks).
         if device and device.reset_pending:
+            if debug:
+                _logger.info("TRMNL API DEBUG display: outcome=reset_pending device_id=%s", device.id)
             reset_payload = device.build_reset_response()
             device.unlink()
             return DisplayResolutionResult(
@@ -159,18 +430,26 @@ class TrmnlDeviceDisplayMixin(models.Model):
             )
 
         if not device:
+            if debug:
+                _logger.info("TRMNL API DEBUG display: unknown MAC — calling _resolve_unknown_display_request")
             return self._resolve_unknown_display_request(
                 mac_address, headers, api_token
             )
 
-        # At this point the device exists and is either ``accepted`` or
-        # ``token_mismatch`` — both states have an accepted token on file.
-        if api_token and device._verify_api_token(api_token):
+        token_ok = bool(api_token and device._verify_api_token(api_token))
+        if debug:
+            _logger.info(
+                "TRMNL API DEBUG display: device_id=%s approval_state=%s token_ok=%s",
+                device.id,
+                device.approval_state,
+                token_ok,
+            )
+
+        if token_ok:
             if device.approval_state != APPROVAL_STATE_ACCEPTED:
-                # token_mismatch device presenting the correct token: the device
-                # must be explicitly re-accepted (manual or auto-accept) before
-                # it is served display content again.
-                device.with_context(trmnl_allow_identity_update=True).write(
+                if debug:
+                    _logger.info("TRMNL API DEBUG display: outcome=not_accepted state=%s", device.approval_state)
+                device.write(
                     {
                         "last_seen_at": fields.Datetime.now(),
                         "last_api_call": LAST_API_CALL_DISPLAY,
@@ -182,14 +461,19 @@ class TrmnlDeviceDisplayMixin(models.Model):
                     "not_accepted",
                 )
 
+            device = device.with_context(**self._poll_context())
             device._apply_display_telemetry(headers)
             device._record_display_served()
+            if debug:
+                _logger.info("TRMNL API DEBUG display: outcome=display device_id=%s", device.id)
             return DisplayResolutionResult(
                 device,
                 device.build_display_response(),
                 "display",
             )
 
+        if debug:
+            _logger.info("TRMNL API DEBUG display: token mismatch path device_id=%s", device.id)
         return self._resolve_token_mismatch_display_request(
             device, headers, api_token
         )
@@ -218,31 +502,18 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 headers, api_token
             )
             if promoted_device:
-                promoted_device._apply_display_telemetry(headers)
-                promoted_device._record_display_served()
-                return DisplayResolutionResult(
-                    promoted_device,
-                    promoted_device.build_display_response(),
-                    record_status,
+                return self._display_serve_accepted(
+                    promoted_device, headers, record_status
                 )
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
-            device.unlink()
-            return DisplayResolutionResult(
-                self.browse(),
-                {"status": 500},
-                "factory_reset",
-            )
+            return self._display_factory_reset_result(device)
 
         # Error policy (default): refresh the record for admin review.
         self.record_unknown_device_from_display(
             device.mac_address, api_token, headers
         )
-        return DisplayResolutionResult(
-            device,
-            self.build_display_error_response(),
-            "unknown_device",
-        )
+        return self._display_error_policy_result(device, "unknown_device")
 
     def _resolve_unknown_display_request(self, mac_address, headers, api_token):
         """Resolve a display request from a MAC address not yet in the database."""
@@ -253,31 +524,17 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 headers, api_token
             )
             if device:
-                device._apply_display_telemetry(headers)
-                device._record_display_served()
-                return DisplayResolutionResult(
-                    device,
-                    device.build_display_response(),
-                    record_status,
-                )
+                return self._display_serve_accepted(device, headers, record_status)
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
-            return DisplayResolutionResult(
-                self.browse(),
-                {"status": 500},
-                "factory_reset",
-            )
+            return self._display_factory_reset_result()
 
         # Error policy: create a full record so the admin can review and
         # manually accept the device; serve the error image to the device.
         stub_device = self.record_unknown_device_from_display(
             mac_address, api_token, headers
         )
-        return DisplayResolutionResult(
-            stub_device,
-            self.build_display_error_response(),
-            "unknown_device",
-        )
+        return self._display_error_policy_result(stub_device, "unknown_device")
 
     def _resolve_token_mismatch_display_request(self, device, headers, api_token):
         """Resolve a display request from a known device that presented a wrong token.
@@ -303,28 +560,13 @@ class TrmnlDeviceDisplayMixin(models.Model):
                 "last_presented_token_salt": False,
             }
             update_values.update(self._default_image_field_values())
-            device.with_context(trmnl_allow_identity_update=True).write(update_values)
-            device._apply_display_telemetry(headers)
-            device._record_display_served()
-            return DisplayResolutionResult(
-                device,
-                device.build_display_response(),
-                "token_adopted",
-            )
+            device.write(update_values)
+            return self._display_serve_accepted(device, headers, "token_adopted")
 
         if policy == DISPLAY_POLICY_FACTORY_RESET:
-            device.unlink()
-            return DisplayResolutionResult(
-                self.browse(),
-                {"status": 500},
-                "factory_reset",
-            )
+            return self._display_factory_reset_result(device)
 
         # Error policy: record the mismatch for admin review and serve the
         # error image so the device has something to display.
         self.record_token_mismatch_from_display(device, api_token, headers)
-        return DisplayResolutionResult(
-            device,
-            self.build_display_error_response(),
-            "token_mismatch",
-        )
+        return self._display_error_policy_result(device, "token_mismatch")

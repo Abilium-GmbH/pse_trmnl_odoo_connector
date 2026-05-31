@@ -9,7 +9,7 @@
             <form string="Accept Device">
                 <sheet>
                     <group>
-                        <field name="device_display_name" readonly="1"/>
+                        <field name="device_id" readonly="1"/>
                         <field name="approval_state" readonly="1"/>
                     </group>
                     <p class="text-muted">
@@ -71,7 +71,7 @@
             <form string="Remove Device">
                 <sheet>
                     <group>
-                        <field name="device_display_name" readonly="1"/>
+                        <field name="device_id" readonly="1"/>
                     </group>
                     <p class="text-muted">
                         Remove this device record. We recommend resetting it first — this triggers a factory reset on the device's next display call; otherwise the device will continue to contact the server.
@@ -94,7 +94,7 @@
             <form string="Reset Device">
                 <sheet>
                     <group>
-                        <field name="device_display_name" readonly="1"/>
+                        <field name="device_id" readonly="1"/>
                     </group>
                     <p class="text-muted">
                         The server sends a response that triggers a factory reset on the device. This erases the stored Wi-Fi credentials, resets the API key and removes the device record. The device will need to be reconfigured before it can call the server again.

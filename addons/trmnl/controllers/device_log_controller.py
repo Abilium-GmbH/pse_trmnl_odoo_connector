@@ -29,6 +29,16 @@ class DeviceLogController(TrmnlApiControllerMixin, http.Controller):
         headers = request.httprequest.headers
         masked_mac_address = self._mask_identifier(headers.get("ID"))
 
+        if device_model._is_trmnl_api_debug_enabled():
+            _logger.info(
+                "TRMNL API DEBUG request path=%s method=%s host=%r secure=%s id_header_masked=%s",
+                request.httprequest.path,
+                request.httprequest.method,
+                headers.get("Host"),
+                request.httprequest.is_secure,
+                masked_mac_address,
+            )
+
         _logger.info(
             "TRMNL request endpoint=/api/log method=%s mac=%s",
             request.httprequest.method,
@@ -51,10 +61,12 @@ class DeviceLogController(TrmnlApiControllerMixin, http.Controller):
             if record_status in {"missing_identity", "unauthorized"}:
                 return request.make_response("", status=401)
             return request.make_response("", status=204)
-        except Exception as exc:  # keep protocol responses stable
-            _logger.warning(
-                "TRMNL /api/log failed for mac=%s: %s",
+        except Exception as exc:
+            debug = device_model._is_trmnl_api_debug_enabled()
+            response = self._handle_api_exception(
+                "/api/log",
                 masked_mac_address,
                 exc,
+                request.make_response("", status=401),
             )
-            return request.make_response("", status=401)
+            return response

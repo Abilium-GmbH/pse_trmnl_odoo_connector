@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="trmnl_profile_view_list" model="ir.ui.view">
+        <field name="name">trmnl.profile.list</field>
+        <field name="model">trmnl.profile</field>
+        <field name="arch" type="xml">
+            <list string="TRMNL Profiles">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="device_id"/>
+                <field name="app_model_id" string="Odoo Model" optional="show"/>
+                <field name="trmnl_layout" string="View Type" optional="show"/>
+                <field name="auto_refresh_interval_minutes" string="Render Interval (min)" optional="hide"/>
+                <field name="active" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="trmnl_profile_view_form" model="ir.ui.view">
+        <field name="name">trmnl.profile.form</field>
+        <field name="model">trmnl.profile</field>
+        <field name="arch" type="xml">
+            <form string="TRMNL Profile">
+                <header>
+                    <button
+                        name="action_render_preview"
+                        string="Render Preview"
+                        type="object"
+                        class="btn-primary"
+                        invisible="not app_model_id"
+                        help="Renders a new preview image and stores it in Odoo. The TRMNL device will download it automatically on its next poll."
+                    />
+                    <!-- URL warning near the render action so it is always visible -->
+                    <field
+                        name="url_warning"
+                        readonly="1"
+                        invisible="not url_warning"
+                        nolabel="1"
+                        style="color: #b45309; background: #fef3c7; padding: 4px 10px; border-radius: 4px; font-size: 12px;"
+                    />
+                </header>
+
+                <sheet>
+
+                    <!-- ── Identity ──────────────────────────────────── -->
+                    <group string="Identity">
+                        <field name="name"/>
+                        <field name="device_id"/>
+                        <field name="active" widget="boolean_toggle"/>
+                        <field name="sequence" invisible="1"/>
+                    </group>
+
+                    <!-- ── Data Source ───────────────────────────────── -->
+                    <group string="Data Source">
+                        <field name="app_model_name" invisible="1"/>
+                        <field name="available_view_types" invisible="1"/>
+
+                        <field
+                            name="app_model_id"
+                            string="Odoo Model"
+                            help="Select a business model to display on the device. Wizards, mixins, and technical system models are hidden."
+                        />
+                        <field
+                            name="trmnl_layout"
+                            string="View Type"
+                            widget="trmnl_layout_select"
+                            invisible="not app_model_id"
+                        />
+                        <field
+                            name="user_ids"
+                            string="Users"
+                            widget="many2many_tags"
+                            invisible="not app_model_id or not trmnl_layout"
+                            help="Records are fetched as these users (affects 'Assigned to Me' and uid in custom domains). Leave empty to use the current user."
+                        />
+                        <field
+                            name="layout_warning"
+                            invisible="not layout_warning"
+                            widget="char"
+                            readonly="1"
+                            class="text-warning"
+                        />
+                    </group>
+
+                    <!-- ── Calendar Settings ────────────────────────── -->
+                    <group string="Calendar Settings" invisible="not app_model_id or trmnl_layout != 'calendar'">
+                        <field name="calendar_view_mode" string="Calendar View"/>
+                        <field
+                            name="calendar_week_mode"
+                            string="Week Mode"
+                            invisible="calendar_view_mode != 'week'"
+                        />
+                        <field name="calendar_reference_mode" string="Reference"/>
+                        <field
+                            name="calendar_reference_date"
+                            string="Reference Date"
+                            invisible="calendar_reference_mode != 'custom'"
+                        />
+                    </group>
+
+                    <!-- ── Graph Settings ────────────────────────────── -->
+                    <group string="Graph Settings" invisible="not app_model_id or trmnl_layout != 'graph'">
+                        <field name="graph_type" string="Graph Type"/>
+                        <!-- Bar chart fields -->
+                        <field
+                            name="graph_groupby_field_id"
+                            string="Graph Group By"
+                            domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['char', 'text', 'selection', 'many2one', 'date', 'datetime', 'boolean', 'integer'])]"
+                            help="Field to group records by. Each distinct value becomes one bar."
+                            invisible="graph_type != 'bar'"
+                        />
+                        <field
+                            name="graph_measure_field_id"
+                            string="Measure (blank = Count)"
+                            domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['integer', 'float', 'monetary']), ('store', '=', True)]"
+                            help="Stored numeric field to sum per group. Leave empty to count records."
+                            invisible="graph_type != 'bar'"
+                        />
+                        <field name="graph_sort_order" string="Sort" invisible="graph_type != 'bar'"/>
+                        <field name="graph_max_groups" string="Max Bars" invisible="graph_type != 'bar'"/>
+                        <!-- Line chart fields -->
+                        <field
+                            name="line_date_field_id"
+                            string="Date Field"
+                            domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['date', 'datetime'])]"
+                            help="Date or datetime field used as the x-axis."
+                            invisible="graph_type != 'line'"
+                        />
+                        <field
+                            name="line_measure_field_id"
+                            string="Measure (blank = Count)"
+                            domain="[('model_id', '=', app_model_id), ('ttype', 'in', ['integer', 'float', 'monetary']), ('store', '=', True)]"
+                            help="Stored numeric field to sum per time bucket. Leave empty to count records."
+                            invisible="graph_type != 'line'"
+                        />
+                        <field name="line_date_groupby" string="Line Date Group By" invisible="graph_type != 'line'"/>
+                        <field name="line_max_points" string="Max Points" invisible="graph_type != 'line'"/>
+                        <!-- Shared -->
+                        <field name="graph_title" string="Chart Title"/>
+                    </group>
+
+                    <!-- ── Content ───────────────────────────────────── -->
+                    <group string="Content" invisible="not app_model_id or trmnl_layout not in ('list', 'kanban')">
+                        <field
+                            name="kanban_stage_field_id"
+                            string="Kanban Stage Field"
+                            invisible="trmnl_layout != 'kanban'"
+                            options="{'no_create': True}"
+                        />
+                        <field
+                            name="display_field_ids"
+                            string="Fields to Display"
+                            domain="[
+                                ('model_id', '=', app_model_id),
+                                ('ttype', 'not in', ['binary', 'html', 'one2many', 'many2many', 'serialized', 'reference'])
+                            ]"
+                            widget="many2many_tags"
+                            nolabel="1"
+                            help="List: first field is the title, next fields are metadata. Kanban: first field is the card title."
+                        />
+                    </group>
+
+                    <!-- ── Filters &amp; Sorting ──────────────────────── -->
+                    <group string="Filters &amp; Sorting" invisible="not app_model_id or not trmnl_layout">
+                        <field name="filter_preset" string="Quick Filter" invisible="trmnl_layout == 'calendar'"/>
+                        <field
+                            name="filter_domain"
+                            string="Domain Filter"
+                            widget="domain"
+                            options='{"model": "app_model_name"}'
+                            help='Extra filter applied on top of Quick Filter using AND.&#10;Example: [("user_id", "=", uid), ("stage_id.name", "!=", "Done")]&#10;Supports: uid, context_today(), True, False.'
+                        />
+                        <field
+                            name="display_order"
+                            string="Sort Order"
+                            placeholder="e.g. date_deadline desc, name asc"
+                            help="Raw ORDER BY clause passed to the Odoo search."
+                            invisible="trmnl_layout == 'graph'"
+                        />
+                        <field
+                            name="display_limit"
+                            string="Max Records"
+                            invisible="trmnl_layout == 'graph'"
+                        />
+                    </group>
+
+                    <!-- ── Preview ───────────────────────────────────── -->
+                    <group string="Preview" invisible="not preview_image">
+                        <field name="preview_generated_at" readonly="1"/>
+                        <field name="preview_image" invisible="1"/>
+                        <field
+                            name="preview_image_html"
+                            widget="html"
+                            readonly="1"
+                            nolabel="1"
+                            colspan="2"
+                        />
+                    </group>
+
+                    <!-- ── Device Delivery Status ────────────────────── -->
+                    <group
+                        string="Device Delivery Status"
+                        help="Device refresh rate is managed on the linked Device record under Devices → Refresh Rate."
+                    >
+                        <field name="device_last_polled_at" readonly="1" string="Device Last Polled"/>
+                        <field name="device_next_expected_poll_at" readonly="1" string="Next Expected Poll"/>
+                        <field name="device_refresh_rate" readonly="1" string="Device Refresh Rate"/>
+                        <field
+                            name="display_image_url"
+                            readonly="1"
+                            widget="url"
+                            string="Image URL"
+                            invisible="not display_image_url"
+                        />
+                    </group>
+
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Search -->
+    <record id="trmnl_profile_view_search" model="ir.ui.view">
+        <field name="name">trmnl.profile.view.search</field>
+        <field name="model">trmnl.profile</field>
+        <field name="arch" type="xml">
+            <search string="TRMNL Profiles">
+                <field
+                    name="name"
+                    string="Profile or Device"
+                    filter_domain="[
+                        '|', '|',
+                        ('name', 'ilike', self),
+                        ('device_id.device_name', 'ilike', self),
+                        ('device_id.mac_address', 'ilike', self)
+                    ]"
+                />
+                <field name="device_id" string="Device"/>
+                <field name="trmnl_layout" string="View Type"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="trmnl_profile_action_profiles" model="ir.actions.act_window">
+        <field name="name">Profiles</field>
+        <field name="res_model">trmnl.profile</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="trmnl_profile_view_search"/>
+    </record>
+
+</odoo>

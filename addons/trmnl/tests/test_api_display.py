@@ -162,6 +162,47 @@ class TestTrmnlDisplayErrorPolicyApi(HttpCase, TrmnlApiHttpCaseMixin):
         self._assert_display_success_payload(display_payload, refreshed_device.image_url)
         self.assertEqual(refreshed_device.last_api_call, LAST_API_CALL_DISPLAY)
 
+    def test_api_display_returns_profile_image_url_and_filename(self):
+        """Accepted device with a profile must return profile URL/filename, not defaults."""
+        self._set_display_policy(DISPLAY_POLICY_ERROR)
+        self.env["ir.config_parameter"].sudo().set_param(
+            "web.base.url", "http://192.168.1.50:8069"
+        )
+
+        setup_context = self._register_device_through_setup()
+        device = setup_context["device"]
+        api_token = setup_context["api_token"]
+        partner_model = self.env["ir.model"].sudo().search(
+            [("model", "=", "res.partner")], limit=1
+        )
+        profile = self.env["trmnl.profile"].sudo().create({
+            "name": "Display payload",
+            "device_id": device.id,
+            "app_model_id": partner_model.id,
+            "trmnl_layout": "list",
+            "filter_preset": "none",
+        })
+        profile._render_and_store_preview()
+
+        display_response = self.url_open(
+            "/api/display",
+            headers=self._display_headers(api_token, device.mac_address),
+        )
+        payload = self._response_json(display_response)
+
+        self.assertEqual(payload.get("status"), 0)
+        image_url = payload.get("image_url") or ""
+        filename = payload.get("filename") or ""
+        self.assertIn(f"/api/profile/image/{profile.id}", image_url)
+        self.assertIn("?v=", image_url)
+        self.assertIn("access_token=", image_url)
+        self.assertTrue(filename)
+        self.assertNotEqual(filename, self.EXPECTED_FILENAME)
+
+        device.invalidate_recordset()
+        self.assertIn(f"/api/profile/image/{profile.id}", device.image_url or "")
+        self.assertEqual(device.filename, filename)
+
     def test_api_display_returns_desired_refresh_rate_not_reported_rate(self):
         """The display response must carry the admin-set rate, not the device-reported rate."""
         self._set_display_policy(DISPLAY_POLICY_ERROR)

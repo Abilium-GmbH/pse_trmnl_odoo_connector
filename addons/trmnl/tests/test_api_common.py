@@ -1,23 +1,23 @@
 """Shared utilities for TRMNL API HTTP response tests."""
 
 import json
+from urllib.parse import urlencode
 
 from odoo.addons.trmnl.models.trmnl_device import (
+    APPROVAL_STATE_ACCEPTED,
+    APPROVAL_STATE_TOKEN_MISMATCH,
+    APPROVAL_STATE_UNKNOWN_DEVICE,
+    DEFAULT_FILENAME,
     DEFAULT_REFRESH_RATE,
+    DISPLAY_POLICY_AUTO_ACCEPT,
+    DISPLAY_POLICY_ERROR,
+    DISPLAY_POLICY_FACTORY_RESET,
+    TRMNL_POLICY_PARAM,
     UNAUTHORIZED_IMAGE_FILENAME,
 )
 
-DISPLAY_POLICY_PARAMETER = "trmnl.display_unknown_device_policy"
-
-DISPLAY_POLICY_ERROR = "error"
-
-DISPLAY_POLICY_AUTO_ACCEPT = "auto_accept"
-
-DISPLAY_POLICY_FACTORY_RESET = "factory_reset"
-
-APPROVAL_STATE_ACCEPTED = "accepted"
-APPROVAL_STATE_TOKEN_MISMATCH = "token_mismatch"
-APPROVAL_STATE_UNKNOWN_DEVICE = "unknown_device"
+# Backward-compatible aliases for tests that import these names from here.
+DISPLAY_POLICY_PARAMETER = TRMNL_POLICY_PARAM
 
 
 class TrmnlApiHttpCaseMixin:
@@ -25,7 +25,7 @@ class TrmnlApiHttpCaseMixin:
 
     DEVICE_MAC_ADDRESS = "AA:BB:CC:DD:EE:FF"
     DEVICE_FIRMWARE_VERSION = "1.5.2"
-    DEVICE_REFRESH_RATE = 60    # 1 minute — matches DEFAULT_REFRESH_RATE
+    DEVICE_REFRESH_RATE = 60   # 1 minute — matches DEFAULT_REFRESH_RATE
     DEVICE_BATTERY_VOLTAGE = "4.1"
     DEVICE_RSSI = "-69"
     DEVICE_WIDTH = "800"
@@ -34,7 +34,7 @@ class TrmnlApiHttpCaseMixin:
     UNKNOWN_DEVICE_TOKEN = "unknown-device-token"
     BAD_TOKEN = "bad-token"
     EMPTY_TOKEN = ""
-    EXPECTED_FILENAME = "default_screen.bmp"
+    EXPECTED_FILENAME = DEFAULT_FILENAME
 
     def _response_status(self, http_response):
         """Return the HTTP status code for a ``url_open`` response."""
@@ -84,6 +84,16 @@ class TrmnlApiHttpCaseMixin:
             "Width": self.DEVICE_WIDTH,
             "Height": self.DEVICE_HEIGHT,
         }
+
+    def _profile_image_path(self, profile_id, api_token, *, version=None):
+        """Build the profile image URL path including device auth token."""
+        params = {}
+        if version:
+            params["v"] = version
+        if api_token:
+            params["access_token"] = api_token
+        query = urlencode(params)
+        return f"/api/profile/image/{profile_id}?{query}" if query else f"/api/profile/image/{profile_id}"
 
     def _display_headers_with_rate(self, token, mac, refresh_rate):
         """Return display request headers with the device-reported refresh rate."""

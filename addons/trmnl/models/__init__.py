@@ -1,4 +1,5 @@
 from . import trmnl_device
+from . import trmnl_image
 from . import trmnl_device_security
 from . import trmnl_device_lifecycle
 from . import trmnl_device_telemetry
@@ -6,4 +7,9 @@ from . import trmnl_device_display
 from . import trmnl_device_log
 from . import trmnl_device_ui
 from . import trmnl_device_wizard
-from . import trmnl_image
+from . import trmnl_profile
+from . import trmnl_profile_render
+from . import trmnl_profile_render_list
+from . import trmnl_profile_render_calendar
+from . import trmnl_profile_render_graph
+from . import trmnl_data_watcher

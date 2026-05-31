@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 
+from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
+
+_logger = logging.getLogger(__name__)
 
 
 class TrmnlApiControllerMixin:
@@ -35,3 +39,25 @@ class TrmnlApiControllerMixin:
             ],
             status=status,
         )
+
+    @staticmethod
+    def _handle_api_exception(endpoint, masked_mac, exc, error_response, *, debug=False):
+        if isinstance(exc, (ValidationError, UserError)):
+            _logger.info(
+                "TRMNL %s rejected mac=%s: %s",
+                endpoint,
+                masked_mac,
+                exc,
+            )
+            return error_response
+
+        _logger.error(
+            "TRMNL %s failed for mac=%s: %s",
+            endpoint,
+            masked_mac,
+            exc,
+            exc_info=True,
+        )
+        if debug:
+            raise
+        return error_response

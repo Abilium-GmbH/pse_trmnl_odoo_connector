@@ -18,6 +18,7 @@ from .trmnl_device import (
     LAST_API_CALL_SETUP,
     UNAUTHORIZED_IMAGE_FILENAME,
     UNAUTHORIZED_IMAGE_STATIC_PATH,
+    TRMNL_POLICY_PARAM,
 )
 from .trmnl_image import DEFAULT_IMAGE_CONFIG_KEY, UNAUTHORIZED_IMAGE_CONFIG_KEY
 
@@ -49,7 +50,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         """Return the configured default policy for unresolved display polls."""
         config_parameter = self.env["ir.config_parameter"].sudo()
         policy = config_parameter.get_param(
-            "trmnl.display_unknown_device_policy",
+            TRMNL_POLICY_PARAM,
             DISPLAY_POLICY_ERROR,
         )
 
@@ -73,7 +74,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             raise ValidationError(_("Unsupported TRMNL display policy."))
 
         self.env["ir.config_parameter"].sudo().set_param(
-            "trmnl.display_unknown_device_policy",
+            TRMNL_POLICY_PARAM,
             policy,
         )
 
@@ -119,7 +120,11 @@ class TrmnlDeviceLifecycleMixin(models.Model):
 
         existing_device = self.sudo().search([("mac_address", "=", mac_address)], limit=1)
         if existing_device:
-            if existing_device.reset_pending:
+            # Allow re-registration for stub records (unknown_device) created by an
+            # unanswered display poll — the device was never properly registered on this
+            # server and setup is the correct way to claim it.
+            # Also allow when reset_pending is set (admin-initiated factory reset).
+            if existing_device.reset_pending or existing_device.approval_state == APPROVAL_STATE_UNKNOWN_DEVICE:
                 existing_device.unlink()
             else:
                 raise ValidationError(
@@ -186,7 +191,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             self._apply_telemetry_to_values(update_values, headers)
             if presented_token:
                 update_values.update(self._hash_presented_token(presented_token))
-            existing_device.with_context(trmnl_allow_identity_update=True).write(update_values)
+            existing_device.write(update_values)
             return existing_device
 
         create_values = {
@@ -242,7 +247,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         if presented_token:
             update_values.update(self._hash_presented_token(presented_token))
 
-        device.with_context(trmnl_allow_identity_update=True).write(update_values)
+        device.write(update_values)
         return device
 
     # ------------------------------------------------------------------
@@ -280,7 +285,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
             self._apply_telemetry_to_values(update_values, headers)
             update_values.update(self._hash_api_token(token_value))
             update_values.update(self._default_image_field_values())
-            device.with_context(trmnl_allow_identity_update=True).write(update_values)
+            device.write(update_values)
             return device, "updated"
 
         create_values = {
@@ -319,7 +324,7 @@ class TrmnlDeviceLifecycleMixin(models.Model):
         }
         update_values.update(self._default_image_field_values())
 
-        self.with_context(trmnl_allow_identity_update=True).write(update_values)
+        self.write(update_values)
         return self
 
     # ------------------------------------------------------------------

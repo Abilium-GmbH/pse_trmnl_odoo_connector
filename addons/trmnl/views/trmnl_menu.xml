@@ -5,6 +5,8 @@
         id="trmnl_menu_root"
         name="TRMNL"
         sequence="10"
+        web_icon="trmnl,static/description/icon.png"
+        groups="base.group_system"
     />
 
     <menuitem
@@ -13,6 +15,14 @@
         parent="trmnl_menu_root"
         action="trmnl_device_action_devices"
         sequence="10"
+    />
+    
+    <menuitem
+        id="trmnl_menu_profiles"
+        name="Profiles"
+        parent="trmnl_menu_root"
+        action="trmnl_profile_action_profiles"
+        sequence="15"
     />
 
     <record id="trmnl_display_policy_wizard_action" model="ir.actions.act_window">

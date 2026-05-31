@@ -9,6 +9,7 @@ import hmac
 import secrets
 
 from odoo import api, models
+from odoo.exceptions import ValidationError
 
 from .trmnl_device import API_TOKEN_BYTES, API_TOKEN_PBKDF2_ITERATIONS
 
@@ -90,7 +91,7 @@ class TrmnlDeviceSecurityMixin(models.Model):
         """Persist a raw token as the accepted token on the current record."""
         self.ensure_one()
         token_values = self._hash_api_token(raw_token)
-        self.with_context(trmnl_allow_identity_update=True).write(token_values)
+        self.write(token_values)
         return self
 
     @api.model
@@ -127,13 +128,6 @@ class TrmnlDeviceSecurityMixin(models.Model):
             "last_presented_token_salt": base64.b64encode(salt_bytes).decode("ascii"),
         }
 
-    def _store_presented_token(self, raw_token):
-        """Persist a raw presented token (hashed) on the current record."""
-        self.ensure_one()
-        presented_values = self._hash_presented_token(raw_token)
-        self.with_context(trmnl_allow_identity_update=True).write(presented_values)
-        return self
-
     def _verify_presented_token(self, raw_token):
         """Verify a token against the stored last-presented token hash material."""
         self.ensure_one()
@@ -169,13 +163,12 @@ class TrmnlDeviceSecurityMixin(models.Model):
         self.ensure_one()
 
         if not self.last_presented_token_hash or not self.last_presented_token_salt:
-            from odoo.exceptions import ValidationError
             raise ValidationError(
                 "Cannot accept this device: no presented token has been recorded. "
                 "The device must attempt a display poll before it can be accepted."
             )
 
-        self.with_context(trmnl_allow_identity_update=True).write({
+        self.write({
             "api_token_hash": self.last_presented_token_hash,
             "api_token_salt": self.last_presented_token_salt,
             "last_presented_token_hash": False,

@@ -220,10 +220,33 @@
         </field>
     </record>
 
+    <!-- Search -->
+    <record id="trmnl_profile_view_search" model="ir.ui.view">
+        <field name="name">trmnl.profile.view.search</field>
+        <field name="model">trmnl.profile</field>
+        <field name="arch" type="xml">
+            <search string="TRMNL Profiles">
+                <field
+                    name="name"
+                    string="Profile or Device"
+                    filter_domain="[
+                        '|', '|',
+                        ('name', 'ilike', self),
+                        ('device_id.device_name', 'ilike', self),
+                        ('device_id.mac_address', 'ilike', self)
+                    ]"
+                />
+                <field name="device_id" string="Device"/>
+                <field name="trmnl_layout" string="View Type"/>
+            </search>
+        </field>
+    </record>
+
     <record id="trmnl_profile_action_profiles" model="ir.actions.act_window">
         <field name="name">Profiles</field>
         <field name="res_model">trmnl.profile</field>
         <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="trmnl_profile_view_search"/>
     </record>
 
 </odoo>

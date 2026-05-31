@@ -449,7 +449,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
             if device.approval_state != APPROVAL_STATE_ACCEPTED:
                 if debug:
                     _logger.info("TRMNL API DEBUG display: outcome=not_accepted state=%s", device.approval_state)
-                device.with_context(trmnl_allow_identity_update=True).write(
+                device.write(
                     {
                         "last_seen_at": fields.Datetime.now(),
                         "last_api_call": LAST_API_CALL_DISPLAY,

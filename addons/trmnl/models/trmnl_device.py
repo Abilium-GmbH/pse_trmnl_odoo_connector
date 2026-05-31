@@ -239,7 +239,7 @@ class TrmnlDevice(models.Model):
     )
 
     accepted_at = fields.Datetime(string="Accepted At", readonly=True, copy=False)
-    
+
     added_at = fields.Datetime(
         string="Added At",
         readonly=True,
@@ -494,6 +494,29 @@ class TrmnlDevice(models.Model):
     def _utc_now():
         """Return a naive UTC datetime for use in timestamps."""
         return datetime.now(timezone.utc).replace(tzinfo=None)
+
+    def _compute_display_name(self):
+        """Render a human-readable label for UI widgets and form titles.
+
+        Returns ``device_name`` when set, falling back to ``mac_address``.
+        ``_rec_name`` remains ``mac_address`` so ORM-level behaviour (search,
+        groupby, CSV export) is unaffected; only the UI rendering changes.
+        """
+        for device in self:
+            device.display_name = device.device_name or device.mac_address
+
+    @api.model
+    def _name_search(self, name="", domain=None, operator="ilike", limit=100, order=None):
+        """Search by device_name or mac_address so Many2one pickers match both."""
+        if name:
+            domain = list(domain or [])
+            domain = [
+                "|",
+                ("device_name", operator, name),
+                ("mac_address", operator, name),
+            ] + domain
+            return self._search(domain, limit=limit, order=order)
+        return super()._name_search(name=name, domain=domain, operator=operator, limit=limit, order=order)
 
     @staticmethod
     def _parse_to_string(value):

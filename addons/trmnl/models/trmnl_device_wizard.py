@@ -30,17 +30,6 @@ class TrmnlDeviceActionWizardMixin(models.AbstractModel):
         ondelete="cascade",
         readonly=True,
     )
-    device_display_name = fields.Char(
-        string="Device Display Name",
-        compute="_compute_device_display_name",
-        readonly=True,
-    )
-
-    def _compute_device_display_name(self):
-        """Derive a human-readable label from the linked device."""
-        for wizard in self:
-            device = wizard.device_id
-            wizard.device_display_name = device.device_name or device.mac_address
 
     @staticmethod
     def _redirect_to_device_list():

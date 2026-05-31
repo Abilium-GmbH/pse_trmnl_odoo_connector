@@ -66,7 +66,6 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         now_value = fields.Datetime.now()
         self.write(
             {
-                "last_display_at": now_value,
                 "last_poll_at": now_value,
                 "last_seen_at": now_value,
                 "last_api_call": LAST_API_CALL_DISPLAY,

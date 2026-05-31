@@ -224,9 +224,20 @@ class TrmnlDevice(models.Model):
         copy=False,
     )
 
-    last_seen_at = fields.Datetime(string="Last Seen At", readonly=True, copy=False)
-    last_display_at = fields.Datetime(string="Last Display At", readonly=True, copy=False)
-    last_poll_at = fields.Datetime(string="Last Poll At", readonly=True, copy=False)
+    last_seen_at = fields.Datetime(
+        string="Last Seen At",
+        readonly=True, 
+        copy=False,
+        help="The last time the device contacted any endpoint.",
+    )
+
+    last_poll_at = fields.Datetime(
+        string="Last Poll At",
+        readonly=True,
+        copy=False,
+        help="The last time the device got a successful /api/display response.",
+    )
+
     accepted_at = fields.Datetime(string="Accepted At", readonly=True, copy=False)
     
     added_at = fields.Datetime(

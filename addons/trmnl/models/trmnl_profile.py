@@ -279,7 +279,7 @@ class TrmnlProfile(models.Model):
 
     device_last_polled_at = fields.Datetime(
         string="Device Last Polled",
-        related="device_id.last_display_at",
+        related="device_id.last_poll_at",
         readonly=True,
     )
     device_refresh_rate = fields.Integer(
@@ -661,10 +661,10 @@ class TrmnlProfile(models.Model):
     # computed delivery-status fields
     # ------------------------------------------------------------------
 
-    @api.depends("device_id.last_display_at", "device_id.desired_refresh_rate")
+    @api.depends("device_id.last_poll_at", "device_id.desired_refresh_rate")
     def _compute_device_next_expected_poll_at(self):
         for rec in self:
-            last = rec.device_id.last_display_at
+            last = rec.device_id.last_poll_at
             rate = rec.device_id.desired_refresh_rate
             if last and rate:
                 rec.device_next_expected_poll_at = last + timedelta(seconds=rate)

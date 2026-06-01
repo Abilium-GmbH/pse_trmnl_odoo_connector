@@ -144,21 +144,45 @@ class TrmnlProfileRenderMixin(models.Model):
     # calendar data extraction (ORM records → plain Python dicts)
     # ------------------------------------------------------------------
 
+    def _user_timezone(self):
+        """Return the timezone to render in, falling back to UTC.
+
+        Device polls hit /api/display as the public user (no tz configured), so the
+        timezone is taken from the profile's creator (create_uid) rather than
+        self.env.user.  The backend preview path resolves the same way, so both
+        contexts agree and the device matches what the user configured.
+        """
+        tz_name = (self.create_uid.tz or self.env.user.tz or "UTC")
+        try:
+            return ZoneInfo(tz_name)
+        except Exception:
+            return ZoneInfo("UTC")
+
     def _prepare_calendar_data(self, records) -> list[dict]:
         """Extract plain event dicts from calendar.event ORM records.
 
         All ORM access is isolated in this method so the Layer 2 renderer
-        receives only plain Python dicts with no ORM references.
-        Times are in the server timezone (UTC).
+        receives only plain Python dicts with no ORM references.  Odoo stores
+        datetimes as naive UTC; timed events are converted to the user's
+        configured timezone so rendered times match the user's calendar.
+        All-day events carry a date/midnight marker and are left unshifted.
         """
+        user_tz = self._user_timezone()
+        utc = ZoneInfo("UTC")
         events = []
         for rec in records:
             try:
                 start = rec.start
                 if not start:
                     continue
-                start_date = start.date() if hasattr(start, "date") and callable(start.date) else start
-                time_str = start.strftime("%H:%M") if hasattr(start, "hour") else ""
+                if getattr(rec, "allday", False):
+                    # All-day: start is a date/midnight marker — do not tz-shift.
+                    start_date = start.date() if hasattr(start, "date") and callable(start.date) else start
+                    time_str = ""
+                else:
+                    start_local = start.replace(tzinfo=utc).astimezone(user_tz).replace(tzinfo=None)
+                    start_date = start_local.date()
+                    time_str = start_local.strftime("%H:%M")
                 events.append({
                     "title":    rec.display_name or "",
                     "start":    start_date,
@@ -177,11 +201,7 @@ class TrmnlProfileRenderMixin(models.Model):
         All ORM access is isolated here so the Layer 2 renderer receives only
         plain Python dicts with naive local-time datetimes.
         """
-        user_tz_name = (self.env.user.tz or "UTC") if self.env.user else "UTC"
-        try:
-            user_tz = ZoneInfo(user_tz_name)
-        except Exception:
-            user_tz = ZoneInfo("UTC")
+        user_tz = self._user_timezone()
         utc = ZoneInfo("UTC")
 
         events = []
@@ -215,10 +235,9 @@ class TrmnlProfileRenderMixin(models.Model):
 
     def _resolve_local_today(self) -> date:
         """Return today's date in the user's configured timezone."""
-        user_tz_name = (self.env.user.tz or "UTC") if self.env.user else "UTC"
         try:
             from datetime import datetime as _dt
-            return _dt.now(ZoneInfo(user_tz_name)).date()
+            return _dt.now(self._user_timezone()).date()
         except Exception:
             return date.today()
 
@@ -727,12 +746,11 @@ class TrmnlProfileRenderMixin(models.Model):
     # display footer compositing
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _format_poll_timestamp(device_label, poll_at):
-        """Return the footer label string in Europe/Zurich local time."""
-        zurich = ZoneInfo("Europe/Zurich")
-        local_dt = poll_at.replace(tzinfo=timezone.utc).astimezone(zurich)
-        return f"{device_label} · Last poll: {local_dt.strftime('%Y-%m-%d %H:%M')}"
+    def _format_last_update_timestamp(self, device_label, updated_at):
+        """Return the footer label string in the user's local timezone."""
+        user_tz = self._user_timezone()
+        local_dt = updated_at.replace(tzinfo=timezone.utc).astimezone(user_tz)
+        return f"{device_label} · Last update: {local_dt.strftime('%d.%m.%Y, %H:%M')}"
 
     def _get_footer_device_label(self):
         """Human-readable device label for the footer.
@@ -759,7 +777,7 @@ class TrmnlProfileRenderMixin(models.Model):
 
         poll_at = dev.last_poll_at
         label = (
-            self._format_poll_timestamp(self._get_footer_device_label(), poll_at)
+            self._format_last_update_timestamp(self._get_footer_device_label(), poll_at)
             if poll_at
             else None
         )

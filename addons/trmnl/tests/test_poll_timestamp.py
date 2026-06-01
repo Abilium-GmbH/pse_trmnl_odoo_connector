@@ -29,43 +29,74 @@ def _content_sized_white_png():
 
 
 @tagged("-at_install", "post_install")
-class TestFormatPollTimestamp(TransactionCase):
-    """Unit tests for TrmnlProfile._format_poll_timestamp()."""
+class TestFormatLastUpdateTimestamp(TransactionCase):
+    """Unit tests for TrmnlProfile._format_last_update_timestamp()."""
 
-    def _get_profile_class(self):
+    def _get_profile(self):
         return self.env["trmnl.profile"].sudo()
 
     def test_winter_utc_plus_one(self):
-        """January → UTC+1, so 14:00 UTC becomes 15:00 Zurich."""
+        """January → UTC+1, so 14:00 UTC becomes 15:00 in Zurich tz."""
+        self.env.user.tz = "Europe/Zurich"
         poll_at = dt.datetime(2026, 1, 15, 14, 0, 0)
-        result = self._get_profile_class()._format_poll_timestamp("Dev", poll_at)
-        self.assertIn("2026-01-15 15:00", result)
+        result = self._get_profile()._format_last_update_timestamp("Dev", poll_at)
+        self.assertIn("15.01.2026, 15:00", result)
 
     def test_summer_utc_plus_two(self):
-        """July → UTC+2, so 12:00 UTC becomes 14:00 Zurich."""
+        """July → UTC+2, so 12:00 UTC becomes 14:00 in Zurich tz."""
+        self.env.user.tz = "Europe/Zurich"
         poll_at = dt.datetime(2026, 7, 10, 12, 0, 0)
-        result = self._get_profile_class()._format_poll_timestamp("Dev", poll_at)
-        self.assertIn("2026-07-10 14:00", result)
+        result = self._get_profile()._format_last_update_timestamp("Dev", poll_at)
+        self.assertIn("10.07.2026, 14:00", result)
+
+    def test_uses_user_timezone(self):
+        """A different user tz (New York, UTC-4 in May) shifts the time."""
+        self.env.user.tz = "America/New_York"
+        poll_at = dt.datetime(2026, 5, 11, 16, 0, 0)
+        result = self._get_profile()._format_last_update_timestamp("Dev", poll_at)
+        self.assertIn("11.05.2026, 12:00", result)
+
+    def test_falls_back_to_utc_without_user_tz(self):
+        """No configured user tz → render in UTC unchanged."""
+        self.env.user.tz = False
+        poll_at = dt.datetime(2026, 5, 11, 16, 42, 0)
+        result = self._get_profile()._format_last_update_timestamp("Dev", poll_at)
+        self.assertIn("11.05.2026, 16:42", result)
 
     def test_label_included(self):
         """Device label appears before the timestamp."""
         poll_at = dt.datetime(2026, 5, 11, 10, 0, 0)
-        result = self._get_profile_class()._format_poll_timestamp("Lobby Display", poll_at)
-        self.assertTrue(result.startswith("Lobby Display · Last poll:"))
+        result = self._get_profile()._format_last_update_timestamp("Lobby Display", poll_at)
+        self.assertTrue(result.startswith("Lobby Display · Last update:"))
 
     def test_format_structure(self):
-        """Full format: '<label> · Last poll: YYYY-MM-DD HH:MM'."""
+        """Full format: '<label> · Last update: DD.MM.YYYY, HH:MM'."""
         poll_at = dt.datetime(2026, 5, 11, 16, 42, 0)
-        result = self._get_profile_class()._format_poll_timestamp("X", poll_at)
-        self.assertRegex(result, r"^.+ · Last poll: \d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
+        result = self._get_profile()._format_last_update_timestamp("X", poll_at)
+        self.assertRegex(result, r"^.+ · Last update: \d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}$")
 
     def test_format_accepts_mac_as_label(self):
         """Arbitrary label string (e.g. MAC) is embedded verbatim."""
         mac = "AA:BB:CC:DD:EE:02"
         poll_at = dt.datetime(2026, 5, 11, 10, 0, 0)
-        result = self._get_profile_class()._format_poll_timestamp(mac, poll_at)
+        result = self._get_profile()._format_last_update_timestamp(mac, poll_at)
         self.assertIn(mac, result)
-        self.assertIn("Last poll:", result)
+        self.assertIn("Last update:", result)
+
+    def test_uses_profile_creator_timezone_when_current_user_has_none(self):
+        """Device renders as a tz-less public user → fall back to creator's tz."""
+        owner = self.env["res.users"].create({
+            "name": "Zurich Owner", "login": "tz_owner", "tz": "Europe/Zurich",
+        })
+        device = self.env["trmnl.device"].sudo().create({
+            "mac_address": "AA:BB:CC:DD:EE:09", "approval_state": "accepted",
+        })
+        profile = self.env["trmnl.profile"].sudo().with_user(owner).create({
+            "name": "P", "device_id": device.id,
+        })
+        self.env.user.tz = False  # simulate the public/device render context
+        result = profile._format_last_update_timestamp("Dev", dt.datetime(2026, 7, 10, 12, 0, 0))
+        self.assertIn("10.07.2026, 14:00", result)  # UTC+2 in July
 
 
 @tagged("-at_install", "post_install")

@@ -1,6 +1,8 @@
 # Digital Signage Display System with TRMNL e-Ink Displays
 
-![](docs/assets/videos/trmnl_display.gif)
+<p align="center">
+  <img src="docs/assets/videos/trmnl_display.gif" width="400" alt=""/>
+</p>
 
 ## Project description
 

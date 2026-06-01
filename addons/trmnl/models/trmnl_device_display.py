@@ -226,15 +226,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
             "TRMNL display: using device fallback image_url=%r filename=%r for %s",
             self.image_url or "", self.filename or "", device_ref,
         )
-        fallback_url = self.image_url or ""
-        if profile and fallback_url and "/api/profile/image/" in fallback_url:
-            digest = profile._preview_png_digest()
-            query = profile._build_profile_image_query(version=digest)
-            if query and "access_token=" not in fallback_url:
-                parsed = _urlparse(fallback_url)
-                existing_query = parsed.query
-                merged_query = f"{existing_query}&{query}" if existing_query else query
-                fallback_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{merged_query}"
+        return self.image_url or "", self.filename or ""
 
     def build_reset_response(self):
         """Build the display payload that instructs the device to factory-reset.

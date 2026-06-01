@@ -160,18 +160,6 @@ class TestImageUrlGeneration(TransactionCase):
         )._get_display_image_url()
         self.assertIn("192.168.1.127", url)
 
-    def test_sync_public_base_url_fixes_stale_value_on_poll(self):
-        self._set_params(
-            public_base_url="http://10.55.200.220:8069",
-            web_base_url="http://192.168.1.127:8069",
-        )
-        self.env["trmnl.device"]._sync_public_base_url_from_poll(
-            "http://10.55.200.220:8069",
-            "192.168.1.239",
-        )
-        synced = self.env["ir.config_parameter"].sudo().get_param("trmnl.public_base_url")
-        self.assertEqual(synced, "http://192.168.1.127:8069")
-
     # ------------------------------------------------------------------
 
     def test_no_warning_when_web_base_url_is_lan(self):

@@ -4,23 +4,20 @@ This documentation provides an overview of the repository structure and explains
 
 ---
 
-# Overview of the Repository
+## Overview of the Repository
 
 ```text
 .
 ├── addons/
-│   └── trmnl/
-│       ├── controllers/
-│       ├── models/
-│       │   └── providers/
-│       ├── security/
-│       ├── tests/
-│       ├── views/
-│       ├── __init__.py
-│       └── __manifest__.py
-├── data/
+│   └── trmnl/                  # Main Odoo module
 ├── docs/
+│   ├── assets/videos/          # README demo media (e.g. trmnl_display.gif)
+│   ├── design_documentation.md
+│   ├── development.md
+│   ├── user_manual.md
+│   └── Repository Structure.md
 ├── scripts/
+│   └── odoo-dev.sh
 ├── compose.yaml
 ├── Dockerfile
 ├── LICENSE
@@ -31,394 +28,147 @@ This documentation provides an overview of the repository structure and explains
 
 ---
 
-# General Repository Structure
+## General Repository Structure
 
-## addons/
+### addons/
 
-The `addons` folder contains all custom Odoo modules of the project.  
-In this repository the main module is the `trmnl` module, which implements the communication between Odoo and the TRMNL e-ink displays.
+The `addons` folder contains all custom Odoo modules of the project. In this repository the main module is **trmnl**, which implements device communication, display profiles, and PNG rendering for TRMNL e-ink displays.
 
----
+### docs/
 
-## docs/
+Project documentation:
 
-The `docs` folder contains technical documentation and additional project-related explanations.
+- [user manual](user_manual.md) — installation, pairing, devices, profiles, troubleshooting
+- [design documentation](design_documentation.md) — architecture, API, security, data model
+- [development guide](development.md) — Docker workflow, Make targets, tests
+- [README](../README.md) — project overview and quick start
+- `assets/videos/` — media embedded in the README
 
----
+### scripts/
 
-## scripts/
+Helper scripts for development. `scripts/odoo-dev.sh` is invoked by the `Makefile` for start, watch, update, and test actions.
 
-The `scripts` folder contains helper scripts for development, deployment, automation, or maintenance tasks.
+### compose.yaml / Dockerfile
 
----
+Docker Compose stack (PostgreSQL + Odoo) and the custom Odoo image (fonts, Python dependencies from `requirements.txt`).
 
-## compose.yaml
+### Makefile
 
-Defines the Docker Compose setup used to run the application and its services locally or in development environments.
+Shortcuts for `make start`, `make watch`, `make test`, and related development tasks.
 
----
+### requirements.txt
 
-## Dockerfile
-
-Contains the instructions required to build the Docker image for the project.
-
----
-
-## Makefile
-
-Provides shortcuts for common development tasks such as starting containers, running tests, or formatting code.
+Python packages installed in the Odoo container (`pillow`, `requests`).
 
 ---
 
-## requirements.txt
-
-Lists all required Python dependencies for the project.
-
----
-
-# Structure of the TRMNL Module
+## Structure of the TRMNL Module
 
 ```text
 addons/trmnl/
-├── controllers/
-├── models/
-├── security/
+├── controllers/                # HTTP API endpoints
+├── models/                     # Business logic and ORM models
+├── security/                   # Access control
+├── static/                     # Icons, fonts, backend JS widgets
+├── views/                      # Odoo XML UI definitions
+├── trmnl_display_canvas.py     # Shared PIL canvas helpers
+├── trmnl_net.py                # URL / host reachability helpers
 ├── tests/
-├── views/
 ├── __init__.py
 └── __manifest__.py
 ```
 
-The `trmnl` module contains the complete implementation for managing TRMNL devices inside Odoo.
-
 ---
-
-# Content of the Folders
 
 ## controllers/
 
-The `controllers` folder contains all HTTP API endpoints that are used by the TRMNL displays to communicate with Odoo.
+HTTP endpoints called by TRMNL firmware and by devices downloading profile images.
 
-The controllers process incoming requests from the devices and return the required responses.
-
-### Main responsibilities
-
-- Device setup and registration
-- Display polling
-- Log ingestion
-- HTTP response handling
-- API request validation
-
-### Important files
-
-#### `device_setup_controller.py`
-
-Implements the `/api/setup` endpoint.
-
-Responsible for:
-
-- Registering new TRMNL devices
-- Generating API tokens
-- Returning the setup response to the device
-
----
-
-#### `device_display_controller.py`
-
-Implements the `/api/display` endpoint.
-
-Responsible for:
-
-- Handling display polling requests
-- Validating devices and tokens
-- Returning image URLs and display instructions
-- Sending identify or reset commands
-
----
-
-#### `device_log_controller.py`
-
-Implements the `/api/log` endpoint.
-
-Responsible for:
-
-- Receiving device logs
-- Validating authorization
-- Storing telemetry and log data
-
----
-
-#### `trmnl_api_base.py`
-
-Contains shared helper methods used by all controllers.
-
-Responsible for:
-
-- JSON response generation
-- Identifier masking for logs
-- Shared API utility functions
+| File | Endpoint | Purpose |
+|---|---|---|
+| `device_setup_controller.py` | `GET /api/setup` | Device registration and API token issuance |
+| `device_display_controller.py` | `GET /api/display` | Display polling, profile resolution, image URL |
+| `device_log_controller.py` | `POST /api/log` | Telemetry and firmware log ingestion |
+| `profile_image_controller.py` | `GET /api/profile/image/<id>` | Serve stored profile PNG to devices |
+| `trmnl_api_base.py` | — | Shared JSON response and logging helpers |
 
 ---
 
 ## models/
 
-The `models` folder contains the complete business logic and database models of the module.
+### Device subsystem
 
-This includes:
+| File | Purpose |
+|---|---|
+| `trmnl_device.py` | Core device fields, ORM overrides, refresh rate |
+| `trmnl_device_security.py` | API token generation, PBKDF2 hashing, verification |
+| `trmnl_device_lifecycle.py` | Registration, acceptance, stub creation, reset |
+| `trmnl_device_display.py` | Display response building and profile integration |
+| `trmnl_device_telemetry.py` | Header telemetry and `/api/log` ingestion |
+| `trmnl_device_log.py` | `trmnl.device.log` model |
+| `trmnl_device_ui.py` | Backend-only fields, list actions, button visibility |
+| `trmnl_device_wizard.py` | Accept, remove, reset, and display-policy wizards |
 
-- Device management
-- Security logic
-- Device lifecycle handling
-- Telemetry processing
-- Display response generation
-- Odoo backend functionality
+### Profile / renderer subsystem
 
----
-
-### Core Model Files
-
-#### `trmnl_device.py`
-
-Core device model of the module.
-
-Defines:
-
-- Device database fields
-- Device identity handling
-- Refresh rate configuration
-- Battery and telemetry fields
-- Validation logic
-- Helper methods
-
-This file represents the central TRMNL device object inside Odoo.
-
----
-
-#### `trmnl_device_security.py`
-
-Contains all API token and security-related functionality.
-
-Responsible for:
-
-- Token generation
-- PBKDF2 hashing
-- Token verification
-- Token promotion and adoption
-- Secure token storage
-
----
-
-#### `trmnl_device_lifecycle.py`
-
-Contains device registration and lifecycle logic.
-
-Responsible for:
-
-- Device registration via `/api/setup`
-- Unknown device handling
-- Token mismatch handling
-- Auto-accept logic
-- Factory reset policy
-- Manual device acceptance
-
----
-
-#### `trmnl_device_display.py`
-
-Contains logic for handling display requests and generating display responses.
-
-Responsible for:
-
-- Display payload generation
-- Display request resolution
-- Identify command handling
-- Error response handling
-- Display policy execution
-
----
-
-#### `trmnl_device_telemetry.py`
-
-Handles telemetry processing and log ingestion.
-
-Responsible for:
-
-- Parsing telemetry headers
-- Updating device telemetry values
-- Processing `/api/log` payloads
-- Creating log entries
-- Updating device activity statistics
-
----
-
-#### `trmnl_device_log.py`
-
-Defines the database model for stored device log entries.
-
-Responsible for:
-
-- Storing device logs
-- Log metadata
-- Readable log labels
-- Log relationships to devices
-
----
-
-#### `trmnl_device_ui.py`
-
-Contains Odoo backend UI extensions and actions.
-
-Responsible for:
-
-- Backend-only helper fields
-- Device ordering
-- Button visibility logic
-- Identify actions
-- Opening wizards and forms
-
----
-
-#### `trmnl_device_wizard.py`
-
-Contains transient models for backend confirmation dialogs and management wizards.
-
-Responsible for:
-
-- Accept device wizard
-- Remove device wizard
-- Reset device wizard
-- Display policy wizard
+| File | Purpose |
+|---|---|
+| `trmnl_profile.py` | Profile fields, domain building, model selector, image URLs |
+| `trmnl_profile_render.py` | Render orchestration, PNG persistence, auto-refresh timing |
+| `trmnl_profile_render_list.py` | List and kanban PIL renderers |
+| `trmnl_profile_render_calendar.py` | Month and week calendar PIL renderers |
+| `trmnl_profile_render_graph.py` | Bar and line chart PIL renderers |
+| `trmnl_image.py` | Default screen seeding on module install |
+| `trmnl_data_watcher.py` | Detect source-record changes for re-render |
 
 ---
 
 ## security/
 
-The `security` folder contains access control and permission configuration for Odoo.
-
-### Important files
-
-#### `ir.model.access.csv`
-
-Defines which users and groups are allowed to:
-
-- Read records
-- Create records
-- Modify records
-- Delete records
-
----
-
-## tests/
-
-The `tests` folder contains automated test cases for the TRMNL module.
-
-The tests verify:
-
-- API behavior
-- Device registration
-- Display communication
-- Log handling
-- Refresh rate logic
-- Security functionality
-
----
-
-### Important test files
-
-#### `test_api_setup.py`
-
-Tests the `/api/setup` endpoint.
-
----
-
-#### `test_api_display.py`
-
-Tests the `/api/display` endpoint and all display policies.
-
----
-
-#### `test_api_log.py`
-
-Tests the `/api/log` endpoint and log storage.
-
----
-
-#### `test_device_refresh_rate.py`
-
-Tests refresh rate calculations, validation, and UI conversion logic.
-
----
-
-#### `test_api_common.py`
-
-Contains shared utilities and helper functions used by all API tests.
+`ir.model.access.csv` restricts backend access to Settings / Administrator users (`base.group_system`). Device-facing API routes use `auth="public"` with application-layer token checks.
 
 ---
 
 ## views/
 
-The `views` folder contains all XML definitions for the Odoo backend user interface.
-
-This includes:
-
-- Form views
-- List views
-- Menu entries
-- Wizard dialogs
-- Action definitions
-
-### Important files
-
-#### `trmnl_device_views.xml`
-
-Defines the main device views inside Odoo.
+| File | Purpose |
+|---|---|
+| `trmnl_device_views.xml` | Device list and form views |
+| `trmnl_device_wizard_views.xml` | Device action and display-policy wizards |
+| `trmnl_profile_views.xml` | Profile list and form views |
+| `trmnl_menu.xml` | TRMNL menu: Devices, Profiles, Display Policy |
 
 ---
 
-#### `trmnl_device_wizard_views.xml`
+## static/
 
-Defines the wizard dialog views.
-
----
-
-#### `trmnl_menu.xml`
-
-Defines the navigation menu entries for the module.
+- `description/` — module icon shown in Odoo Apps
+- `fonts/` — TrueType fonts used by PIL renderers
+- `src/js/` — backend widget for layout selection
 
 ---
 
-# Module Configuration Files
+## tests/
 
-## `__manifest__.py`
+Automated tests under `addons/trmnl/tests/` cover:
 
-Defines the Odoo module configuration.
+- Device API endpoints (`test_api_*.py`)
+- Refresh rate logic (`test_device_refresh_rate.py`)
+- Profile rendering, filters, and view types (`test_profile_*.py`)
+- Chart data loading, image URLs, and device image sync
 
-Contains:
-
-- Module metadata
-- Dependencies
-- Loaded XML files
-- External Python dependencies
-- Version information
+Run the full suite with `make test`. See the [development guide](development.md) and [design documentation](design_documentation.md) for details.
 
 ---
 
-## `__init__.py`
+## Summary
 
-Initializes Python packages and imports submodules so they are loaded by Odoo.
+The repository follows a modular Odoo architecture:
 
----
+- **controllers/** — HTTP API and image delivery
+- **models/** — device lifecycle, security, profiles, and PIL rendering
+- **views/** — Odoo backend UI
+- **security/** — access permissions
+- **tests/** — automated API and renderer validation
 
-# Summary
-
-The repository is structured around a modular Odoo architecture.
-
-The TRMNL module itself is separated into multiple layers:
-
-- `controllers/` → HTTP API endpoints
-- `models/` → business logic and database models
-- `views/` → Odoo backend interface
-- `security/` → access permissions
-- `tests/` → automated validation and API testing
-
-This separation improves maintainability, readability, and scalability of the project.
+This separation keeps device protocol handling, business logic, rendering, and UI definitions maintainable as the module grows.

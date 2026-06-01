@@ -1,4 +1,4 @@
-# TRMNL Odoo Connector — Design Documentation
+# TRMNL Odoo Connector - Design Documentation
 
 ## Table of Contents
 
@@ -22,11 +22,11 @@
 
 ## Overview
 
-This module integrates [TRMNL](https://trmnl.com) e-ink display devices with Odoo 19. It acts as a self-hosted replacement for the TRMNL cloud, implementing the device-facing HTTP protocol (`/api/setup`, `/api/display`, `/api/log`) entirely within Odoo. Administrators manage devices, configure display content, and control access policy through the standard Odoo backend.  
+This module integrates [TRMNL](https://trmnl.com) e-ink display devices with Odoo 19. It acts as a self-hosted replacement for the TRMNL cloud, implementing the device-facing HTTP protocol (`/api/setup`, `/api/display`, `/api/log`) entirely within Odoo. Administrators manage devices, configure display content through **Profiles**, and control access policy through the standard Odoo backend.
 
-This design documentation reflects the current stage of the main branch as of 20.05.2026 and is subject to change.
+This design documentation reflects the current stage of the main branch as of June 2026 and is subject to change.
 
-The renderer subsystem — responsible for generating dynamic content per device — is actively being developed on the feature branch `feature/generic-trmnl-rendering-integration` and has not yet been merged into main. The `image_url` and `filename` fields currently serve static default values (`DEFAULT_IMAGE_URL`, `DEFAULT_FILENAME`). 
+The **Profile** renderer subsystem generates dynamic 1-bit PNG content per device from Odoo records (list, kanban, calendar, and graph layouts). See the [user manual](user_manual.md) for end-user workflow and the [README](../README.md) for setup and documentation links.
 
 **Technology stack:**
 - Odoo 19 (Python, XML views, ORM)
@@ -46,33 +46,53 @@ The renderer subsystem — responsible for generating dynamic content per device
 │       ├── __manifest__.py
 │       ├── controllers/
 │       │   ├── __init__.py
-│       │   ├── trmnl_api_base.py          # Shared controller helpers (mixin)
-│       │   ├── device_setup_controller.py # GET /api/setup
-│       │   ├── device_display_controller.py # GET /api/display
-│       │   └── device_log_controller.py   # POST /api/log
+│       │   ├── trmnl_api_base.py              # Shared controller helpers (mixin)
+│       │   ├── device_setup_controller.py     # GET /api/setup
+│       │   ├── device_display_controller.py   # GET /api/display
+│       │   ├── device_log_controller.py       # POST /api/log
+│       │   └── profile_image_controller.py    # GET /api/profile/image/<id>
 │       ├── models/
 │       │   ├── __init__.py
-│       │   ├── trmnl_device.py            # Core model, fields, ORM overrides
-│       │   ├── trmnl_device_security.py   # Token hashing and verification
-│       │   ├── trmnl_device_lifecycle.py  # Registration, acceptance, response builders
-│       │   ├── trmnl_device_telemetry.py  # Telemetry capture and log ingestion
-│       │   ├── trmnl_device_display.py    # Display request resolution and response builders
-│       │   ├── trmnl_device_ui.py         # Backend UI fields and actions
-│       │   ├── trmnl_device_log.py        # Device log entry model
-│       │   └── trmnl_device_wizard.py     # Confirmation wizards
+│       │   ├── trmnl_device.py                # Core device model, fields, ORM overrides
+│       │   ├── trmnl_device_security.py       # Token hashing and verification
+│       │   ├── trmnl_device_lifecycle.py        # Registration, acceptance, response builders
+│       │   ├── trmnl_device_telemetry.py      # Telemetry capture and log ingestion
+│       │   ├── trmnl_device_display.py        # Display resolution and profile integration
+│       │   ├── trmnl_device_ui.py             # Backend UI fields and actions
+│       │   ├── trmnl_device_log.py            # Device log entry model
+│       │   ├── trmnl_device_wizard.py         # Confirmation wizards
+│       │   ├── trmnl_profile.py               # Profile fields, domain building, data access
+│       │   ├── trmnl_profile_render.py        # Render orchestration and PNG persistence
+│       │   ├── trmnl_profile_render_list.py   # List and kanban PIL renderers
+│       │   ├── trmnl_profile_render_calendar.py # Calendar PIL renderers
+│       │   ├── trmnl_profile_render_graph.py  # Bar and line chart PIL renderers
+│       │   ├── trmnl_image.py                 # Default/fallback image seeding
+│       │   └── trmnl_data_watcher.py          # Source-data change detection for re-render
 │       ├── security/
 │       │   └── ir.model.access.csv
+│       ├── static/
+│       │   ├── description/                   # Module icon
+│       │   ├── fonts/                         # TrueType fonts for PIL renderers
+│       │   └── src/js/                        # Backend widgets (layout selector)
 │       ├── views/
 │       │   ├── trmnl_device_views.xml
 │       │   ├── trmnl_device_wizard_views.xml
+│       │   ├── trmnl_profile_views.xml
 │       │   └── trmnl_menu.xml
+│       ├── trmnl_display_canvas.py            # Shared PIL canvas helpers
+│       ├── trmnl_net.py                       # URL/base-host reachability helpers
 │       └── tests/
-│           ├── __init__.py
-│           ├── test_api_common.py          # Shared test helpers and mixins
+│           ├── test_api_common.py
 │           ├── test_api_setup.py
 │           ├── test_api_display.py
 │           ├── test_api_log.py
-│           └── test_device_refresh_rate.py
+│           ├── test_device_refresh_rate.py
+│           ├── test_profile_*.py                # Profile render, filters, view types
+│           ├── test_*_data_loading.py           # Graph/line data loading
+│           ├── test_display_image_quality.py
+│           ├── test_device_image_sync.py
+│           ├── test_calendar_device_image.py
+│           └── …                                # See Test Strategy section
 ├── compose.yaml
 ├── Dockerfile
 ├── requirements.txt
@@ -80,7 +100,11 @@ The renderer subsystem — responsible for generating dynamic content per device
 ├── scripts/
 │   └── odoo-dev.sh
 └── docs/
-    └── curl_commands.txt
+    ├── assets/videos/                         # README demo media
+    ├── design_documentation.md
+    ├── development.md
+    ├── user_manual.md
+    └── Repository Structure.md
 ```
 
 ---
@@ -89,7 +113,7 @@ The renderer subsystem — responsible for generating dynamic content per device
 
 ### Layering
 
-The module follows Odoo's conventional MVC structure with an additional horizontal decomposition of the model layer into focused mixins.
+The module follows Odoo's conventional MVC structure with an additional horizontal decomposition of the model layer into focused mixins, plus a profile renderer subsystem that turns Odoo records into 1-bit PNGs.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -97,17 +121,23 @@ The module follows Odoo's conventional MVC structure with an additional horizont
 │  DeviceSetupController                          │
 │  DeviceDisplayController                        │
 │  DeviceLogController                            │
-│         (all inherit TrmnlApiControllerMixin)   │
+│  ProfileImageController                         │
+│         (device controllers inherit             │
+│          TrmnlApiControllerMixin)               │
 └────────────────────┬────────────────────────────┘
                      │ calls model methods
 ┌────────────────────▼────────────────────────────┐
 │               trmnl.device model                │
-│  TrmnlDevice (core fields, ORM overrides)       │
-│  + TrmnlDeviceSecurityMixin  (_inherit)         │
-│  + TrmnlDeviceLifecycleMixin (_inherit)         │
-│  + TrmnlDeviceTelemetryMixin (_inherit)         │
-│  + TrmnlDeviceDisplayMixin   (_inherit)         │
-│  + TrmnlDeviceUiExtension    (_inherit)         │
+│  TrmnlDevice + security / lifecycle / telemetry │
+│  + display / UI mixins                          │
+│         │ resolves active trmnl.profile         │
+└─────────┼───────────────────────────────────────┘
+          │
+┌─────────▼───────────────────────────────────────┐
+│               trmnl.profile model               │
+│  TrmnlProfile (fields, domain, data loading)   │
+│  + TrmnlProfileRenderMixin (orchestration)      │
+│  + list / calendar / graph render mixins (PIL)  │
 └────────────────────┬────────────────────────────┘
                      │ One2many
 ┌────────────────────▼────────────────────────────┐
@@ -115,6 +145,8 @@ The module follows Odoo's conventional MVC structure with an additional horizont
 │  TrmnlDeviceLog                                 │
 └─────────────────────────────────────────────────┘
 ```
+
+On each `/api/display` poll, `TrmnlDeviceDisplayMixin` selects the lowest-sequence active profile for the device, optionally re-renders the PNG, and returns a secured image URL pointing at `/api/profile/image/<profile_id>`.
 
 ### Model Mixin Responsibilities
 
@@ -132,8 +164,8 @@ The `trmnl.device` model is decomposed using Odoo's `_inherit` mechanism. Each m
 ### Controller Design
 
 All three controllers inherit `TrmnlApiControllerMixin` for:
-- `_mask_identifier()` — partial masking of MAC addresses in log output.
-- `_json_response()` — consistent JSON serialization with correct headers (`Content-Type`, `Cache-Control`, `Pragma`).
+- `_mask_identifier()`: partial masking of MAC addresses in log output.
+- `_json_response()`: consistent JSON serialization with correct headers (`Content-Type`, `Cache-Control`, `Pragma`).
 
 Controllers are deliberately thin: they extract headers, delegate all business logic to model methods, and map the returned `record_status` string to an HTTP status code.
 
@@ -278,6 +310,50 @@ A DB-level unique constraint on `(device_id, log_id)` prevents duplicate log ent
 
 ---
 
+### `trmnl.profile`
+
+Defines what Odoo data is rendered for a TRMNL device. Each profile belongs to one device; a device may have multiple profiles, but only the **lowest-sequence active** profile is served on `/api/display`.
+
+#### Key Fields
+
+| Field | Type | Notes |
+|---|---|---|
+| `name` | `Char` | Admin-facing label. |
+| `device_id` | `Many2one` | Target `trmnl.device`. Required. |
+| `sequence` | `Integer` | Priority when multiple profiles exist on one device. |
+| `active` | `Boolean` | Inactive profiles are ignored for display. |
+| `app_model_id` | `Many2one` | Odoo model to query (`ir.model`). |
+| `view_type` | `Selection` | `list`, `kanban`, `calendar`, or `graph`. |
+| `display_field_ids` | `Many2many` | Fields shown in list/kanban layouts. |
+| `filter_preset` / `domain_filter` | | Quick filters and custom Odoo domain. |
+| `render_interval_minutes` | `Integer` | How often Odoo regenerates the PNG (default 10). |
+| `preview_image` | `Binary` | Stored 1-bit PNG served to devices. |
+| `preview_generated_at` | `Datetime` | Timestamp of last successful render. |
+
+Layout-specific options (calendar week mode, graph type, group-by field, etc.) are stored on the same model and validated per view type.
+
+#### Rendering Pipeline
+
+The profile model is split across several `_inherit` modules:
+
+| Module | Responsibility |
+|---|---|
+| `trmnl_profile.py` | Fields, domain building, model selector, URL generation, staleness checks |
+| `trmnl_profile_render.py` | Orchestration: load records, dispatch renderer, composite footer, persist PNG |
+| `trmnl_profile_render_list.py` | List and kanban PIL drawing |
+| `trmnl_profile_render_calendar.py` | Month and week calendar PIL drawing |
+| `trmnl_profile_render_graph.py` | Bar and line chart PIL drawing |
+| `trmnl_display_canvas.py` | Shared canvas sizing, fonts, and 1-bit conversion helpers |
+
+Re-render triggers (evaluated on device poll or **Render Preview**):
+
+1. No preview exists yet.
+2. Source records changed (`trmnl_data_watcher` / ORM hooks).
+3. Render interval elapsed.
+4. Renderer version changed after module upgrade.
+
+---
+
 ## HTTP API
 
 All endpoints are public (`auth="public"`) and CSRF-exempt. They are designed to be called directly by TRMNL firmware.
@@ -310,7 +386,7 @@ Registers a new device. Called by the device on first boot or after a factory re
 
 The endpoint always returns HTTP 200; protocol-level errors are communicated via the `status` field in the JSON body. A `404` body is returned when the MAC is missing, malformed, or already registered without a pending reset.
 
-**Special case — `reset_pending`:** If the MAC address matches a device with `reset_pending = True`, that record is deleted and a fresh registration proceeds normally, issuing a new token and friendly ID.
+**Special case: `reset_pending`:** If the MAC address matches a device with `reset_pending = True`, that record is deleted and a fresh registration proceeds normally, issuing a new token and friendly ID.
 
 ---
 
@@ -374,7 +450,19 @@ Receives batched log entries from the device.
 
 **Success response:** HTTP `204` with an empty body.
 
-**Error response:** HTTP `401` with an empty body — returned for missing identity, unknown device, invalid token, or any device not in the `accepted` state.
+**Error response:** HTTP `401` with an empty body: returned for missing identity, unknown device, invalid token, or any device not in the `accepted` state.
+
+---
+
+### `GET /api/profile/image/<profile_id>`
+
+Serves the stored preview PNG for a profile. Used in the `image_url` returned by `/api/display`.
+
+**Authorization:** Either a valid device `Access-Token` (query param or header) matching the profile's device, or an authenticated Odoo administrator session (for the backend form preview).
+
+**Success response:** HTTP `200` with `Content-Type: image/png` and the PNG body.
+
+**Error responses:** HTTP `404` if the profile or preview is missing; HTTP `403` if the caller is not authorized.
 
 ---
 
@@ -421,8 +509,8 @@ Comparison uses `hmac.compare_digest` to prevent timing attacks.
 
 Two token slots exist per device:
 
-- **`api_token_hash/salt`** — the authoritative accepted token. Written during `/api/setup`, on auto-accept, or on manual acceptance.
-- **`last_presented_token_hash/salt`** — the most recently presented-but-unmatched token. Allows the admin to adopt a device's current token without requiring a factory reset.
+- **`api_token_hash/salt`**: the authoritative accepted token. Written during `/api/setup`, on auto-accept, or on manual acceptance.
+- **`last_presented_token_hash/salt`**: the most recently presented-but-unmatched token. Allows the admin to adopt a device's current token without requiring a factory reset.
 
 ### Identity Field Protection
 
@@ -527,17 +615,30 @@ Unix epoch timestamps from the device are converted to naive UTC `datetime` obje
 ```
 TRMNL
 ├── Devices          (list + form view of trmnl.device)
+├── Profiles         (list + form view of trmnl.profile)
 └── Display Policy   (transient wizard form)
 ```
+
+All TRMNL menus are restricted to `base.group_system` (Settings / Administrator).
+
+### Profile List and Form Views
+
+**TRMNL → Profiles** provides list and form views for `trmnl.profile`:
+
+- List columns include sequence (drag handle), name, device, model, view type, and optional render interval.
+- The form groups identity, data source, layout-specific settings, filters, preview PNG, and device delivery status.
+- **Render Preview** generates a PNG immediately without waiting for a device poll.
+
+See the [user manual](user_manual.md) for end-user workflow and field descriptions.
 
 ### Device List View
 
 Columns: Sequence (drag handle), Friendly ID, Device Name, MAC Address, Status (badge widget), Image Filename, Last Seen At, Refresh Rate (min), Battery %, Signal Strength.
 
 List-level server actions (Action drop-down):
-- **Accept Selected** — accepts all selected non-accepted devices that have a stored presented token. Devices without a token are skipped with a `UserError` listing the skipped names.
-- **Remove Selected** — deletes records immediately.
-- **Reset Selected** — sets `reset_pending = True` on all selected records.
+- **Accept Selected**: accepts all selected non-accepted devices that have a stored presented token. Devices without a token are skipped with a `UserError` listing the skipped names.
+- **Remove Selected**: deletes records immediately.
+- **Reset Selected**: sets `reset_pending = True` on all selected records.
 
 ### Device Form View
 
@@ -572,18 +673,34 @@ Tests are located in `addons/trmnl/tests/` and use Odoo's `HttpCase` (for endpoi
 
 | Module | Type | Coverage |
 |---|---|---|
-| `test_api_setup.py` | `HttpCase` | `/api/setup` — success, duplicate MAC rejection, missing/invalid ID, `reset_pending` re-registration |
-| `test_api_display.py` | `HttpCase` | `/api/display` — all three policies (error, auto-accept, factory-reset), per-device reset flow, refresh rate separation, policy persistence |
-| `test_api_log.py` | `HttpCase` | `/api/log` — batched log storage, empty payload, missing identity, unknown device, invalid/missing token, unknown_device stub rejection |
+| `test_api_setup.py` | `HttpCase` | `/api/setup`: success, duplicate MAC rejection, missing/invalid ID, `reset_pending` re-registration |
+| `test_api_display.py` | `HttpCase` | `/api/display`: all three policies, per-device reset flow, refresh rate separation, profile image URLs |
+| `test_api_log.py` | `HttpCase` | `/api/log`: batched log storage, empty payload, missing identity, unknown device, invalid/missing token |
 | `test_device_refresh_rate.py` | `TransactionCase` | Compute/inverse round-trips, boundary constraint enforcement |
+| `test_profile_renderers.py` | `TransactionCase` | PIL output for list, kanban, calendar, bar, and line layouts |
+| `test_profile_render_preview.py` | `TransactionCase` | Render Preview action and PNG persistence |
+| `test_profile_view_types.py` | `TransactionCase` | View-type availability and validation per Odoo model |
+| `test_profile_filter_domain.py` | `TransactionCase` | Quick filters and custom domain composition |
+| `test_profile_data_staleness.py` | `TransactionCase` | Re-render timing and source-data change detection |
+| `test_profile_dashboard_layout.py` | `TransactionCase` | Layout-specific field and option handling |
+| `test_model_selector.py` | `TransactionCase` | Model picker excludes technical/transient models |
+| `test_graph_data_loading.py` | `TransactionCase` | Bar chart data aggregation |
+| `test_line_data_loading.py` | `TransactionCase` | Line chart date grouping |
+| `test_image_url.py` | `TransactionCase` | Profile image URL generation and base-URL warnings |
+| `test_display_image_quality.py` | `TransactionCase` | 1-bit PNG output characteristics |
+| `test_device_image_sync.py` | `HttpCase` | Device receives profile image after poll |
+| `test_calendar_device_image.py` | `HttpCase` | Calendar profile end-to-end on device poll |
+| `test_device_screen_size.py` | `TransactionCase` | Canvas dimensions from device telemetry |
+| `test_poll_timestamp.py` | `TransactionCase` | Poll-scoped render context |
+| `test_trmnl_image_seeder.py` | `TransactionCase` | Default/fallback image seeding on install |
 
 ### Shared Test Helpers (`TrmnlApiHttpCaseMixin`)
 
-- `_register_device_through_setup()` — registers a device via the real HTTP endpoint; returns device record, raw token, and raw payload.
-- `_display_headers()`, `_log_headers()`, `_setup_headers()` — header factory methods.
-- `_log_entry()`, `_log_payload()` — fixture factories for log payloads.
-- `_set_display_policy()`, `_get_display_policy()` — read/write the global display policy config param.
-- `_assert_display_success_payload()` — asserts the standard successful display response shape.
+- `_register_device_through_setup()`: registers a device via the real HTTP endpoint; returns device record, raw token, and raw payload.
+- `_display_headers()`, `_log_headers()`, `_setup_headers()`: header factory methods.
+- `_log_entry()`, `_log_payload()`: fixture factories for log payloads.
+- `_set_display_policy()`, `_get_display_policy()`: read/write the global display policy config param.
+- `_assert_display_success_payload()`: asserts the standard successful display response shape.
 
 ### Running Tests
 
@@ -602,6 +719,7 @@ The tested areas include:
 - device registration through `/api/setup`
 - display polling through `/api/display`
 - log ingestion through `/api/log`
+- profile rendering (list, kanban, calendar, graph) and PNG delivery via `/api/profile/image`
 - handling of missing or invalid device identifiers
 - token validation and token mismatch handling
 - unknown device handling
@@ -609,6 +727,7 @@ The tested areas include:
 - refresh rate conversion and boundary validation
 - telemetry persistence
 - reset and re-registration behavior
+- render interval, data staleness, and automatic re-render triggers
 
 Golden image tests were initially considered but were ultimately not implemented because rendering behavior is already validated through automated rendering-related test cases.
 
@@ -620,7 +739,7 @@ The test concept itself is maintained in a separate document. This design docume
 
 ## Development Workflow
 
-See `docs/development.md` for the full guide. Quick reference:
+See the [development guide](development.md) for the full guide. Quick reference:
 
 | Command | Effect |
 |---|---|

@@ -1,6 +1,6 @@
 # Development Guide
 
-This document is for contributors working on the TRMNL Odoo connector.
+This document is for contributors working on the TRMNL Odoo connector. For a project overview and Docker quick start, see the [README](../README.md).
 
 ## Prerequisites
 
@@ -78,7 +78,7 @@ make start
 | `make test` | Run the Odoo test suite for `trmnl` in an isolated environment (see above). |
 | `make stop` | Stop Odoo and Postgres without removing containers or data. |
 | `make down` | Remove containers and network; keep persistent volumes. |
-| `make downv` | Remove containers, network, and volumes — deletes all local database data. |
+| `make downv` | Remove containers, network, and volumes; deletes all local database data. |
 | `make restart` | Restart only the Odoo container. |
 | `make logs` | Stream Odoo logs. |
 | `make shell` | Open a shell inside the Odoo container. |
@@ -90,7 +90,7 @@ modifying the `Makefile`:
 
 | Variable | Default | Description |
 |---|---|---|
-| `COMPOSE` | `docker compose` | Compose command — set to `podman compose` on Fedora or when using Podman. |
+| `COMPOSE` | `docker compose` | Compose command; set to `podman compose` on Fedora or when using Podman. |
 | `DB_SERVICE` | `db` | Name of the database service in `compose.yaml`. |
 | `ODOO_SERVICE` | `odoo` | Name of the Odoo service in `compose.yaml`. |
 | `DB_NAME` | `odoo` | PostgreSQL database name used for development. |
@@ -122,7 +122,7 @@ scripts/odoo-dev.sh <action> <compose_cmd> <db_service> <odoo_service> <db_name>
 | `db_name` | Target PostgreSQL database |
 | `module` | Odoo module name |
 
-Example — equivalent to `make update`:
+Example (equivalent to `make update`):
 
 ```bash
 scripts/odoo-dev.sh update "docker compose" db odoo odoo trmnl

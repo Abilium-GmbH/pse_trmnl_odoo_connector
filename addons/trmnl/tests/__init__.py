@@ -19,3 +19,4 @@ from . import test_profile_dashboard_layout
 from . import test_model_selector
 from . import test_profile_data_staleness
 from . import test_trmnl_image_seeder
+from . import test_module_uninstall

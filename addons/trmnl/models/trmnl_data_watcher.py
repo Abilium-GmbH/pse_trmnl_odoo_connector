@@ -30,11 +30,12 @@ that references ``trmnl_profile.active`` in its ``WHERE`` clause and raises::
     psycopg2.errors.UndefinedColumn:
         column trmnl_profile.active does not exist
 
-Neither a registry-membership check nor a ``table_exists()`` guard is
-sufficient here because the table is present but in a partially dismantled
-state.  The only correct defence is to catch the database-level exception that
-arises from any structural mismatch and treat it as a signal that the module
-is mid-uninstall, returning silently.
+A Python ``except`` block alone is not sufficient: once psycopg2 raises a
+database error, PostgreSQL marks the entire transaction as aborted and refuses
+all further SQL until an explicit ``ROLLBACK`` (or rollback to a savepoint).
+The fix wraps the risky query in a **savepoint** so that a database error can
+be caught and the savepoint rolled back, leaving the outer transaction intact
+and allowing the uninstall to continue.
 
 Performance notes
 -----------------
@@ -46,12 +47,8 @@ Performance notes
   how many records are written in bulk.
 - The search on ``trmnl.profile`` is indexed via ``app_model_id`` (M2O to
   ``ir.model``) and returns quickly when no profile watches the model.
-- The ``except Exception`` catch in ``_trmnl_invalidate_profiles`` is
-  intentionally broad: any database or ORM error during uninstall should be
-  swallowed silently rather than aborting the uninstall transaction.  Outside
-  of uninstall this code path is exercised only when ``trmnl.profile`` rows
-  exist and the schema is intact, so genuine runtime errors will not be masked
-  in normal operation.
+- The savepoint overhead is negligible: a single ``SAVEPOINT`` / ``RELEASE``
+  pair is issued only when the model is not already in the pending set.
 """
 from __future__ import annotations
 
@@ -78,16 +75,19 @@ class TrmnlDataWatcher(models.AbstractModel):
     def _trmnl_invalidate_profiles(self) -> None:
         """Mark active profiles whose source model is ``self._name`` as stale.
 
-        Swallows all database and ORM exceptions.  During module uninstall Odoo
-        drops individual columns from ``trmnl_profile`` (via
-        ``ir.model.fields`` deletion) before dropping the table itself.  Any
-        ``search()`` issued while the schema is in this partially dismantled
-        state raises ``UndefinedColumn``; catching it here allows the uninstall
-        to proceed without interruption.
+        Wraps the database search in a cursor savepoint so that any PostgreSQL
+        error (most commonly ``UndefinedColumn`` or ``UndefinedTable`` during
+        module uninstall) is isolated: the savepoint is rolled back and the
+        outer transaction remains usable, allowing the uninstall to proceed.
 
-        In normal (non-uninstall) operation the schema is intact and exceptions
-        in this method would indicate a genuine bug, so all caught exceptions
-        are logged at WARNING level for observability.
+        A Python ``except`` block alone is insufficient because psycopg2
+        transitions the connection into an aborted state on any DB error,
+        blocking all subsequent SQL until a rollback.  The savepoint boundary
+        provides the required rollback target without aborting the caller's
+        transaction.
+
+        In normal (non-uninstall) operation the schema is intact; the savepoint
+        is released cleanly with negligible overhead.
         """
         # Recursion guard — skip writes originating from within this module.
         if self._name.startswith("trmnl."):
@@ -100,32 +100,36 @@ class TrmnlDataWatcher(models.AbstractModel):
             return
         cr._trmnl_pending.add(self._name)
 
+        savepoint = f"trmnl_watcher_{self._name.replace('.', '_')}"
         try:
+            cr.execute(f"SAVEPOINT {savepoint}")
             ir_model = self.env["ir.model"].sudo().search(
                 [("model", "=", self._name)],
                 limit=1,
             )
-            if not ir_model:
-                return
-
-            profiles = self.env["trmnl.profile"].sudo().search([
-                ("active", "=", True),
-                ("app_model_id", "=", ir_model.id),
-            ])
-            if profiles:
-                profiles.write({"preview_data_stale": True})
+            if ir_model:
+                profiles = self.env["trmnl.profile"].sudo().search([
+                    ("active", "=", True),
+                    ("app_model_id", "=", ir_model.id),
+                ])
+                if profiles:
+                    profiles.write({"preview_data_stale": True})
+            cr.execute(f"RELEASE SAVEPOINT {savepoint}")
         except Exception:
-            # Schema is partially dismantled (module uninstall in progress).
-            # Log at DEBUG so the noise does not appear in production logs
-            # during normal upgrades, but remains visible when tracing issues.
+            # Roll back to the savepoint so the outer transaction stays intact.
+            # This is the critical difference from a plain try/except: psycopg2
+            # marks the transaction as aborted on any DB error, and only a
+            # ROLLBACK TO SAVEPOINT restores it to a usable state.
+            try:
+                cr.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            except Exception:
+                pass
             _logger.debug(
                 "TRMNL data watcher: skipping profile invalidation for model %r "
                 "— schema unavailable (module uninstall in progress)",
                 self._name,
             )
         finally:
-            # Always release the debounce slot so subsequent writes on the same
-            # model within this transaction are not silently dropped.
             cr._trmnl_pending.discard(self._name)
 
     # ------------------------------------------------------------------
@@ -134,15 +138,18 @@ class TrmnlDataWatcher(models.AbstractModel):
 
     @api.model_create_multi
     def create(self, vals_list):
+        """Create records and mark any watching profiles as stale."""
         records = super().create(vals_list)
         records._trmnl_invalidate_profiles()
         return records
 
     def write(self, vals):
+        """Write to records and mark any watching profiles as stale."""
         result = super().write(vals)
         self._trmnl_invalidate_profiles()
         return result
 
     def unlink(self):
+        """Delete records and mark any watching profiles as stale before deletion."""
         self._trmnl_invalidate_profiles()
         return super().unlink()

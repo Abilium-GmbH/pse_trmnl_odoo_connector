@@ -237,8 +237,6 @@ class TrmnlDevice(models.Model):
         help="The last time the device got a successful /api/display response.",
     )
 
-    accepted_at = fields.Datetime(string="Accepted At", readonly=True, copy=False)
-
     added_at = fields.Datetime(
         string="Added At",
         readonly=True,

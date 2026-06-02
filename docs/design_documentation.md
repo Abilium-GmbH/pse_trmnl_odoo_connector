@@ -22,17 +22,17 @@
 
 ## Overview
 
-This module integrates [TRMNL](https://trmnl.com) e-ink display devices with Odoo 19. It acts as a self-hosted replacement for the TRMNL cloud, implementing the device-facing HTTP protocol (`/api/setup`, `/api/display`, `/api/log`) entirely within Odoo. Administrators manage devices, configure display content through **Profiles**, and control access policy through the standard Odoo backend.
+This module integrates [TRMNL](https://trmnl.com) e-ink display devices with Odoo 19. It acts as a self-hosted replacement for the TRMNL cloud, implementing the device-facing HTTP protocol (`/api/setup`, `/api/display`, `/api/log`, `/api/profile/image/<id>`) entirely within Odoo. Administrators manage devices, configure display content through **Profiles**, and control access policy through the standard Odoo backend.
 
 This design documentation reflects the current stage of the main branch as of June 2026 and is subject to change.
 
-The **Profile** renderer subsystem generates dynamic 1-bit PNG content per device from Odoo records (list, kanban, calendar, and graph layouts). See the [user manual](user_manual.md) for end-user workflow and the [README](../README.md) for setup and documentation links.
+The **Profile** renderer subsystem generates PNG content per device from Odoo records (list, kanban, calendar, and graph layouts). List layouts are binarized to 1-bit; other layouts use grayscale. See the [user guide (PDF)](user_guide.pdf) and [admin manual (PDF)](admin_manual.pdf) for end-user and administrator workflows, and the [README](../README.md) for setup links.
 
 **Technology stack:**
 - Odoo 19 (Python, XML views, ORM)
 - PostgreSQL 18
 - Docker / Docker Compose
-- Pillow, Requests (declared as Python external dependencies)
+- Pillow (required by the module manifest; `requirements.txt` also pins container packages for Docker)
 
 ---
 
@@ -101,10 +101,11 @@ The **Profile** renderer subsystem generates dynamic 1-bit PNG content per devic
 │   └── odoo-dev.sh
 └── docs/
     ├── assets/videos/                         # README demo media
+    ├── admin_manual.pdf
+    ├── user_guide.pdf
     ├── design_documentation.md
     ├── development.md
-    ├── user_manual.md
-    └── Repository Structure.md
+    └── repository_structure.md
 ```
 
 ---
@@ -326,7 +327,7 @@ Defines what Odoo data is rendered for a TRMNL device. Each profile belongs to o
 | `view_type` | `Selection` | `list`, `kanban`, `calendar`, or `graph`. |
 | `display_field_ids` | `Many2many` | Fields shown in list/kanban layouts. |
 | `filter_preset` / `domain_filter` | | Quick filters and custom Odoo domain. |
-| `render_interval_minutes` | `Integer` | How often Odoo regenerates the PNG (default 10). |
+| `auto_refresh_interval_minutes` | `Integer` | How often Odoo regenerates the PNG (default 10). |
 | `preview_image` | `Binary` | Stored 1-bit PNG served to devices. |
 | `preview_generated_at` | `Datetime` | Timestamp of last successful render. |
 
@@ -462,7 +463,7 @@ Serves the stored preview PNG for a profile. Used in the `image_url` returned by
 
 **Success response:** HTTP `200` with `Content-Type: image/png` and the PNG body.
 
-**Error responses:** HTTP `404` if the profile or preview is missing; HTTP `403` if the caller is not authorized.
+**Error responses:** HTTP `404` with an empty body if the profile or preview is missing, or if the caller is not authorized (unauthorized requests are logged as 403 but return 404 to the client).
 
 ---
 
@@ -629,7 +630,7 @@ All TRMNL menus are restricted to `base.group_system` (Settings / Administrator)
 - The form groups identity, data source, layout-specific settings, filters, preview PNG, and device delivery status.
 - **Render Preview** generates a PNG immediately without waiting for a device poll.
 
-See the [user manual](user_manual.md) for end-user workflow and field descriptions.
+See the [user guide (PDF)](user_guide.pdf) for end-user workflow and field descriptions.
 
 ### Device List View
 

@@ -4,7 +4,7 @@ import datetime as dt
 import io
 from unittest.mock import patch
 
-from odoo.addons.trmnl.trmnl_display_canvas import (
+from odoo.addons.trmnl.lib.display_canvas import (
     CONTENT_HEIGHT,
     DISPLAY_HEIGHT,
     DISPLAY_WIDTH,
@@ -91,7 +91,7 @@ class TestFormatLastUpdateTimestamp(TransactionCase):
         device = self.env["trmnl.device"].sudo().create({
             "mac_address": "AA:BB:CC:DD:EE:09", "approval_state": "accepted",
         })
-        profile = self.env["trmnl.profile"].sudo().with_user(owner).create({
+        profile = self.env["trmnl.profile"].sudo().with_user(owner).sudo().create({
             "name": "P", "device_id": device.id,
         })
         self.env.user.tz = False  # simulate the public/device render context

@@ -167,8 +167,8 @@ class TestLineDateHelpers(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        from odoo.addons.trmnl.models.trmnl_profile_render import TrmnlProfileRenderMixin
-        cls._mixin = TrmnlProfileRenderMixin
+        from odoo.addons.trmnl.models.trmnl_profile_render_data import TrmnlProfileRenderDataMixin
+        cls._mixin = TrmnlProfileRenderDataMixin
 
     def test_generate_buckets_month(self):
         buckets = list(self._mixin._generate_line_date_buckets(
@@ -354,8 +354,8 @@ class TestLineDataLoading(TransactionCase):
         self.assertEqual(label, measure_field.field_description or measure_field.name)
 
     def test_gap_filling_via_bucket_generation(self):
-        from odoo.addons.trmnl.models.trmnl_profile_render import TrmnlProfileRenderMixin
-        buckets = list(TrmnlProfileRenderMixin._generate_line_date_buckets(
+        from odoo.addons.trmnl.models.trmnl_profile_render_data import TrmnlProfileRenderDataMixin
+        buckets = list(TrmnlProfileRenderDataMixin._generate_line_date_buckets(
             date(2024, 1, 1), date(2024, 4, 1), "month"
         ))
         self.assertEqual(len(buckets), 4)

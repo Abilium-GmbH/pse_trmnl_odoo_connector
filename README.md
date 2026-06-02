@@ -10,6 +10,10 @@ The module acts as a self-hosted API server for TRMNL hardware. Devices pair dir
 
 This module was developed as part of the Software Engineering Lab at the University of Bern, in cooperation with Abilium GmbH. It is **not** affiliated with TRMNL Holdings LLC.
 
+<p align="center">
+  <img src="docs/assets/videos/trmnl_display.gif" alt="TRMNL display demo" width="480">
+</p>
+
 ## Features
 
 - **Device management:** Register, monitor, and control TRMNL displays from **TRMNL → Devices** in Odoo
@@ -66,8 +70,8 @@ This module was developed as part of the Software Engineering Lab at the Univers
 Before pairing a TRMNL device on a local or Docker setup, set a URL that the **device can reach** (not `localhost`):
 
 1. In Odoo go to **Settings → Technical → System Parameters**.
-2. Set **`web.base.url`** to your host LAN address, for example `http://192.168.1.50:8069`.
-3. Optionally set **`trmnl.public_base_url`** to the same value.
+2. Set `**web.base.url`** to your host LAN address, for example `http://192.168.1.50:8069`.
+3. Optionally set `**trmnl.public_base_url**` to the same value.
 
 TRMNL devices download profile images over HTTP. If `web.base.url` points to `localhost` or `127.0.0.1`, image URLs on the profile form may show a warning and the device may not load new PNGs reliably. On **Odoo.sh**, use your instance HTTPS URL.
 
@@ -103,7 +107,7 @@ Step-by-step pairing, profile setup, and troubleshooting are in the [user guide 
 
 ### Setup demo video
 
-[![Watch Odoo setup demo](docs/assets/videos/trmnl_display.gif)](docs/assets/videos/odoo_setup.mp4)
+
 
 Direct link: [docs/assets/videos/odoo_setup.mp4](docs/assets/videos/odoo_setup.mp4)
 
@@ -119,13 +123,15 @@ On some Linux distributions (for example Fedora), Podman is recommended instead 
 
 ## Documentation
 
-| Document | Description |
-|---|---|
-| [User guide (PDF)](docs/user_guide.pdf) | Pairing, devices, profiles, troubleshooting |
-| [Admin manual (PDF)](docs/admin_manual.pdf) | Installation, device setup, profile configuration |
-| [Design documentation](docs/design_documentation.md) | Architecture, HTTP API, security, data model |
-| [Development guide](docs/development.md) | Local workflow, Make targets, running tests |
-| [Repository structure](docs/repository_structure.md) | Folder layout and module organization |
+
+| Document                                             | Description                                       |
+| ---------------------------------------------------- | ------------------------------------------------- |
+| [User guide (PDF)](docs/user_guide.pdf)              | Pairing, devices, profiles, troubleshooting       |
+| [Admin manual (PDF)](docs/admin_manual.pdf)          | Installation, device setup, profile configuration |
+| [Design documentation](docs/design_documentation.md) | Architecture, HTTP API, security, data model      |
+| [Development guide](docs/development.md)             | Local workflow, Make targets, running tests       |
+| [Repository structure](docs/repository_structure.md) | Folder layout and module organization             |
+
 
 ## Development and customization
 
@@ -144,3 +150,4 @@ Contributors should start with `make watch` for live module reloads and `make te
 - Sascha Friedli - Chief Deliverable Officer (deliverables and scheduling)
 - Leila Ayinkamiye - Quality Evangelist (test concept and testing)
 - Claudio Berger - Master Tracker (status reports and tracking)
+

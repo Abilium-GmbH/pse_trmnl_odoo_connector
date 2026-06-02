@@ -29,7 +29,7 @@ from PIL import Image, ImageDraw
 
 from odoo import models
 
-from odoo.addons.trmnl import trmnl_display_canvas as _canvas
+from odoo.addons.trmnl.lib import display_canvas as _canvas
 
 
 class TrmnlProfileRenderCalendarMixin(models.Model):

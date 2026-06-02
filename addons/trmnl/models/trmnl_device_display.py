@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from typing import NamedTuple
-from urllib.parse import urlparse as _urlparse
 
 from odoo import api, fields, models
 
@@ -19,11 +18,6 @@ from .trmnl_device import (
     UNAUTHORIZED_IMAGE_STATIC_PATH,
 )
 from .trmnl_image import UNAUTHORIZED_IMAGE_CONFIG_KEY
-from odoo.addons.trmnl.trmnl_net import (
-    INTERNAL_HOST_RE as _INTERNAL_HOST_RE,
-    client_can_reach_host,
-    is_device_reachable_base_url,
-)
 
 _logger = logging.getLogger(__name__)
 
@@ -232,15 +226,7 @@ class TrmnlDeviceDisplayMixin(models.Model):
             "TRMNL display: using device fallback image_url=%r filename=%r for %s",
             self.image_url or "", self.filename or "", device_ref,
         )
-        fallback_url = self.image_url or ""
-        if profile and fallback_url and "/api/profile/image/" in fallback_url:
-            digest = profile._preview_png_digest()
-            query = profile._build_profile_image_query(version=digest)
-            if query and "access_token=" not in fallback_url:
-                parsed = _urlparse(fallback_url)
-                existing_query = parsed.query
-                merged_query = f"{existing_query}&{query}" if existing_query else query
-                fallback_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{merged_query}"
+        return self.image_url or "", self.filename or ""
 
     def build_reset_response(self):
         """Build the display payload that instructs the device to factory-reset.
@@ -258,98 +244,6 @@ class TrmnlDeviceDisplayMixin(models.Model):
             "refresh_rate": self.desired_refresh_rate or DEFAULT_REFRESH_RATE,
             "reset_firmware": True,
         }
-
-    # ------------------------------------------------------------------
-    # public base URL auto-detection
-    # ------------------------------------------------------------------
-
-    @api.model
-    def _maybe_auto_set_public_base_url(self, candidate_url, client_ip=None):
-        """Auto-set trmnl.public_base_url from the device's Host header when needed.
-
-        Skips when the Host is on a different private network than the device
-        (e.g. Host 10.x while the device polls from 192.168.x). Does nothing if
-        trmnl.public_base_url is already set, or if web.base.url is already
-        device-reachable on the same LAN as the client.
-        """
-        params = self.env["ir.config_parameter"].sudo()
-        if params.get_param("trmnl.public_base_url"):
-            return
-
-        web_url = params.get_param("web.base.url", "").strip()
-        if web_url:
-            try:
-                web_host = _urlparse(web_url).hostname or ""
-                if web_host and not _INTERNAL_HOST_RE.match(web_host):
-                    if not client_ip or client_can_reach_host(client_ip, web_host):
-                        _logger.debug(
-                            "TRMNL skip auto-set: web.base.url=%r is already device-reachable",
-                            web_url,
-                        )
-                        return
-            except Exception:
-                pass
-
-        try:
-            host = _urlparse(candidate_url).hostname or ""
-            if not host or _INTERNAL_HOST_RE.match(host):
-                return
-            if client_ip and not client_can_reach_host(client_ip, host):
-                _logger.info(
-                    "TRMNL skip auto-set: Host %r is not on the same LAN as device %s",
-                    candidate_url,
-                    client_ip,
-                )
-                return
-            new_value = candidate_url.rstrip("/")
-            current = params.get_param("trmnl.public_base_url", "").strip().rstrip("/")
-            if current != new_value:
-                params.set_param("trmnl.public_base_url", new_value)
-                _logger.info(
-                    "TRMNL auto-set trmnl.public_base_url=%r from device Host header "
-                    "(web.base.url is not device-reachable)",
-                    new_value,
-                )
-        except Exception as exc:
-            _logger.debug(
-                "TRMNL could not auto-set public_base_url from %r: %s",
-                candidate_url, exc,
-            )
-
-    @api.model
-    def _sync_public_base_url_from_poll(self, poll_base_url, client_ip=None):
-        """Align trmnl.public_base_url with how devices actually reach Odoo.
-
-        Corrects stale values (e.g. a VPN/campus 10.x address saved earlier while
-        TRMNL devices poll over 192.168.x).
-        """
-        Profile = self.env["trmnl.profile"]
-        poll = (poll_base_url or "").strip().rstrip("/")
-        if not poll or not is_device_reachable_base_url(poll):
-            return
-
-        host = _urlparse(poll).hostname or ""
-        if client_ip and host and not client_can_reach_host(client_ip, host):
-            base, _source = Profile.with_context(
-                trmnl_poll_base_url="",
-                trmnl_client_ip=client_ip,
-            )._resolve_device_base_url()
-            if not base:
-                return
-            poll = base.rstrip("/")
-            host = _urlparse(poll).hostname or ""
-            if client_ip and host and not client_can_reach_host(client_ip, host):
-                return
-
-        params = self.env["ir.config_parameter"].sudo()
-        current = params.get_param("trmnl.public_base_url", "").strip().rstrip("/")
-        if current != poll:
-            params.set_param("trmnl.public_base_url", poll)
-            _logger.info(
-                "TRMNL synced trmnl.public_base_url to %r from device poll (was %r)",
-                poll,
-                current or "(unset)",
-            )
 
     # ------------------------------------------------------------------
     # request resolution

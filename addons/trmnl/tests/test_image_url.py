@@ -160,17 +160,20 @@ class TestImageUrlGeneration(TransactionCase):
         )._get_display_image_url()
         self.assertIn("192.168.1.127", url)
 
-    def test_sync_public_base_url_fixes_stale_value_on_poll(self):
-        self._set_params(
-            public_base_url="http://10.55.200.220:8069",
-            web_base_url="http://192.168.1.127:8069",
-        )
-        self.env["trmnl.device"]._sync_public_base_url_from_poll(
-            "http://10.55.200.220:8069",
-            "192.168.1.239",
-        )
-        synced = self.env["ir.config_parameter"].sudo().get_param("trmnl.public_base_url")
-        self.assertEqual(synced, "http://192.168.1.127:8069")
+    def test_configured_url_used_when_client_ip_is_docker_gateway(self):
+        """Docker NAT: the container sees the bridge gateway (172.17.0.1) as the
+        client IP, on a different subnet than the configured LAN web.base.url.
+        The configured, device-reachable URL must still be served — otherwise the
+        device is served a stale image forever and never auto-updates.
+        """
+        self._set_params(web_base_url="http://192.168.1.127:8069")
+        profile = self._profile()
+        url = profile.with_context(
+            trmnl_poll_base_url="http://192.168.1.127:8069",
+            trmnl_client_ip="172.17.0.1",
+        )._get_display_image_url()
+        self.assertIn("192.168.1.127", url)
+        self.assertIn(f"/api/profile/image/{profile.id}", url)
 
     # ------------------------------------------------------------------
 

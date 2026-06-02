@@ -56,8 +56,6 @@ class DeviceDisplayController(TrmnlApiControllerMixin, http.Controller):
             if host_header:
                 scheme = "https" if request.httprequest.is_secure else "http"
                 poll_base_url = f"{scheme}://{host_header}"
-                device_model._maybe_auto_set_public_base_url(poll_base_url, client_ip)
-                device_model._sync_public_base_url_from_poll(poll_base_url, client_ip)
 
             access_token = headers.get("Access-Token") or ""
             request.httprequest.environ["trmnl.access_token"] = access_token

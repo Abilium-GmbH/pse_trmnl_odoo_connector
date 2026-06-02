@@ -729,8 +729,8 @@ class TrmnlProfile(models.Model):
                 rec.url_warning = (
                     f"Image URL cannot be generated: web.base.url ({web_url}) is a "
                     f"loopback/internal address that physical devices cannot reach. "
-                    f"This resolves automatically when the device polls — the server "
-                    f"uses the poll Host header and corrects stale URLs on the device LAN."
+                    f"Set trmnl.public_base_url in Settings → Technical → System Parameters "
+                    f"to the URL your devices use to reach this Odoo instance."
                 )
             else:
                 rec.url_warning = ""
@@ -819,6 +819,19 @@ class TrmnlProfile(models.Model):
             for source, base in candidates:
                 if is_device_reachable_base_url(base):
                     return base, source
+
+        # Last resort: honour an admin-configured, device-reachable base URL even
+        # when the poll client_ip appears to be on a different subnet than its
+        # host.  This happens with Docker port publishing, where the container
+        # sees the bridge gateway (e.g. 172.17.0.1) as remote_addr instead of the
+        # device's real LAN IP, so the /24 subnet heuristic above rejects an
+        # otherwise correct web.base.url / trmnl.public_base_url.  An explicitly
+        # configured reachable URL is preferable to serving a stale image forever.
+        # The poll Host header is excluded here since it is the only candidate the
+        # admin did not vet.
+        for source, base in candidates:
+            if source != "poll" and is_device_reachable_base_url(base):
+                return base, source
 
         return False, None
 

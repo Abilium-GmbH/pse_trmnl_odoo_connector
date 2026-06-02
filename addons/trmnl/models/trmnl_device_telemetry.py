@@ -73,17 +73,6 @@ class TrmnlDeviceTelemetryMixin(models.Model):
         )
         return self
 
-    def _record_access_denied(self, reason="invalid_token"):
-        """Update counters and timestamps for denied device access."""
-        self.ensure_one()
-        now_value = fields.Datetime.now()
-        update_values = {
-            "last_access_denied_at": now_value,
-            "last_seen_at": now_value,
-        }
-        self.write(update_values)
-        return self
-
     # ------------------------------------------------------------------
     # log ingestion
     # ------------------------------------------------------------------

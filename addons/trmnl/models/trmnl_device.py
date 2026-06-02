@@ -6,7 +6,7 @@ import re
 import secrets
 from datetime import datetime, timezone
 
-from odoo.addons.trmnl.trmnl_net import (
+from odoo.addons.trmnl.lib.net import (
     INTERNAL_HOST_RE as _INTERNAL_HOST_RE,
     client_can_reach_host,
     is_device_reachable_base_url,

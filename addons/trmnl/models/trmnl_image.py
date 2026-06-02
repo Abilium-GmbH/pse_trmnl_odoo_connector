@@ -20,8 +20,8 @@ UNAUTHORIZED_IMAGE_CONFIG_KEY = "trmnl.unauthorized_image_attachment_id"
 # Absolute paths to the source image files bundled with the module.
 # Constructed at import time so they are independent of the working directory.
 _MODULE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_DEFAULT_IMAGE_PATH = os.path.join(_MODULE_DIR, "static", "default_screen.bmp")
-_UNAUTHORIZED_IMAGE_PATH = os.path.join(_MODULE_DIR, "static", "unauthorized_screen.bmp")
+_DEFAULT_IMAGE_PATH = os.path.join(_MODULE_DIR, "static", "img", "default_screen.bmp")
+_UNAUTHORIZED_IMAGE_PATH = os.path.join(_MODULE_DIR, "static", "img", "unauthorized_screen.bmp")
 
 _SEED_IMAGES = [
     {

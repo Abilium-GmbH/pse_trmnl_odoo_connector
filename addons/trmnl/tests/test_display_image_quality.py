@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import io
 
-from odoo.addons.trmnl.trmnl_display_canvas import CONTENT_HEIGHT, DISPLAY_WIDTH
+from odoo.addons.trmnl.lib.display_canvas import CONTENT_HEIGHT, DISPLAY_WIDTH
 from odoo.tests import TransactionCase, tagged
 
 

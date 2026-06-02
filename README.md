@@ -1,14 +1,12 @@
-# Digital Signage Display System with TRMNL e-Ink Displays
+# Odoo IoT für Digital Signage
 
-<p align="center">
-  <img src="docs/assets/videos/trmnl_display.gif" width="400" alt=""/>
-</p>
+
 
 ## Project description
 
 The **TRMNL** Odoo module is an IoT extension for the open source ERP system Odoo that enables the management of TRMNL e-Ink displays. The goal of the project is to show live Odoo data (for example calendar events, tasks, sales orders, or product information) on energy-efficient displays without relying on the TRMNL cloud.
 
-The module acts as a self-hosted API server for TRMNL hardware. Devices pair directly with your Odoo instance, poll for display content over HTTP, and receive dynamically rendered 1-bit PNG images. Administrators manage devices, configure display profiles, and control access policy from the standard Odoo backend.
+The module acts as a self-hosted API server for TRMNL hardware. Devices pair directly with your Odoo instance, poll for display content over HTTP, and receive dynamically rendered PNG images (list layouts are 1-bit; kanban, calendar, and graph layouts use grayscale). Administrators manage devices, configure display profiles, and control access policy from the standard Odoo backend.
 
 This module was developed as part of the Software Engineering Lab at the University of Bern, in cooperation with Abilium GmbH. It is **not** affiliated with TRMNL Holdings LLC.
 
@@ -16,8 +14,8 @@ This module was developed as part of the Software Engineering Lab at the Univers
 
 - **Device management:** Register, monitor, and control TRMNL displays from **TRMNL → Devices** in Odoo
 - **Display profiles:** Render Odoo records as list, kanban, calendar, or graph layouts on e-Ink screens
-- **Self-hosted integration:** Implements the TRMNL device protocol (`/api/setup`, `/api/display`, `/api/log`) inside Odoo
-- **E-Ink display support:** Serves optimized 1-bit PNG images in an energy-saving way
+- **Self-hosted integration:** Implements the TRMNL device protocol (`/api/setup`, `/api/display`, `/api/log`, `/api/profile/image/<id>`) inside Odoo
+- **E-Ink display support:** Serves optimized PNG images in an energy-saving way
 - **HTTP polling:** Transfers display updates reliably between Odoo and TRMNL devices over Wi-Fi
 - **Display policy:** Control how unknown or mismatched devices are handled (error, auto-accept, or factory reset)
 - **Status updates:** Automatically refreshes displays when source data changes or on a configurable render interval
@@ -27,13 +25,13 @@ This module was developed as part of the Software Engineering Lab at the Univers
 ### Server requirements
 
 - Odoo v19.0
-- Python 3 with Pillow (see `requirements.txt`)
+- Python 3 with Pillow (required by the module; see `requirements.txt` for Docker image packages)
 - PostgreSQL
 - Network connection so TRMNL devices can reach your Odoo server (LAN IP, public URL, or Odoo.sh)
 
 ### Display hardware
 
-- TRMNL e-Ink display (firmware v1.8.2 or compatible)
+- TRMNL e-Ink display with custom-server firmware (team-tested with v1.8.2; the module does not enforce a minimum version)
 - Wi-Fi connection
 - Stable power supply
 
@@ -47,29 +45,33 @@ This module was developed as part of the Software Engineering Lab at the Univers
 ### Quick start with Docker
 
 1. Clone the repository:
-
-   ```bash
+  ```bash
    git clone https://github.com/Abilium-GmbH/pse_trmnl_odoo_connector.git
    cd pse_trmnl_odoo_connector
-   ```
-
+  ```
 2. Start Odoo and install the module:
-
-   ```bash
+  ```bash
    make
-   ```
-
+  ```
    On a fresh database this starts PostgreSQL and Odoo, then installs `base` and `trmnl` automatically.
-
 3. Open Odoo in your browser:
-
-   ```
+  ```
    http://localhost:8069
-   ```
-
+  ```
    Default login: email `admin`, password `admin`.
-
 4. If the module is not installed yet, go to **Apps**, remove the **Apps** filter, search for **TRMNL**, and install it.
+
+### Configure `web.base.url` (required for Docker / LAN)
+
+Before pairing a TRMNL device on a local or Docker setup, set a URL that the **device can reach** (not `localhost`):
+
+1. In Odoo go to **Settings → Technical → System Parameters**.
+2. Set **`web.base.url`** to your host LAN address, for example `http://192.168.1.50:8069`.
+3. Optionally set **`trmnl.public_base_url`** to the same value.
+
+TRMNL devices download profile images over HTTP. If `web.base.url` points to `localhost` or `127.0.0.1`, image URLs on the profile form may show a warning and the device may not load new PNGs reliably. On **Odoo.sh**, use your instance HTTPS URL.
+
+See section **6.6 Image URLs and web.base.url** in the [user guide](docs/user_guide.pdf) for details.
 
 ### Manual Docker setup
 
@@ -97,7 +99,13 @@ docker compose down
 
 Pair your device with Odoo using the **Custom Server** flow on the TRMNL configuration page. For local or Docker setups, point the device at your machine's LAN address (for example `http://192.168.1.50:8069`), not `localhost`.
 
-Step-by-step pairing, profile setup, and troubleshooting are covered in the [user manual](docs/user_manual.md).
+Step-by-step pairing, profile setup, and troubleshooting are in the [user guide (PDF)](docs/user_guide.pdf).
+
+### Setup demo video
+
+[![Watch Odoo setup demo](docs/assets/videos/trmnl_display.gif)](docs/assets/videos/odoo_setup.mp4)
+
+Direct link: [docs/assets/videos/odoo_setup.mp4](docs/assets/videos/odoo_setup.mp4)
 
 ### Environment variables
 
@@ -111,13 +119,13 @@ On some Linux distributions (for example Fedora), Podman is recommended instead 
 
 ## Documentation
 
-For detailed guidance on installing and using this module, refer to the [user manual](docs/user_manual.md).
-
-Additional documentation:
-
-- [Design documentation](docs/design_documentation.md): architecture, HTTP API, security model, and data model
-- [Development guide](docs/development.md): local workflow, Make targets, and running tests
-- [Repository structure](docs/Repository%20Structure.md): folder layout and module organization
+| Document | Description |
+|---|---|
+| [User guide (PDF)](docs/user_guide.pdf) | Pairing, devices, profiles, troubleshooting |
+| [Admin manual (PDF)](docs/admin_manual.pdf) | Installation, device setup, profile configuration |
+| [Design documentation](docs/design_documentation.md) | Architecture, HTTP API, security, data model |
+| [Development guide](docs/development.md) | Local workflow, Make targets, running tests |
+| [Repository structure](docs/repository_structure.md) | Folder layout and module organization |
 
 ## Development and customization
 

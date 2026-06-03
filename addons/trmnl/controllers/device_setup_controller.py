@@ -66,5 +66,4 @@ class DeviceSetupController(TrmnlApiControllerMixin, http.Controller):
                 masked_mac_address,
                 exc,
                 self._json_response(device_model.build_setup_error_response(), status=200),
-                debug=debug,
             )

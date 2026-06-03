@@ -91,7 +91,7 @@ class TestFormatLastUpdateTimestamp(TransactionCase):
         device = self.env["trmnl.device"].sudo().create({
             "mac_address": "AA:BB:CC:DD:EE:09", "approval_state": "accepted",
         })
-        profile = self.env["trmnl.profile"].sudo().with_user(owner).sudo().create({
+        profile = self.env["trmnl.profile"].with_user(owner).sudo().create({
             "name": "P", "device_id": device.id,
         })
         self.env.user.tz = False  # simulate the public/device render context

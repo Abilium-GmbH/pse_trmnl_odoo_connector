@@ -94,7 +94,14 @@ class DeviceDisplayController(TrmnlApiControllerMixin, http.Controller):
             _logger.debug(
                 "TRMNL response endpoint=/api/display mac=%s payload=%s",
                 masked_mac_address,
-                {k: (v[:60] + "…" if isinstance(v, str) and len(v) > 60 else v) for k, v in payload.items()},
+                {
+                    k: (
+                        v[:60] + "…"
+                        if isinstance(v, str) and len(v) > 60
+                        else v
+                    )
+                    for k, v in payload.items()
+                },
             )
             return self._json_response(payload, status=200)
         except Exception as exc:
@@ -104,4 +111,5 @@ class DeviceDisplayController(TrmnlApiControllerMixin, http.Controller):
                 masked_mac_address,
                 exc,
                 self._json_response(device_model.build_display_error_response(), status=200),
+                debug=debug,
             )

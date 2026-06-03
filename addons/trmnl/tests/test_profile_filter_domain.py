@@ -278,7 +278,7 @@ class TestProfileFilterDomain(TransactionCase):
             "trmnl_layout": "calendar",
             "display_limit": 200,
             "filter_preset": "none",
-            "filter_domain": "[('name', '=', 'TrmnlCalFilterKept')]",
+            "filter_domain": f"[('name', '=', 'TrmnlCalFilterKept')]",
         })
         records = profile._load_calendar_records(today.year, today.month)
         ids = records.ids
@@ -314,7 +314,7 @@ class TestProfileFilterDomain(TransactionCase):
             "trmnl_layout": "calendar",
             "display_limit": 200,
             "filter_preset": "none",
-            "filter_domain": "[('name', '=', 'TrmnlWeekFilterKept')]",
+            "filter_domain": f"[('name', '=', 'TrmnlWeekFilterKept')]",
         })
         records = profile._load_calendar_week_records(week_start)
         ids = records.ids

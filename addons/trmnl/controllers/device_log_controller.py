@@ -68,6 +68,5 @@ class DeviceLogController(TrmnlApiControllerMixin, http.Controller):
                 masked_mac_address,
                 exc,
                 request.make_response("", status=401),
-                debug=debug,
             )
             return response

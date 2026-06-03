@@ -190,6 +190,25 @@ Um eigene Secrets oder Konfigurationswerte zu verwenden:
 An dieser Stelle sei darauf hingewiesen, dass einzelne Linux-Distros aufgrund ihrer Eigenheiten ein anderes Vorgehen oder die Nutzung anderer Werkzeuge empfehlen können. Insbesondere können Sicherheitsmodule zu Komplikationen führen. So rät beispielsweise Fedora zur Nutzung von Podman anstatt Docker direkt zu verwenden. Es empfiehlt sich, die Dokumentation der jeweiligen Distribution zu konsultieren.
 
 
+| Document                                             | Description                                       |
+| ---------------------------------------------------- | ------------------------------------------------- |
+| [User guide (PDF)](docs/user_guide.pdf)              | Pairing, devices, profiles, troubleshooting       |
+| [Design documentation](docs/design_documentation.md) | Architecture, HTTP API, security, data model      |
+| [Development guide](docs/development.md)             | Local workflow, Make targets, running tests       |
+| [Curl commands](docs/curl_commands.md)               | Example `curl` calls to simulate device API polls |
+| [Repository structure](docs/repository_structure.md) | Folder layout and module organization             |
+
+
+## Development and customization
+
+The module can be extended to implement additional functions:
+
+- New profile view types or renderers for other Odoo models
+- Custom display policies or onboarding workflows
+- Integration with additional TRMNL firmware features
+- Support for other e-ink display form factors
+
+Contributors should start with `make watch` for live module reloads and `make test` for the isolated test suite. See the [development guide](docs/development.md) for details.
 
 ## Development Team
 - Timur Umut Turgul — Key Account Manager (Kundenkontakt)

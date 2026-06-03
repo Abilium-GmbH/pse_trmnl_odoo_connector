@@ -4,7 +4,7 @@ import datetime as dt
 import io
 from unittest.mock import patch
 
-from odoo.addons.trmnl.trmnl_display_canvas import (
+from odoo.addons.trmnl.lib.display_canvas import (
     CONTENT_HEIGHT,
     DISPLAY_HEIGHT,
     DISPLAY_WIDTH,

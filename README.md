@@ -1,194 +1,137 @@
-# PSE-FS2026: Odoo IoT für Digital Signage
-
-## Kurzbeschreibung
-Ziel: Entwicklung eines Odoo‑Moduls zur Verwaltung von TRMNL e‑Ink Displays und einer Anbindung an TRMNL, sodass verschiedene Daten aus Odoo (z.B. Kalender, Produktinformationen, Preisschilder, Raumbelegung) dynamisch auf den Displays dargestellt werden können.
-
-## Repository-Struktur
-```
-.
-├── addons/
-│   └── trmnl/
-│       ├── data/
-│       ├── models/
-│       │   └── providers/
-│       ├── security/
-│       └── views/
-├── data/
-├── compose.yaml
-├── Dockerfile
-├── LICENSE
-├── README.md
-└── requirements.txt
-```
+# Odoo IoT für Digital Signage
 
 
-## Erste Schritte (Setup PostgreSQL & Odoo)
-### Vorbedingungen
-Vorausgesetzt sind Docker und Docker Compose. Hilfe bei der Installation findet sich unter: https://docs.docker.com/get-started/get-docker/  
 
----
-### 1. Repository klonen
-HTTP:
-```
-git clone https://github.com/Abilium-GmbH/pse_trmnl_odoo_connector.git
-```
-oder SSH:
-```
-git clone git@github.com:Abilium-GmbH/pse_trmnl_odoo_connector.git
-```
-Hinweis: Die folgenden Docker-Compose-Befehle müssen im Root-Verzeichnis des geklonten Repositorys ausgeführt werden, in dem sich die Datei compose.yaml befindet.
-### 2. PostgreSQL starten
-```
+## Project description
+
+The **TRMNL** Odoo module is an IoT extension for the open source ERP system Odoo that enables the management of TRMNL e-ink displays. The goal of the project is to show live Odoo data (for example calendar events, tasks, sales orders, or product information) on energy-efficient displays without relying on the TRMNL cloud.
+
+The module acts as a self-hosted API server for TRMNL hardware. Devices pair directly with your Odoo instance, poll for display content over HTTP, and receive dynamically rendered PNG images (list layouts are 1-bit; kanban, calendar, and graph layouts use grayscale). Administrators manage devices, configure display profiles, and control access policy from the standard Odoo backend.
+
+This module was developed as part of the Software Engineering Lab at the University of Bern, in cooperation with Abilium GmbH. It is **not** affiliated with TRMNL Holdings LLC.
+
+<p align="center">
+  <img src="docs/assets/videos/trmnl_display.gif" alt="TRMNL display demo" width="480">
+</p>
+
+## Features
+
+- **Device management:** Register, monitor, and control TRMNL displays from **TRMNL → Devices** in Odoo
+- **Display profiles:** Render Odoo records as list, kanban, calendar, or graph layouts on e-ink screens
+- **Self-hosted integration:** Implements the TRMNL device protocol (`/api/setup`, `/api/display`, `/api/log`, `/api/profile/image/<id>`) inside Odoo
+- **E-Ink display support:** Serves optimized PNG images in an energy-saving way
+- **HTTP polling:** Transfers display updates reliably between Odoo and TRMNL devices over Wi-Fi
+- **Display policy:** Control how unknown or mismatched devices are handled (error, auto-accept, or factory reset)
+- **Status updates:** Automatically refreshes displays when source data changes or on a configurable render interval
+
+## Technical requirements
+
+### Server requirements
+
+- Odoo v19.0
+- Python 3.x with Pillow (required by the module; see `requirements.txt` for Docker image packages)
+- PostgreSQL
+- Network connection so TRMNL devices can reach your Odoo server (LAN IP, public URL, or Odoo.sh)
+
+### Display hardware
+
+- TRMNL e-ink display with custom-server firmware (team-tested with v1.8.2; the module does not enforce a minimum version)
+- Wi-Fi connection
+- Stable power supply
+
+### Development (optional)
+
+- Docker and Docker Compose (or Podman Compose)
+- `make`
+
+## Getting started
+
+### Quick start with Docker
+
+1. Clone the repository:
+  ```bash
+  git clone https://github.com/Abilium-GmbH/pse_trmnl_odoo_connector.git
+  cd pse_trmnl_odoo_connector
+  ```
+2. Start Odoo and install the module:
+  ```bash
+  make
+  ```
+  On a fresh database, this starts PostgreSQL and Odoo, then installs `base` and `trmnl` automatically.
+3. Open Odoo in your browser:
+  ```
+  http://localhost:8069
+  ```
+  Default login: email `admin`, password `admin`.
+4. If the module is not installed yet, go to **Apps**, remove the **Apps** filter, search for **TRMNL**, and install it.
+
+### Configure `web.base.url` (required for Docker / LAN)
+
+Before pairing a TRMNL device on a local or Docker setup, set a URL that the **device can reach** (not `localhost`):
+
+1. In Odoo go to **Settings → Technical → System Parameters**.
+2. Set `web.base.url` to your host LAN address, for example `http://192.168.1.50:8069`.
+3. Optionally set `trmnl.public_base_url` to the same value.
+
+TRMNL devices download profile images over HTTP. If `web.base.url` points to `localhost` or `127.0.0.1`, image URLs on the profile form may show a warning and the device may not load new PNGs reliably. On **Odoo.sh**, use your instance HTTPS URL.
+
+See section **6.6 Image URLs and `web.base.url`** in the [user guide](docs/user_guide.pdf) for details.
+
+### Manual Docker setup
+
+If you prefer raw Docker Compose commands, run them from the repository root (where `compose.yaml` lives):
+
+```bash
 docker compose up -d db
-```
-### 3. Initialisieren der Datenbank
-```
 docker compose run --rm odoo odoo -d odoo -i base --stop-after-init
-```
-### 4. Odoo starten 
-```
 docker compose up -d odoo
 ```
-### 5. Odoo Login
-Odoo ist nun über einen beliebigen Webbrowser unter folgender Adresse erreichbar:
-```
-http://localhost:8069
-```
-Ferner ist auch ein Login direkt im Debug-Modus möglich unter:
-```
-http://localhost:8069/odoo/apps?debug=1
-```
-Beim Login fragt Odoo nach E-Mail und Passwort. Beide sind standartmässig auf `admin` gesetzt.  
 
----
-## TRMNL Display mit Odoo verbinden
-Nach dem erfolgreichen Setup kann ein **TRMNL Display** mit Odoo verbunden und über das Odoo-Backend mit Inhalten gesteuert werden.
+After the first setup, start the stack with:
 
-**Aktualisierungsintervall:** Standardmässig pollt das Gerät alle **15 Minuten**. Das Intervall kann pro Gerät in Odoo unter **TRMNL → Devices** im Feld **Refresh Rate (min)** angepasst werden (1–30 Minuten).
-
-### Voraussetzung
-- Odoo läuft lokal über Docker
-
-- Das Modul TRMNL ist installiert
-
-- Ein TRMNL Gerät ist eingerichtet
-
-- Im TRMNL Dashboard wurde das Plugin Webhook Image (Experimental) erstellt
-
-### 1. TRMNL Webhook URL erstellen
-- 1. Im TRMNL Dashboard anmelden
-- 2. Plugin Webhook Image (Experimental) öffnen
-- 3. Neue Plugin-Instanz erstellen
-- 4. Einen Namen vergeben, z. B Odoo Display
-- 5. Plugin speichern
-Beispiel:
-```
-https://trmnl.com/api/plugin_settings/<id>/image
-```
-Diese URL wird später in Odoo eingetragen.
-
----
-### 2. TRMNL Modul in Odoo installieren
-- 1. Odoo öffnen
-
-- 2. Zu Apps wechseln
-
-- 3. Nach TRMNL suchen
-
-- 4. Modul installieren
-
-Danach erscheint im Menü ein neuer Bereich:
-```
-TRMNL → Devices
-```
-
-### 3. TRMNL Device in Odoo anlegen
-- 1. In Odoo öffnen:
-
-```
-TRMNL → Devices
-```
-
-- 2. Neues Device erstellen
-
-Folgende Felder ausfüllen:
-
-```
-Display Name
-Device ID
-Webhook URL
-Content Type
-```
-Beispiel:
-
-```
-Display Name: Office Display
-Device ID: 123
-Webhook URL: https://trmnl.com/api/plugin_settings/.../image
-Content Type: Custom Message
- ```
-### 4. Custom Message konfigurieren
-Um eine eigene Nachricht anzuzeigen:
-
-- 1. Content Type auswählen:
-
-```
-Custom Message
-```
-
-- 2. Feld Custom Message ausfüllen, z. B.
-
-```
-Willkommen bei Abilium
-```
-
-- 3. Änderungen speichern
-
-### 5. Inhalt an TRMNL senden
-- 1. Im Device-Formular auf
-
-```
-Send to TRMNL
-```
-
-klicken.
-
-- 2. Anschließend den Button auf der Rückseite des TRMNL Displays drücken, damit das Gerät den neuen Inhalt lädt.
-
-### 6. Erwartetes Ergebnis
-Das TRMNL Display zeigt nun die Nachricht aus Odoo.
-
-Beispiel:
-
-```
-Office Display
---------------
-Willkommen bei Abilium
-```
-
-### Weitere Hinweise
-#### Folgenutzung
-Die Dienste können beendet werden mit:
-```
-docker compose down
-```
-Nach dem erstmaligen Setup können die Dienste einfach mit folgendem Befehl gestartet werden:
-```
+```bash
 docker compose up -d
 ```
-#### Umgebungsvariablen (Secrets)
-Das `compose.yaml` verwendet eine `.env`-Datei zur Konfiguration von Umgebungsvariablen. Wenn keine `.env`-Datei vorhanden ist, greifen automatisch die im `compose.yaml` definierten Standardwerte.  
 
-Um eigene Secrets oder Konfigurationswerte zu verwenden:
+Stop it with:
 
-1. `.env.example` zu `.env` kopieren:
-   ```
-   cp .env.example .env
-   ```
-2. Die gewünschten Werte in der `.env`-Datei anpassen
-#### Distro-spezifische Sonderheiten
-An dieser Stelle sei darauf hingewiesen, dass einzelne Linux-Distros aufgrund ihrer Eigenheiten ein anderes Vorgehen oder die Nutzung anderer Werkzeuge empfehlen können. Insbesondere können Sicherheitsmodule zu Komplikationen führen. So rät beispielsweise Fedora zur Nutzung von Podman anstatt Docker direkt zu verwenden. Es empfiehlt sich, die Dokumentation der jeweiligen Distribution zu konsultieren.
+```bash
+docker compose down
+```
 
+### Connect a TRMNL display
+
+Pair your device with Odoo using the **Custom Server** flow on the TRMNL configuration page. For local or Docker setups, point the device at your machine's LAN address (for example `http://192.168.1.50:8069`), not `localhost`.
+
+Step-by-step pairing, profile setup, and troubleshooting are in the [user guide (PDF)](docs/user_guide.pdf).
+
+### Setup demo video
+
+Direct link: [docs/assets/videos/odoo_setup.mp4](docs/assets/videos/odoo_setup.mp4)
+
+### Environment variables
+
+`compose.yaml` reads from a `.env` file. If none exists, defaults from `compose.yaml` are used. Copy `.env.example` to `.env` and adjust values as needed:
+
+```bash
+cp .env.example .env
+```
+
+On some Linux distributions (for example Fedora), Podman is recommended instead of Docker. See the [development guide](docs/development.md) for `local.mk` overrides.
+
+## Documentation
+
+
+| Document                                             | Description                                       |
+| ---------------------------------------------------- | ------------------------------------------------- |
+| [User guide (PDF)](docs/user_guide.pdf)              | Pairing, devices, profiles, troubleshooting       |
+| [Admin manual (PDF)](docs/admin_manual.pdf)          | Installation, device setup, profile configuration |
+| [Design documentation](docs/design_documentation.md) | Architecture, HTTP API, security, data model      |
+| [Development guide](docs/development.md)             | Local workflow, Make targets, running tests       |
+| [Repository structure](docs/repository_structure.md) | Folder layout and module organization             |
+
+
+## Development and customization
 
 | Document                                             | Description                                       |
 | ---------------------------------------------------- | ------------------------------------------------- |
@@ -211,7 +154,8 @@ The module can be extended to implement additional functions:
 Contributors should start with `make watch` for live module reloads and `make test` for the isolated test suite. See the [development guide](docs/development.md) for details.
 
 ## Development Team
-- Timur Umut Turgul — Key Account Manager (Kundenkontakt)
-- Sascha Friedli — Chief Deliverable Officer (Deliverables / Termine)
-- Leïla Ayinkamiye — Quality Evangelist (Testkonzept, Tests)
-- Claudio Berger — Master Tracker (Statusreports, Tracking)
+
+- Timur Umut Turgul - Key Account Manager (client contact)
+- Sascha Friedli - Chief Deliverable Officer (deliverables and scheduling)
+- Leila Ayinkamiye - Quality Evangelist (test concept and testing)
+- Claudio Berger - Master Tracker (status reports and tracking)

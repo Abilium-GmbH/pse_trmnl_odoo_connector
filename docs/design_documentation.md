@@ -163,7 +163,6 @@ Identity is the **MAC address only**. (`friendly_id` no longer exists.)
 | `last_seen_at` | Datetime | last contact with any endpoint. |
 | `last_poll_at` | Datetime | last successful `/api/display`. |
 | `added_at` | Datetime | registration or manual acceptance. |
-| `accepted_at` | Datetime | acceptance timestamp. |
 | `last_api_call` | Selection | `setup` / `display` / `log`. |
 
 **Configuration (server → device)**

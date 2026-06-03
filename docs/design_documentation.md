@@ -26,7 +26,7 @@ This module integrates [TRMNL](https://trmnl.com) e-ink display devices with Odo
 
 This design documentation reflects the current stage of the main branch as of June 2026 and is subject to change.
 
-The **Profile** renderer subsystem generates PNG content per device from Odoo records (list, kanban, calendar, and graph layouts). List layouts are binarized to 1-bit; other layouts use grayscale. See the [user guide (PDF)](user_guide.pdf) and for end-user workflows, and the [README](../README.md) for setup links.
+The **Profile** renderer subsystem generates PNG content per device from Odoo records (list, kanban, calendar, and graph layouts). List layouts are binarized to 1-bit; other layouts use grayscale. See the [user guide (PDF)](user_guide.pdf) for end-user workflows, and the [README](../README.md) for setup links.
 
 **Technology stack:**
 - Odoo 19 (Python, XML views, ORM)

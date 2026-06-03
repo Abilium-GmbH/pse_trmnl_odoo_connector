@@ -133,6 +133,17 @@ On some Linux distributions (for example Fedora), Podman is recommended instead 
 
 ## Development and customization
 
+| Document                                             | Description                                       |
+| ---------------------------------------------------- | ------------------------------------------------- |
+| [User guide (PDF)](docs/user_guide.pdf)              | Pairing, devices, profiles, troubleshooting       |
+| [Design documentation](docs/design_documentation.md) | Architecture, HTTP API, security, data model      |
+| [Development guide](docs/development.md)             | Local workflow, Make targets, running tests       |
+| [Curl commands](docs/curl_commands.md)               | Example `curl` calls to simulate device API polls |
+| [Repository structure](docs/repository_structure.md) | Folder layout and module organization             |
+
+
+## Development and customization
+
 The module can be extended to implement additional functions:
 
 - New profile view types or renderers for other Odoo models

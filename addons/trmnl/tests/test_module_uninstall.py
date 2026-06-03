@@ -160,4 +160,25 @@ class TestDataWatcherUninstallResilience(TransactionCase):
             cr._trmnl_pending = set()
         cr._trmnl_pending.add("res.partner")
 
-        profile_model = self.env
+        partner_model = self.env["res.partner"].sudo()
+        search_call_count = [0]
+        original_search = type(self.env["trmnl.profile"].sudo()).search
+
+        def counting_search(self_inner, *args, **kwargs):
+            search_call_count[0] += 1
+            return original_search(self_inner, *args, **kwargs)
+
+        with patch.object(
+            type(self.env["trmnl.profile"].sudo()), "search", counting_search
+        ):
+            partner_model._trmnl_invalidate_profiles()
+
+        self.assertEqual(
+            search_call_count[0],
+            0,
+            "a write on a model already in the debounce set must not "
+            "trigger a second trmnl.profile search",
+        )
+
+        # Clean up the pre-seeded debounce key so it does not leak across tests.
+        cr._trmnl_pending.discard("res.partner")

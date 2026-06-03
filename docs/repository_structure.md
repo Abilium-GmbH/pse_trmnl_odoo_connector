@@ -53,7 +53,6 @@ import aid for demos and testing.
 Project documentation:
 
 - [User guide (PDF)](user_guide.pdf) — pairing, devices, profiles, troubleshooting
-- [Admin manual (PDF)](admin_manual.pdf) — installation, device setup, profile configuration
 - [Design documentation](design_documentation.md) — architecture, API, security, data model, test strategy
 - [Development guide](development.md) — Docker/Make workflow, running tests, contributor setup
 - [Curl commands](curl_commands.md) — example `curl` calls that simulate the device API requests

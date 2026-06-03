@@ -125,7 +125,6 @@ On some Linux distributions (for example Fedora), Podman is recommended instead 
 | Document                                             | Description                                       |
 | ---------------------------------------------------- | ------------------------------------------------- |
 | [User guide (PDF)](docs/user_guide.pdf)              | Pairing, devices, profiles, troubleshooting       |
-| [Admin manual (PDF)](docs/admin_manual.pdf)          | Installation, device setup, profile configuration |
 | [Design documentation](docs/design_documentation.md) | Architecture, HTTP API, security, data model      |
 | [Development guide](docs/development.md)             | Local workflow, Make targets, running tests       |
 | [Repository structure](docs/repository_structure.md) | Folder layout and module organization             |
